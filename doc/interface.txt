@@ -1,24 +1,142 @@
 
-GET http://service/
+Interface overview, in a nutshell
+=================================
+        PUT $URL/$VOLUME/
+                <- (len, data)
+                -> (cookie, sha-1 hash)
 
-	list volumes
+        GET $URL/$VOLUME/$COOKIE
+                -> (len, sha-1 hash, data)
 
-GET http://service/volume
-GET http://service/volume/
+        DELETE $URL/$VOLUME/$COOKIE
 
-	list objects in volume
+There are no provisions for updating objects.  An update is accomplished via
+GET+DELETE+PUT.
 
-PUT http://service/volume
-PUT http://service/volume/
 
-	store object
+HTTP Request headers common to all requests
+===========================================
+Host
+Authorization
+Date
 
-HEAD http://service/volume/1234abcd1234abcd
-GET http://service/volume/1234abcd1234abcd
 
-	get object
+HTTP Response headers common to all responses
+=============================================
+Server
+Date
 
-DELETE http://service/volume/1234abcd1234abcd
 
-	delete object
+Operation: list volumes
+=======================
+Request URI:	GET http://hostname:port/
+
+Response headers:
+	Content-type: application/xml
+	Content-length
+
+Response XML example:
+<?xml version="1.0" encoding="UTF-8"?>
+<ListAllMyVolumesResult xmlns="http://indy.yyz.us/doc/2006-03-01/">
+  <Owner>AUTHENTICATED USERNAME</Owner>
+  <Volumes>
+    <Volume>
+      <Name>VOLUME NAME FROM CONFIG FILE</Name>
+    </Volume>
+  </Volumes>
+</ListAllMyVolumesResult>
+
+
+Operation: list objects in volume
+=================================
+WARNING:  this produces output for EVERY object.  the returned data may be
+large if you have millions of objects in a single volume.
+
+Request URI:	GET http://hostname:port/$VOLUME/
+
+Response headers:
+	Content-type: application/xml
+	Content-length
+
+Response XML example:
+<?xml version="1.0" encoding="UTF-8"?>
+<ListVolumeResult xmlns="http://indy.yyz.us/doc/2006-03-01/">
+  <Name>VOLUME NAME FROM CONFIG FILE</Name>
+
+  (one Contents record for each object...)
+
+  <Contents>
+    <Name>COOKIE</Name>
+    <LastModified>LAST-MOD DATE IN RFC FORMAT</LastModified>
+    <ETag>HASH (currently SHA-1)</ETag>
+    <Size>SIZE, in octets</Size>
+    <Owner>AUTHENTICATED USERNAME</Owner>
+
+	WARNING:  Owner will return the currently authenticated user,
+	if the storage backend has no way to differentiate between users
+	(purely from looking at stored object data and metadata).
+
+  </Contents>
+</ListVolumeResult>
+
+
+Operation: store object
+=======================
+Request URI:	PUT http://hostname:port/$VOLUME/
+
+Request headers:
+	Expect
+	Content-length (required)
+
+Response headers:
+	Content-length: 0
+	ETag: "HASH"
+	X-Volume-Key: COOKIE
+
+
+Operation: retrieve object
+==========================
+Request URI:			GET http://hostname:port/$VOLUME/$COOKIE
+Request URI (metadata only):	HEAD http://hostname:port/$VOLUME/$COOKIE
+
+Request headers:
+	If-Match
+	If-None-Match
+	If-Modified-Since
+	If-Unmodified-Since
+
+Response headers:
+	Content-length
+	ETag
+	Last-Modified
+
+
+Operation: delete object
+========================
+Request URI:			DELETE http://hostname:port/$VOLUME/$COOKIE
+
+Response headers:
+	Content-length: 0
+
+
+
+Special note about Host header and volume names
+===============================================
+Rather than specifying the volume name in the URI, you may add it to the
+hostname (provided that the site's DNS has set up a wildcard entry for this
+service).
+
+Example:
+
+	Volume name in URI:
+		GET /test_volume/1234abcd
+		Host: localhost
+
+	Equivalent, with volume name now in Host:
+		GET /1234abcd
+		Host: test_volume.localhost
+
+This behavior applies to all requests (although service-list operation is an
+exception because it does not involve a volume name, obviously).
+
 
