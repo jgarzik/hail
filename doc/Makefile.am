@@ -1,7 +1,7 @@
 
 EXTRA_DIST = \
+	api.txt				\
 	concept.txt			\
-	interface.txt			\
 	logging.txt			\
 	setup.txt			\
 	signals.txt
