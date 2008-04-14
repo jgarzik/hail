@@ -264,13 +264,19 @@ static void cfg_elm_end (GMarkupParseContext *context,
 			 gpointer	     user_data,
 			 GError	     **error)
 {
+	struct stat st;
+
 	if (!strcmp(element_name, "Port") && cfg_context.text) {
 		int i = atoi(cfg_context.text);
-		free(cfg_context.text);
-		cfg_context.text = NULL;
 
 		if (i > 0 && i < 65536)
 			storaged_srv.port = i;
+		else
+			syslog(LOG_WARNING, "cfgfile Port '%s' invalid, ignoring",
+				cfg_context.text);
+
+		free(cfg_context.text);
+		cfg_context.text = NULL;
 	}
 
 	else if (!strcmp(element_name, "PID") && cfg_context.text) {
@@ -279,6 +285,18 @@ static void cfg_elm_end (GMarkupParseContext *context,
 	}
 
 	else if (!strcmp(element_name, "DB") && cfg_context.text) {
+		if (stat(cfg_context.text, &st) < 0) {
+			syslog(LOG_ERR, "stat(2) cfgfile DB '%s' failed: %s",
+			       cfg_context.text, strerror(errno));
+			return;
+		}
+
+		if (!S_ISDIR(st.st_mode)) {
+			syslog(LOG_ERR, "DB in cfgfile not a dir: '%s'",
+			       cfg_context.text);
+			return;
+		}
+
 		storaged_srv.data_dir = cfg_context.text;
 		cfg_context.text = NULL;
 	}
@@ -297,6 +315,12 @@ static void cfg_elm_end (GMarkupParseContext *context,
 
 	else if (cfg_context.in_vol && cfg_context.text &&
 		 !strcmp(element_name, "Name")) {
+		if (!volume_valid(cfg_context.text)) {
+			syslog(LOG_ERR, "invalid volume name (req. DNS rules): '%s'",
+				cfg_context.text);
+			return;
+		}
+
 		free(cfg_context.tmp_vol->name);
 		cfg_context.tmp_vol->name = cfg_context.text;
 		cfg_context.text = NULL;
@@ -304,8 +328,6 @@ static void cfg_elm_end (GMarkupParseContext *context,
 
 	else if (cfg_context.in_vol && cfg_context.text &&
 		 !strcmp(element_name, "Path")) {
-		struct stat st;
-
 		if (stat(cfg_context.text, &st) < 0) {
 			syslog(LOG_ERR, "stat(2) cfgfile Path '%s' failed: %s",
 			       cfg_context.text, strerror(errno));

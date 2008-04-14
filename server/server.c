@@ -1206,6 +1206,8 @@ int main (int argc, char *argv[])
 	if (debugging)
 		syslog(LOG_INFO, "Verbose debug output enabled");
 
+	compile_patterns();
+
 	/*
 	 * read master configuration
 	 */
@@ -1229,7 +1231,6 @@ int main (int argc, char *argv[])
 	signal(SIGTERM, term_signal);
 	signal(SIGUSR1, stats_signal);
 
-	compile_patterns();
 	sql_init();
 
 	/* create master epoll fd */

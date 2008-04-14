@@ -87,7 +87,7 @@ err_out:
 
 bool volume_valid(const char *volume)
 {
-	int captured[4];
+	int captured[16], rc;
 	size_t len;
 
 	if (!volume)
@@ -97,8 +97,10 @@ bool volume_valid(const char *volume)
 	if (len < 1 || len > 63)
 		return false;
 
-	return pcre_exec(patterns[pat_volume_name].re, NULL,
-			 volume, len, 0, 0, captured, 4) == 1 ? true : false;
+	rc = pcre_exec(patterns[pat_volume_name].re, NULL,
+			volume, len, 0, 0, captured, 16);
+
+	return (rc > 0);
 }
 
 struct volume_list_info {
