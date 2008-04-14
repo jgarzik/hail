@@ -1,0 +1,36 @@
+
+This daemon implements a very simple PUT/GET/DELETE data storage
+service over HTTP.  It is intended to be used as a low-level piece
+of large-scale data storage infrastructure.
+
+The service provides operations on stored data ("objects"), and the
+containers used for organizing objects ("volumes").
+
+A volume, sometimes also known as a cluster or partition, is an
+independent object namespace.  Two objects stored on separate volumes
+may have the same [volume-] unique identifier, and have same or
+different contents.
+
+An object is simply an anonymous blob of any length.  When you PUT
+(upload) an object, you receive in return two items:
+
+	* a unique identifier, guaranteed to be unique within that volume
+
+	* a hash value (currently SHA-1), that may be used for optional
+	  end-to-end integrity checking, or in If-Match and If-None-Match
+	  headers.
+
+From this basic service interface
+
+	PUT http://localhost:18080/volume
+		-> returns (id, hash)
+	GET http://localhost:18080/volume/1234ABCD1234ABCD
+		-> returns (hash, data)
+	DELETE http://localhost:18080/volume/1234ABCD1234ABCD
+
+you can build cluster-wide redundant storage services, exporting data
+storage capability from any device supported by your OS: directory
+full o' files (current storage backend implemented), one-big-file,
+NFS file, block device, SCSI OSD, ... all via a single, standard, easy to use
+interface.
+

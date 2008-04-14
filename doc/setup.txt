@@ -1,0 +1,60 @@
+
+1) Choose a database directory, for storing server-global data.  Example:
+
+	/path/storaged/data
+
+2) Init database, using provided SQL schema:
+
+	sqlite3 /path/storaged/data/master.db < mk-storagedb.sql
+
+3) create one or more volumes (directories that store data):
+
+	mkdir -p \
+		/disk1/storaged   \
+		/disk2/storaged   \
+		/disk3/storaged
+
+4) create XML-like configuration file (filled in, in the following steps)
+
+5) choose TCP listen port for HTTP server.  recommend something other
+   than port 80, since this is a non-standard service.
+
+	<Port>18080</Port>
+
+6) choose pathname (dir + filename) where daemon should store its
+   PID file (normally found somewhere in /var/run):
+
+	<PID>/var/run/storaged.pid</PID>
+
+7) use chosen database dir, from step #1:
+
+	<DB>/path/storaged/data</DB>
+
+8) create one volume entry for each volume, from step #3:
+
+	<Volume>
+		<Name>replica1</Name>
+		<Path>/disk1/storaged</Path>
+	</Volume>
+
+	<Volume>
+		<Name>replica2</Name>
+		<Path>/disk2/storaged</Path>
+	</Volume>
+
+	<Volume>
+		<Name>spare</Name>
+		<Path>/disk3/storaged</Path>
+	</Volume>
+
+NOTE: The <Name> entry is a short name, chosen by you to represent the storage
+volume.  It intentionally conforms to DNS-style rules (no more than 63 chars,
+printable ASCII with many exceptions, etc.), because the user may choose to
+specify the volume via the HTTP 'Host' header and DNS, rather than as the
+first component of the URI. 
+
+9) start daemon (it will put itself into the background) with the
+configuration file just created:
+
+	/usr/sbin/storaged -f /etc/storaged.conf
+

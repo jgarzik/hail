@@ -1,1 +1,5 @@
 This is a data storage daemon.
+
+See doc/ sub-directory for documentation, in particular doc/concept.txt
+and doc/setup.txt.
+

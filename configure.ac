@@ -66,7 +66,8 @@ AC_SUBST(PCRE_LIBS)
 AC_SUBST(SSL_LIBS)
 AC_SUBST(SQLITE_LIBS)
 
-AC_CONFIG_FILES([lib/Makefile
+AC_CONFIG_FILES([doc/Makefile
+		 lib/Makefile
 		 include/Makefile
 		 server/Makefile
 		 test/Makefile
