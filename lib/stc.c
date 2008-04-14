@@ -25,6 +25,8 @@ static int _strcmp(const unsigned char *a, const char *b)
 
 void stc_free(struct st_client *stc)
 {
+	if (stc->volkey_re)
+		pcre_free(stc->volkey_re);
 	if (stc->curl)
 		curl_easy_cleanup(stc->curl);
 	free(stc->host);
@@ -37,6 +39,8 @@ struct st_client *stc_new(const char *service_host,
 				 const char *user, const char *secret_key)
 {
 	struct st_client *stc;
+	const char *errptr = NULL;
+	int erroffset = -1;
 
 	stc = calloc(1, sizeof(struct st_client));
 	if (!stc)
@@ -54,6 +58,11 @@ struct st_client *stc_new(const char *service_host,
 	stc->curl = curl_easy_init();
 	if (!stc->curl)
 		goto err_out;
+
+	stc->volkey_re = pcre_compile("^X-Volume-Key:\\s*([a-fA-F0-9]+)",
+			  PCRE_CASELESS | PCRE_MULTILINE,
+			  &errptr, &erroffset, NULL);
+	g_assert(stc->volkey_re != NULL);
 
 	return stc;
 
@@ -160,9 +169,7 @@ bool stc_put(struct st_client *stc, const char *volume,
 	struct curl_slist *headers = NULL;
 	int rc, data_len;
 	GByteArray *all_data;
-	pcre *re;
-	const char *errptr = NULL;
-	int erroffset = -1, captured[16];
+	int captured[16];
 
 	if (asprintf(&stmp, "/%s", volume) < 0)
 		return false;
@@ -213,37 +220,28 @@ bool stc_put(struct st_client *stc, const char *volume,
 	curl_slist_free_all(headers);
 	free(orig_path);
 
-	if (rc) {
-		g_byte_array_free(all_data, TRUE);
-		return false;
-	}
+	if (rc)
+		goto err_out;
 
-	re = pcre_compile("^X-Volume-Key:\\s*([a-fA-F0-9]+)",
-			  PCRE_CASELESS | PCRE_MULTILINE,
-			  &errptr, &erroffset, NULL);
-	g_assert(re != NULL);
-
-	rc = pcre_exec(re, NULL, (char *) all_data->data, all_data->len,
+	rc = pcre_exec(stc->volkey_re, NULL,
+		       (char *) all_data->data, all_data->len,
 		       0, 0, captured, 16);
-	pcre_free(re);
-
-	if (rc < 0) {
-		g_byte_array_free(all_data, TRUE);
-		return false;
-	}
+	if (rc < 0)
+		goto err_out;
 
 	data_len = captured[3] - captured[2];
-	if (data_len >= 64) {
-		g_byte_array_free(all_data, TRUE);
-		return false;
-	}
+	if (data_len >= 64)
+		goto err_out;
 
 	memcpy(key_out, all_data->data + captured[2], data_len);
 	key_out[data_len] = 0;
 
 	g_byte_array_free(all_data, TRUE);
-
 	return true;
+
+err_out:
+	g_byte_array_free(all_data, TRUE);
+	return false;
 }
 
 struct stc_put_info {

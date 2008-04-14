@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <curl/curl.h>
 #include <glib.h>
+#include <pcre.h>
 
 struct st_volume {
 	char		*name;
@@ -34,6 +35,7 @@ struct st_client {
 	char		*user;
 	char		*key;
 	bool		verbose;
+	pcre		*volkey_re;
 };
 
 extern void stc_free(struct st_client *stc);
