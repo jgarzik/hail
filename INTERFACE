@@ -1,0 +1,24 @@
+
+GET http://service/
+
+	list volumes
+
+GET http://service/volume
+GET http://service/volume/
+
+	list objects in volume
+
+PUT http://service/volume
+PUT http://service/volume/
+
+	store object
+
+HEAD http://service/volume/1234abcd1234abcd
+GET http://service/volume/1234abcd1234abcd
+
+	get object
+
+DELETE http://service/volume/1234abcd1234abcd
+
+	delete object
+

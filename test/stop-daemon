@@ -1,0 +1,23 @@
+#!/bin/sh
+
+if [ ! -f storaged.pid ]
+then
+	echo no daemon pid file found.
+	exit 1
+fi
+
+kill `cat storaged.pid`
+
+for ((n = 0; n < 10; n++))
+do
+	if [ ! -f storaged.pid ]
+	then
+		exit 0
+	fi
+
+	sleep 1
+done
+
+echo "PID file not removed, after signal sent."
+rm -f storaged.pid
+exit 1
