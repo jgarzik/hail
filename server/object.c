@@ -49,7 +49,11 @@ bool object_del(struct client *cli, const char *user,
 		return cli_err(cli, InternalError);
 	}
 
-	if (!user || !vol) {
+	if (!vol) {
+		err = NoSuchVolume;
+		goto err_out;
+	}
+	if (!user) {
 		err = AccessDenied;
 		goto err_out;
 	}
@@ -313,7 +317,9 @@ bool object_put(struct client *cli, const char *user,
 	long avail;
 	char *volume;
 
-	if (!user || !vol)
+	if (!vol)
+		return cli_err(cli, NoSuchVolume);
+	if (!user)
 		return cli_err(cli, AccessDenied);
  
  	volume = vol->name;
@@ -454,7 +460,11 @@ bool object_get(struct client *cli, const char *user,
 	if (!sql_begin())
 		return cli_err(cli, InternalError);
 
-	if (!user || !vol) {
+	if (!vol) {
+		err = NoSuchVolume;
+		goto err_out_rb;
+	}
+	if (!user) {
 		err = AccessDenied;
 		goto err_out_rb;
 	}
