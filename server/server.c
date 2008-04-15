@@ -1223,7 +1223,9 @@ int main (int argc, char *argv[])
 	signal(SIGTERM, term_signal);
 	signal(SIGUSR1, stats_signal);
 
-	sql_init();
+	storaged_srv.db = db_open();
+	if (!storaged_srv.db)
+		exit(1);
 
 	/* create master epoll fd */
 	storaged_srv.epoll_fd = epoll_create(STORAGED_EPOLL_INIT_SIZE);
@@ -1243,7 +1245,7 @@ int main (int argc, char *argv[])
 
 	syslog(LOG_INFO, "shutting down");
 
-	sql_done();
+	db_close(storaged_srv.db);
 
 	rc = 0;
 

@@ -58,6 +58,11 @@ struct client;
 struct client_write;
 struct server_volume;
 
+struct database {
+	sqlite3		*sqldb;
+	sqlite3_stmt	*prep_stmts[st_last + 1];
+};
+
 struct server_poll {
 	enum server_poll_type	poll_type;	/* spt_xxx above */
 	union {
@@ -169,6 +174,8 @@ struct server {
 	struct server_poll	tcp_poll;	/* poll info */
 	struct epoll_event	tcp_evt;	/* epoll info */
 
+	struct database		*db;
+
 	GHashTable		*volumes;
 
 	struct server_stats	stats;		/* global statistics */
@@ -208,14 +215,12 @@ extern void shastr(const unsigned char *digest, char *outstr);
 extern void req_sign(struct http_req *req, const char *volume, const char *key,
 	      char *b64hmac_out);
 
-extern sqlite3 *sqldb;
-extern sqlite3_stmt *prep_stmts[];
 extern bool sql_begin(void);
 extern bool sql_commit(void);
 extern bool sql_rollback(void);
-extern void sql_done(void);
-extern void sql_init(void);
 extern void read_config(void);
+extern struct database *db_open(void);
+extern void db_close(struct database *db);
 
 /* server.c */
 extern int debugging;

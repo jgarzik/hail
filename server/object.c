@@ -20,7 +20,7 @@ static bool __object_del(const char *volume, const char *fn)
 	sqlite3_stmt *stmt;
 
 	/* delete object metadata */
-	stmt = prep_stmts[st_del_obj];
+	stmt = storaged_srv.db->prep_stmts[st_del_obj];
 	sqlite3_bind_text(stmt, 1, volume, -1, SQLITE_STATIC);
 	sqlite3_bind_text(stmt, 2, fn, -1, SQLITE_STATIC);
 
@@ -62,7 +62,7 @@ bool object_del(struct client *cli, const char *user,
 	volume = vol->name;
 
 	/* read existing object info, if any */
-	stmt = prep_stmts[st_object];
+	stmt = storaged_srv.db->prep_stmts[st_object];
 	sqlite3_bind_text(stmt, 1, volume, -1, SQLITE_STATIC);
 	sqlite3_bind_text(stmt, 2, basename, -1, SQLITE_STATIC);
 
@@ -178,7 +178,7 @@ static bool object_put_end(struct client *cli)
 	}
 
 	/* insert object */
-	stmt = prep_stmts[st_add_obj];
+	stmt = storaged_srv.db->prep_stmts[st_add_obj];
 	sqlite3_bind_text(stmt, 1, cli->out_vol->name, -1, SQLITE_STATIC);
 	sqlite3_bind_text(stmt, 2, hashstr, -1, SQLITE_STATIC);
 	sqlite3_bind_text(stmt, 3, counterstr, -1, SQLITE_STATIC);
@@ -461,7 +461,7 @@ bool object_get(struct client *cli, const char *user,
 
 	volume = vol->name;
 
-	stmt = prep_stmts[st_object];
+	stmt = storaged_srv.db->prep_stmts[st_object];
 	sqlite3_bind_text(stmt, 1, volume, -1, SQLITE_STATIC);
 	sqlite3_bind_text(stmt, 2, basename, -1, SQLITE_STATIC);
 
@@ -597,7 +597,7 @@ bool object_get(struct client *cli, const char *user,
 		goto err_out_in_end;
 
 start_write:
-	sqlite3_reset(prep_stmts[st_object]);
+	sqlite3_reset(storaged_srv.db->prep_stmts[st_object]);
 	sql_commit();
 	return cli_write_start(cli);
 
@@ -605,7 +605,7 @@ err_out_in_end:
 	cli_in_end(cli);
 err_out_str:
 err_out_reset:
-	sqlite3_reset(prep_stmts[st_object]);
+	sqlite3_reset(storaged_srv.db->prep_stmts[st_object]);
 err_out_rb:
 	sql_rollback();
 	return cli_err(cli, err);

@@ -38,9 +38,6 @@ static const char *sql_stmt_text[] = {
 	"select * from objects where volume = ? and name = ?",
 };
 
-sqlite3_stmt *prep_stmts[st_last + 1] = { NULL, };
-sqlite3 *sqldb = NULL;
-
 size_t strlist_len(GList *l)
 {
 	GList *tmp = l;
@@ -167,51 +164,65 @@ void shastr(const unsigned char *digest, char *outstr)
 
 bool sql_begin(void)
 {
-	int rc = sqlite3_step(prep_stmts[st_begin]);
-	sqlite3_reset(prep_stmts[st_begin]);
+	int rc = sqlite3_step(storaged_srv.db->prep_stmts[st_begin]);
+	sqlite3_reset(storaged_srv.db->prep_stmts[st_begin]);
 	return (rc == SQLITE_DONE);
 }
 
 bool sql_commit(void)
 {
-	int rc = sqlite3_step(prep_stmts[st_commit]);
-	sqlite3_reset(prep_stmts[st_commit]);
+	int rc = sqlite3_step(storaged_srv.db->prep_stmts[st_commit]);
+	sqlite3_reset(storaged_srv.db->prep_stmts[st_commit]);
 	return (rc == SQLITE_DONE);
 }
 
 bool sql_rollback(void)
 {
-	int rc = sqlite3_step(prep_stmts[st_rollback]);
-	sqlite3_reset(prep_stmts[st_rollback]);
+	int rc = sqlite3_step(storaged_srv.db->prep_stmts[st_rollback]);
+	sqlite3_reset(storaged_srv.db->prep_stmts[st_rollback]);
 	return (rc == SQLITE_DONE);
 }
 
-void sql_init(void)
+struct database *db_open(void)
 {
 	char db_fn[PATH_MAX + 1];
 	unsigned int i;
 	int rc;
+	struct database *db;
+
+	db = calloc(1, sizeof(*db));
+	if (!db)
+		return NULL;
 
 	sprintf(db_fn, "%s/master.db", storaged_srv.data_dir);
 
-	rc = sqlite3_open(db_fn, &sqldb);
+	rc = sqlite3_open(db_fn, &db->sqldb);
 	if (rc != SQLITE_OK) {
 		syslog(LOG_ERR, "sqlite3_open failed");
-		exit(1);
+		free(db);
+		return NULL;
 	}
 
 	for (i = 0; i <= st_last; i++) {
 		const char *dummy;
 
-		rc = sqlite3_prepare_v2(sqldb, sql_stmt_text[i], -1,
-					&prep_stmts[i], &dummy);
+		rc = sqlite3_prepare_v2(db->sqldb, sql_stmt_text[i], -1,
+					&db->prep_stmts[i], &dummy);
 		g_assert(rc == SQLITE_OK);
 	}
+
+	return db;
 }
 
-void sql_done(void)
+void db_close(struct database *db)
 {
-	sqlite3_close(sqldb);
+	int i;
+
+	for (i = 0; i <= st_last; i++)
+		sqlite3_finalize(db->prep_stmts[i]);
+	sqlite3_close(db->sqldb);
+
+	free(db);
 }
 
 static struct {
