@@ -647,7 +647,7 @@ struct st_keylist *stc_keys(struct st_client *stc, const char *volume)
 	if (!node)
 		goto err_out_doc;
 
-	if (_strcmp(node->name, "ListBucketResult"))
+	if (_strcmp(node->name, "ListVolumeResult"))
 		goto err_out_doc;
 
 	keylist = calloc(1, sizeof(*keylist));
