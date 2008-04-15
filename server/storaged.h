@@ -54,6 +54,10 @@ enum server_poll_type {
 	spt_tcp_cli,				/* TCP client */
 };
 
+struct client;
+struct client_write;
+struct server_volume;
+
 struct server_poll {
 	enum server_poll_type	poll_type;	/* spt_xxx above */
 	union {
@@ -74,10 +78,6 @@ struct compiled_pat {
 	int		options;
 	pcre		*re;
 };
-
-struct client;
-struct client_write;
-struct server_volume;
 
 typedef bool (*cli_evt_func)(struct client *, unsigned int);
 typedef bool (*cli_write_func)(struct client *, struct client_write *, bool);
@@ -137,6 +137,8 @@ struct client {
 	struct http_req		req;		/* HTTP request */
 
 	char			req_buf[CLI_REQ_BUF_SZ]; /* input buffer */
+
+	char			netbuf[CLI_DATA_BUF_SZ];
 };
 
 struct server_stats {
@@ -217,7 +219,7 @@ extern void read_config(void);
 
 /* server.c */
 extern int debugging;
-extern uint64_t counter;
+extern uint64_t global_counter;
 extern struct server storaged_srv;
 extern struct compiled_pat patterns[];
 extern bool cli_err(struct client *cli, enum errcode code);

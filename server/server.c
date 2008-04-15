@@ -69,9 +69,8 @@ static const struct argp argp = { options, parse_opt, NULL, doc };
 
 static bool server_running = true;
 static bool dump_stats;
-uint64_t counter;
+uint64_t global_counter;
 int debugging = 0;
-GList *all_volumes;
 
 struct server storaged_srv = {
 	.config			= "/spare/tmp/storaged/etc/storaged.conf",
@@ -458,7 +457,7 @@ out:
 bool cli_err(struct client *cli, enum errcode code)
 {
 	int rc;
-	char timestr[64], *hdr = NULL, *content = NULL;
+	char timestr[50], *hdr = NULL, *content = NULL;
 
 	syslog(LOG_INFO, "client %s error %s",
 	       cli->addr_host, err_info[code].code);
@@ -506,7 +505,7 @@ bool cli_resp_xml(struct client *cli, int http_status,
 			 GList *content)
 {
 	int rc;
-	char *hdr, timestr[64];
+	char *hdr, timestr[50];
 	bool rcb, cxn_close = !http11(&cli->req);
 
 	if (asprintf(&hdr,
@@ -1174,7 +1173,7 @@ int main (int argc, char *argv[])
 	srand(time(NULL));
 	r1 = rand();
 	r2 = rand();
-	counter = (r1 << 32) | (r2 & 0xffffffff);
+	global_counter = (r1 << 32) | (r2 & 0xffffffff);
 
 	/* isspace() and strcasecmp() consistency requires this */
 	setlocale(LC_ALL, "C");
@@ -1199,6 +1198,7 @@ int main (int argc, char *argv[])
 		syslog(LOG_INFO, "Verbose debug output enabled");
 
 	compile_patterns();
+	g_thread_init(NULL);
 
 	/*
 	 * read master configuration

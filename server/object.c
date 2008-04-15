@@ -37,7 +37,7 @@ static bool __object_del(const char *volume, const char *fn)
 bool object_del(struct client *cli, const char *user,
 		struct server_volume *vol, const char *basename)
 {
-	char timestr[64], *hdr, *fn;
+	char timestr[50], *hdr, *fn;
 	int rc;
 	enum errcode err = InternalError;
 	sqlite3_stmt *stmt;
@@ -134,7 +134,7 @@ void cli_out_end(struct client *cli)
 static bool object_put_end(struct client *cli)
 {
 	unsigned char md[SHA_DIGEST_LENGTH];
-	char counter[64], hashstr[64], timestr[64];
+	char counterstr[32], hashstr[50], timestr[50];
 	char *hdr, *fn = NULL;
 	int rc;
 	enum errcode err = InternalError;
@@ -167,7 +167,7 @@ static bool object_put_end(struct client *cli)
 
 	SHA1_Final(md, &cli->out_hash);
 
-	sprintf(counter, "%016llX", (unsigned long long) cli->out_counter);
+	sprintf(counterstr, "%016llX", (unsigned long long) cli->out_counter);
 	shastr(md, hashstr);
 
 	/* begin trans */
@@ -176,35 +176,11 @@ static bool object_put_end(struct client *cli)
 		goto err_out;
 	}
 
-	/* read existing object info, if any */
-	stmt = prep_stmts[st_object];
-	sqlite3_bind_text(stmt, 1, cli->out_vol->name, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 2, cli->out_fn, -1, SQLITE_STATIC);
-
-	rc = sqlite3_step(stmt);
-
-	if (rc == SQLITE_ROW) {
-		/* build data filename, for later use */
-		const char *basename = (const char *)
-			sqlite3_column_text(stmt, 2);
-		fn = alloca(strlen(cli->out_vol->path) + strlen(basename) + 2);
-		sprintf(fn, "%s/%s", cli->out_vol->path, basename);
-
-		sqlite3_reset(stmt);
-
-		/* delete object metadata */
-		if (!__object_del(cli->out_vol->name, cli->out_fn)) {
-			syslog(LOG_ERR, "old-obj(%s) delete failed", fn);
-			goto err_out_rb;
-		}
-	} else
-		sqlite3_reset(stmt);
-
 	/* insert object */
 	stmt = prep_stmts[st_add_obj];
 	sqlite3_bind_text(stmt, 1, cli->out_vol->name, -1, SQLITE_STATIC);
 	sqlite3_bind_text(stmt, 2, hashstr, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 3, counter, -1, SQLITE_STATIC);
+	sqlite3_bind_text(stmt, 3, counterstr, -1, SQLITE_STATIC);
 	sqlite3_bind_text(stmt, 4, cli->out_user, -1, SQLITE_STATIC);
 
 	rc = sqlite3_step(stmt);
@@ -242,7 +218,7 @@ static bool object_put_end(struct client *cli)
 		     cli->req.major,
 		     cli->req.minor,
 		     hashstr,
-		     counter,
+		     counterstr,
 		     time2str(timestr, time(NULL))) < 0) {
 		/* FIXME: cleanup failure */
 		syslog(LOG_ERR, "OOM in object_put_end");
@@ -266,14 +242,13 @@ err_out:
 
 bool cli_evt_http_data_in(struct client *cli, unsigned int events)
 {
-	char buf[4096];
-	char *p = buf;
+	char *p = cli->netbuf;
 	ssize_t avail, bytes;
 
 	if (!cli->out_len)
 		return object_put_end(cli);
 
-	avail = read(cli->fd, buf, MIN(cli->out_len, sizeof(buf)));
+	avail = read(cli->fd, cli->netbuf, MIN(cli->out_len, CLI_DATA_BUF_SZ));
 	if (avail <= 0) {
 		if ((avail < 0) && (errno == EAGAIN))
 			return false;
@@ -306,7 +281,21 @@ bool cli_evt_http_data_in(struct client *cli, unsigned int events)
 	if (!cli->out_len)
 		return object_put_end(cli);
 
-	return (avail == sizeof(buf)) ? true : false;
+	return (avail == CLI_DATA_BUF_SZ) ? true : false;
+}
+
+static uint64_t next_counter(void)
+{
+	static GStaticMutex mutex = G_STATIC_MUTEX_INIT;
+	uint64_t rv;
+
+	g_static_mutex_lock (&mutex);
+
+	rv = global_counter++;
+
+	g_static_mutex_unlock (&mutex);
+
+	return rv;
 }
 
 bool object_put(struct client *cli, const char *user,
@@ -316,6 +305,7 @@ bool object_put(struct client *cli, const char *user,
 	char *fn = NULL;
 	long avail;
 	char *volume;
+	uint64_t counter = 0xdeadbeef;
 
 	if (!vol)
 		return cli_err(cli, NoSuchVolume);
@@ -325,7 +315,7 @@ bool object_put(struct client *cli, const char *user,
  	volume = vol->name;
 
 	while (cli->out_fd < 0) {
-		counter++;
+		counter = next_counter();
 
 		free(fn);
 
@@ -447,11 +437,10 @@ bool object_get(struct client *cli, const char *user,
 		const char *basename, bool want_body)
 {
 	const char *hashstr;
-	char timestr[64], modstr[64], *hdr, *fn, *tmp;
+	char timestr[50], modstr[50], *hdr, *fn, *tmp;
 	int rc;
 	enum errcode err = InternalError;
 	struct stat st;
-	char buf[4096];
 	ssize_t bytes;
 	sqlite3_stmt *stmt;
 	bool modified = true;
@@ -576,7 +565,7 @@ bool object_get(struct client *cli, const char *user,
 
 	cli->in_len = st.st_size;
 
-	bytes = read(cli->in_fd, buf, MIN(st.st_size, sizeof(buf)));
+	bytes = read(cli->in_fd, cli->netbuf, MIN(st.st_size, CLI_DATA_BUF_SZ));
 	if (bytes < 0) {
 		syslog(LOG_ERR, "read obj(%s) failed: %s", fn,
 			strerror(errno));
@@ -593,7 +582,7 @@ bool object_get(struct client *cli, const char *user,
 	tmp = malloc(bytes);
 	if (!tmp)
 		goto err_out_in_end;
-	memcpy(tmp, buf, bytes);
+	memcpy(tmp, cli->netbuf, bytes);
 
 	rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
 	if (rc) {

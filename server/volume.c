@@ -183,7 +183,7 @@ bool volume_list(struct client *cli, const char *user,
 	tmpl = bli.res;
 	while (tmpl) {
 		char *hash;
-		char *fn, *name, timestr[64];
+		char *fn, *name, timestr[50];
 		struct stat st;
 
 		name = tmpl->data;
