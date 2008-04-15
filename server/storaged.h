@@ -26,14 +26,12 @@ enum {
 
 enum errcode {
 	AccessDenied,
-	BucketAlreadyExists,
-	BucketNotEmpty,
 	InternalError,
 	InvalidArgument,
-	InvalidBucketName,
+	InvalidVolumeName,
 	InvalidURI,
 	MissingContentLength,
-	NoSuchBucket,
+	NoSuchVolume,
 	NoSuchKey,
 	PreconditionFailed,
 	SignatureDoesNotMatch,

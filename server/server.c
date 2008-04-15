@@ -103,14 +103,6 @@ static struct {
 	{ "AccessDenied", 403,
 	  "Access denied" },
 
-	[BucketAlreadyExists] =
-	{ "BucketAlreadyExists", 409,
-	  "The requested volume name is not available" },
-
-	[BucketNotEmpty] =
-	{ "BucketNotEmpty", 409,
-	  "The volume you tried to delete is not empty" },
-
 	[InternalError] =
 	{ "InternalError", 500,
 	  "We encountered an internal error. Please try again." },
@@ -119,8 +111,8 @@ static struct {
 	{ "InvalidArgument", 400,
 	  "Invalid Argument" },
 
-	[InvalidBucketName] =
-	{ "InvalidBucketName", 400,
+	[InvalidVolumeName] =
+	{ "InvalidVolumeName", 400,
 	  "The specified volume is not valid" },
 
 	[InvalidURI] =
@@ -131,8 +123,8 @@ static struct {
 	{ "MissingContentLength", 411,
 	  "You must provide the Content-Length HTTP header" },
 
-	[NoSuchBucket] =
-	{ "NoSuchBucket", 404,
+	[NoSuchVolume] =
+	{ "NoSuchVolume", 404,
 	  "The specified volume does not exist" },
 
 	[NoSuchKey] =
@@ -675,7 +667,7 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 	 */
 
 	if (volume && !volume_valid(volume))
-		rcb = cli_err(cli, InvalidBucketName);
+		rcb = cli_err(cli, InvalidVolumeName);
 
 	/*
 	 * operations on objects
