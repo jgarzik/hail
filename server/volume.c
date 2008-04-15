@@ -13,7 +13,6 @@
 #include <glib.h>
 #include <pcre.h>
 #include <sqlite3.h>
-#include <alloca.h>
 #include "storaged.h"
 
 struct vol_foreach_info {
@@ -126,14 +125,18 @@ bool volume_list(struct client *cli, const char *user,
 	int rc;
 	GList *content, *tmpl;
 	struct volume_list_info bli;
-	char *zsql;
+	char *zsql = "select name, hash from objects where volume = ?";
 	const char *dummy;
 	bool rcb;
 	sqlite3_stmt *select;
 	char *volume;
 
 	/* verify READ access */
-	if (!user || !vol) {
+	if (!vol) {
+		err = NoSuchVolume;
+		goto err_out;
+	}
+	if (!user) {
 		err = AccessDenied;
 		goto err_out;
 	}
@@ -141,10 +144,6 @@ bool volume_list(struct client *cli, const char *user,
 	volume = vol->name;
 
 	/* build SQL SELECT statement */
-	zsql = alloca(80);
-
-	strcpy(zsql, "select name, hash from objects where volume = ?");
-
 	rc = sqlite3_prepare_v2(sqldb, zsql, -1, &select, &dummy);
 	if (rc != SQLITE_OK)
 		goto err_out_param;

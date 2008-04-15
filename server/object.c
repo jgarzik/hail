@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <syslog.h>
+#include <alloca.h>
 #include <glib.h>
 #include <openssl/sha.h>
 #include "storaged.h"
