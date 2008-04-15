@@ -144,7 +144,7 @@ bool volume_list(struct client *cli, const char *user,
 	volume = vol->name;
 
 	/* build SQL SELECT statement */
-	rc = sqlite3_prepare_v2(storaged_srv.db->sqldb, zsql,
+	rc = sqlite3_prepare_v2(cli->db->sqldb, zsql,
 				-1, &select, &dummy);
 	if (rc != SQLITE_OK)
 		goto err_out_param;

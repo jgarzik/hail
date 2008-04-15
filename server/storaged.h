@@ -119,6 +119,8 @@ struct client {
 
 	struct list_head	write_q;	/* list of async writes */
 
+	struct database		*db;
+
 	unsigned int		req_used;	/* amount of req_buf in use */
 	char			*req_ptr;	/* start of unexamined data */
 
@@ -215,9 +217,9 @@ extern void shastr(const unsigned char *digest, char *outstr);
 extern void req_sign(struct http_req *req, const char *volume, const char *key,
 	      char *b64hmac_out);
 
-extern bool sql_begin(void);
-extern bool sql_commit(void);
-extern bool sql_rollback(void);
+extern bool sql_begin(struct database *);
+extern bool sql_commit(struct database *);
+extern bool sql_rollback(struct database *);
 extern void read_config(void);
 extern struct database *db_open(void);
 extern void db_close(struct database *db);

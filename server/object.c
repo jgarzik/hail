@@ -14,13 +14,13 @@
 #include <openssl/sha.h>
 #include "storaged.h"
 
-static bool __object_del(const char *volume, const char *fn)
+static bool __object_del(struct client *cli, const char *volume, const char *fn)
 {
 	int rc;
 	sqlite3_stmt *stmt;
 
 	/* delete object metadata */
-	stmt = storaged_srv.db->prep_stmts[st_del_obj];
+	stmt = cli->db->prep_stmts[st_del_obj];
 	sqlite3_bind_text(stmt, 1, volume, -1, SQLITE_STATIC);
 	sqlite3_bind_text(stmt, 2, fn, -1, SQLITE_STATIC);
 
@@ -45,7 +45,7 @@ bool object_del(struct client *cli, const char *user,
 	char *volume;
 
 	/* begin trans */
-	if (!sql_begin()) {
+	if (!sql_begin(cli->db)) {
 		syslog(LOG_ERR, "SQL BEGIN failed in obj-del");
 		return cli_err(cli, InternalError);
 	}
@@ -62,7 +62,7 @@ bool object_del(struct client *cli, const char *user,
 	volume = vol->name;
 
 	/* read existing object info, if any */
-	stmt = storaged_srv.db->prep_stmts[st_object];
+	stmt = cli->db->prep_stmts[st_object];
 	sqlite3_bind_text(stmt, 1, volume, -1, SQLITE_STATIC);
 	sqlite3_bind_text(stmt, 2, basename, -1, SQLITE_STATIC);
 
@@ -79,10 +79,10 @@ bool object_del(struct client *cli, const char *user,
 	fn = alloca(strlen(vol->path) + strlen(basename) + 2);
 	sprintf(fn, "%s/%s", vol->path, basename);
 
-	if (!__object_del(volume, basename))
+	if (!__object_del(cli, volume, basename))
 		goto err_out;
 
-	if (!sql_commit()) {
+	if (!sql_commit(cli->db)) {
 		syslog(LOG_ERR, "SQL COMMIT failed in obj-del");
 		return cli_err(cli, InternalError);
 	}
@@ -110,7 +110,7 @@ bool object_del(struct client *cli, const char *user,
 	return cli_write_start(cli);
 
 err_out:
-	sql_rollback();
+	sql_rollback(cli->db);
 	return cli_err(cli, err);
 }
 
@@ -172,13 +172,13 @@ static bool object_put_end(struct client *cli)
 	shastr(md, hashstr);
 
 	/* begin trans */
-	if (!sql_begin()) {
+	if (!sql_begin(cli->db)) {
 		syslog(LOG_ERR, "SQL BEGIN failed in put-end");
 		goto err_out;
 	}
 
 	/* insert object */
-	stmt = storaged_srv.db->prep_stmts[st_add_obj];
+	stmt = cli->db->prep_stmts[st_add_obj];
 	sqlite3_bind_text(stmt, 1, cli->out_vol->name, -1, SQLITE_STATIC);
 	sqlite3_bind_text(stmt, 2, hashstr, -1, SQLITE_STATIC);
 	sqlite3_bind_text(stmt, 3, counterstr, -1, SQLITE_STATIC);
@@ -193,7 +193,7 @@ static bool object_put_end(struct client *cli)
 	}
 
 	/* commit */
-	if (!sql_commit()) {
+	if (!sql_commit(cli->db)) {
 		syslog(LOG_ERR, "SQL COMMIT");
 		goto err_out;
 	}
@@ -235,7 +235,7 @@ static bool object_put_end(struct client *cli)
 	return cli_write_start(cli);
 
 err_out_rb:
-	sql_rollback();
+	sql_rollback(cli->db);
 err_out:
 	cli_out_end(cli);
 	return cli_err(cli, err);
@@ -447,7 +447,7 @@ bool object_get(struct client *cli, const char *user,
 	bool modified = true;
 	char *volume;
 
-	if (!sql_begin())
+	if (!sql_begin(cli->db))
 		return cli_err(cli, InternalError);
 
 	if (!vol) {
@@ -461,7 +461,7 @@ bool object_get(struct client *cli, const char *user,
 
 	volume = vol->name;
 
-	stmt = storaged_srv.db->prep_stmts[st_object];
+	stmt = cli->db->prep_stmts[st_object];
 	sqlite3_bind_text(stmt, 1, volume, -1, SQLITE_STATIC);
 	sqlite3_bind_text(stmt, 2, basename, -1, SQLITE_STATIC);
 
@@ -597,17 +597,17 @@ bool object_get(struct client *cli, const char *user,
 		goto err_out_in_end;
 
 start_write:
-	sqlite3_reset(storaged_srv.db->prep_stmts[st_object]);
-	sql_commit();
+	sqlite3_reset(cli->db->prep_stmts[st_object]);
+	sql_commit(cli->db);
 	return cli_write_start(cli);
 
 err_out_in_end:
 	cli_in_end(cli);
 err_out_str:
 err_out_reset:
-	sqlite3_reset(storaged_srv.db->prep_stmts[st_object]);
+	sqlite3_reset(cli->db->prep_stmts[st_object]);
 err_out_rb:
-	sql_rollback();
+	sql_rollback(cli->db);
 	return cli_err(cli, err);
 }
 

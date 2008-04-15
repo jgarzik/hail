@@ -162,24 +162,24 @@ void shastr(const unsigned char *digest, char *outstr)
 	outstr[SHA_DIGEST_LENGTH * 2] = 0;
 }
 
-bool sql_begin(void)
+bool sql_begin(struct database *db)
 {
-	int rc = sqlite3_step(storaged_srv.db->prep_stmts[st_begin]);
-	sqlite3_reset(storaged_srv.db->prep_stmts[st_begin]);
+	int rc = sqlite3_step(db->prep_stmts[st_begin]);
+	sqlite3_reset(db->prep_stmts[st_begin]);
 	return (rc == SQLITE_DONE);
 }
 
-bool sql_commit(void)
+bool sql_commit(struct database *db)
 {
-	int rc = sqlite3_step(storaged_srv.db->prep_stmts[st_commit]);
-	sqlite3_reset(storaged_srv.db->prep_stmts[st_commit]);
+	int rc = sqlite3_step(db->prep_stmts[st_commit]);
+	sqlite3_reset(db->prep_stmts[st_commit]);
 	return (rc == SQLITE_DONE);
 }
 
-bool sql_rollback(void)
+bool sql_rollback(struct database *db)
 {
-	int rc = sqlite3_step(storaged_srv.db->prep_stmts[st_rollback]);
-	sqlite3_reset(storaged_srv.db->prep_stmts[st_rollback]);
+	int rc = sqlite3_step(db->prep_stmts[st_rollback]);
+	sqlite3_reset(db->prep_stmts[st_rollback]);
 	return (rc == SQLITE_DONE);
 }
 

@@ -993,6 +993,7 @@ static void tcp_srv_event(unsigned int events, void *event_data)
 		return;
 	}
 
+	cli->db = storaged_srv.db;
 	cli->state = evt_read_req;
 	cli->poll.poll_type = spt_tcp_cli;
 	cli->poll.u.cli = cli;
