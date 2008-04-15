@@ -4,5 +4,6 @@ EXTRA_DIST = \
 	concept.txt			\
 	logging.txt			\
 	setup.txt			\
-	signals.txt
+	signals.txt			\
+	todo.txt
 

@@ -1,0 +1,19 @@
+
+general:
+	- support multiple threads handling client activity
+	- global thread pool, shared across volumes
+	- optional private thread pool for a single volume
+
+storage backends:
+	- add support for multiple storage backends
+	- support for "one big file" (or blk device) storage backend
+
+network:
+	- SSL sockets
+
+test suite:
+	- fine-grained HTTP header tests
+		- if-*
+		- date missing
+		- etc.
+
