@@ -140,3 +140,17 @@ This behavior applies to all requests (although service-list operation is an
 exception because it does not involve a volume name, obviously).
 
 
+
+Authentication and access control
+=================================
+Primarily because it was easy and useful, storaged follows the
+specification for Amazon S3's Authorization header, with the exception
+that 'AWS' prefix is replaced with 'STOR'.  Please refer to the S3
+public docs for specific details of construction of the Authorization
+header.
+
+At present, the header signature is verified, but we merely verify that
+username==password, the minimum level of authentication necessary to prove
+that it works.  It does not yet actually authenticate against any password
+database.
+
