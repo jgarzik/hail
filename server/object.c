@@ -305,7 +305,6 @@ bool object_put(struct client *cli, const char *user,
 {
 	char *fn = NULL;
 	long avail;
-	char *volume;
 	uint64_t counter = 0xdeadbeef;
 
 	if (!vol)
@@ -313,8 +312,6 @@ bool object_put(struct client *cli, const char *user,
 	if (!user)
 		return cli_err(cli, AccessDenied);
  
- 	volume = vol->name;
-
 	while (cli->out_fd < 0) {
 		counter = next_counter();
 
