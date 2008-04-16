@@ -3,3 +3,11 @@ This is a data storage daemon.
 See doc/ sub-directory for documentation, in particular doc/concept.txt
 and doc/setup.txt.
 
+Source code repository:
+	git://git.kernel.org/pub/scm/daemon/distsrv/storaged.git
+
+Download directory:
+	http://www.kernel.org/pub/software/network/distsrv/
+		or
+	ftp://ftp.kernel.org/pub/software/network/distsrv/
+
