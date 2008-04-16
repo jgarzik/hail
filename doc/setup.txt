@@ -35,16 +35,19 @@
 	<Volume>
 		<Name>replica1</Name>
 		<Path>/disk1/storaged</Path>
+		<Method>fs</Method>
 	</Volume>
 
 	<Volume>
 		<Name>replica2</Name>
 		<Path>/disk2/storaged</Path>
+		<Method>fs</Method>
 	</Volume>
 
 	<Volume>
 		<Name>spare</Name>
 		<Path>/disk3/storaged</Path>
+		<Method>fs</Method>
 	</Volume>
 
 NOTE: The <Name> entry is a short name, chosen by you to represent the storage

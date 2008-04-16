@@ -1165,6 +1165,19 @@ static void compile_patterns(void)
 	}
 }
 
+static void register_backends(void)
+{
+	extern int be_fs_init(void);
+
+	int rc;
+
+	rc = be_fs_init();
+	if (rc) {
+		syslog(LOG_ERR, "'fs' backend init failed");
+		exit(1);
+	}
+}
+
 int main (int argc, char *argv[])
 {
 	error_t aprc;
@@ -1198,8 +1211,11 @@ int main (int argc, char *argv[])
 	if (debugging)
 		syslog(LOG_INFO, "Verbose debug output enabled");
 
-	compile_patterns();
 	g_thread_init(NULL);
+
+	compile_patterns();
+
+	register_backends();
 
 	/*
 	 * read master configuration

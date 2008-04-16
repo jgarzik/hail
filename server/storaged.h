@@ -148,6 +148,10 @@ struct client {
 	char			netbuf[CLI_DATA_BUF_SZ];
 };
 
+struct backend_info {
+	const char		*name;
+};
+
 struct server_stats {
 	unsigned long		poll;		/* number polls */
 	unsigned long		event;		/* events dispatched */
@@ -159,6 +163,7 @@ struct server_stats {
 struct server_volume {
 	char			*name;		/* DNS-friendly short name */
 	char			*path;		/* pathname for this volume */
+	struct backend_info	*be;
 };
 
 struct server {
@@ -179,6 +184,7 @@ struct server {
 	struct database		*db;
 
 	GHashTable		*volumes;
+	GHashTable		*backends;
 
 	struct server_stats	stats;		/* global statistics */
 };
@@ -238,5 +244,9 @@ extern bool cli_cb_free(struct client *cli, struct client_write *wr,
 			bool done);
 extern bool cli_write_start(struct client *cli);
 extern int cli_req_avail(struct client *cli);
+
+/* storage.c */
+extern int register_storage(struct backend_info *be);
+extern void unregister_storage(struct backend_info *be);
 
 #endif /* __STORAGED_H__ */

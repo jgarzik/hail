@@ -315,7 +315,8 @@ static void cfg_elm_end (GMarkupParseContext *context,
 	else if (!strcmp(element_name, "Volume")) {
 		cfg_context.in_vol = false;
 		if (cfg_context.tmp_vol->name &&
-		    cfg_context.tmp_vol->path)
+		    cfg_context.tmp_vol->path &&
+		    cfg_context.tmp_vol->be)
 			g_hash_table_replace(storaged_srv.volumes,
 				cfg_context.tmp_vol->name,
 				cfg_context.tmp_vol);
@@ -353,6 +354,24 @@ static void cfg_elm_end (GMarkupParseContext *context,
 
 		free(cfg_context.tmp_vol->path);
 		cfg_context.tmp_vol->path = cfg_context.text;
+		cfg_context.text = NULL;
+	}
+
+	else if (cfg_context.in_vol && cfg_context.text &&
+		 !strcmp(element_name, "Method")) {
+		struct backend_info *be;
+
+		be = g_hash_table_lookup(storaged_srv.backends,
+					 cfg_context.text);
+		if (!be) {
+			syslog(LOG_ERR, "cfgfile Method '%s' unknown",
+			       cfg_context.text);
+			return;
+		}
+
+		cfg_context.tmp_vol->be = be;
+
+		free(cfg_context.text);
 		cfg_context.text = NULL;
 	}
 }
