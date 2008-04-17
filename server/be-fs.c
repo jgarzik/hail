@@ -158,10 +158,13 @@ err_out:
 
 static void fs_obj_free(struct backend_obj *bo)
 {
-	struct fs_obj *obj = bo->private;
+	struct fs_obj *obj;
 
 	if (!bo)
 		return;
+
+	obj = bo->private;
+	g_assert(obj != NULL);
 
 	if (obj->out_fn) {
 		unlink(obj->out_fn);
