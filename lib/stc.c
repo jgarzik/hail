@@ -604,7 +604,7 @@ struct st_keylist *stc_keys(struct st_client *stc, const char *volume)
 
 	req_sign(&req, NULL, stc->key, hmac);
 
-	sprintf(auth, "Authorization: AWS %s:%s", stc->user, hmac);
+	sprintf(auth, "Authorization: STOR %s:%s", stc->user, hmac);
 	sprintf(host, "Host: %s", stc->host);
 
 	headers = curl_slist_append(headers, host);

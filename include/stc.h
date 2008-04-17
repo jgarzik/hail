@@ -39,6 +39,10 @@ struct st_client {
 };
 
 extern void stc_free(struct st_client *stc);
+extern void stc_free_volume(struct st_volume *vol);
+extern void stc_free_vlist(struct st_vlist *vlist);
+extern void stc_free_keylist(struct st_keylist *keylist);
+extern void stc_free_object(struct st_object *obj);
 
 extern struct st_client *stc_new(const char *service_host,
 				 const char *user, const char *secret_key);
@@ -55,8 +59,7 @@ extern bool stc_put_inline(struct st_client *stc, const char *volume,
 			   void *data, uint64_t len, char *key_out);
 extern bool stc_del(struct st_client *stc, const char *volume, const char *key);
 
-extern void stc_free_volume(struct st_volume *vol);
-extern void stc_free_vlist(struct st_vlist *vlist);
 extern struct st_vlist *stc_list_volumes(struct st_client *stc);
+extern struct st_keylist *stc_keys(struct st_client *stc, const char *volume);
 
 #endif /* __STC_H__ */
