@@ -1,0 +1,87 @@
+
+storaged's configuration file is "XML-like", but not strictly XML.
+
+listen addresses
+================
+You may specify multiple port, and/or multiple (address,port) combinations
+using <Listen>, <Node>, <Port>, and <Encrypt>:
+
+    Your basic setup:
+	<Listen>
+		<Port>18080</Port>
+	</Listen>
+
+    Your basic setup, with TLS:
+	<Listen>
+		<Port>18080</Port>
+		<Encrypt>true</Encrypt>
+	</Listen>
+
+    Just bind to two specific interfaces on the machine:
+	<Listen>
+		<Node>192.168.1.24</Node>
+		<Port>18080</Port>
+		<Encrypt>true</Encrypt>
+	</Listen>
+	<Listen>
+		<Node>192.168.1.25</Node>
+		<Port>18080</Port>
+		<Encrypt>true</Encrypt>
+	</Listen>
+
+
+<Listen>	Record delimiter
+<Node>		Node address to which the TCP server will bind
+		(exclude <Node> for wildcard address)
+<Port>		Numeric port or service, to which TCP server will bind
+<Encrypt>	TLS is enabled on this port
+
+
+volumes served
+==============
+You specify each volume served by this daemon using <Volume>, <Name>,
+<Path>, and <Method>.
+
+    Your basic setup, an empty directory:
+	<Volume>
+		<Name>MyFirstVolume</Name>
+		<Path>/disk/massive/data</Path>
+		<Method>fs</Method>
+	</Volume>
+
+
+<Volume>	Record delimiter
+<Name>		short reference name for this volume
+		("DNS rules": no weird characters, length <= 63)
+<Path>		Path to volume
+<Method>	name of storage backend to use
+
+
+SSL settings
+============
+You specify server SSL attributes using <SSL>, <PrivateKey>, and <Cert>.
+
+    Your basic setup:
+    	<SSL>
+		<PrivateKey>/etc/pki/storaged.pem</PrivateKey>
+		<Cert>/etc/pkt/cert.pem</Cert>
+	</SSL>
+
+
+<SSL>		Record delimiter
+<PrivateKey>	Pathname of SSL private key PEM file
+<Cert>		Pathname of Certificate public key PEM file
+
+
+miscellaneous settings
+======================
+
+Directory for daemon-managed cross-volume database:
+
+	<DB>/disk/massive/metadata</DB>
+
+PID file contained the process id of the daemon after forking, normally
+written somewhere in /var/run:
+
+	<PID>/var/run/storaged.pid</PID>
+
