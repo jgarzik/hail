@@ -236,6 +236,27 @@ static void cli_free(struct client *cli)
 	free(cli);
 }
 
+static struct client *cli_alloc(void)
+{
+	struct client *cli;
+
+	/* alloc and init client info */
+	cli = calloc(1, sizeof(*cli));
+	if (!cli)
+		return NULL;
+
+	cli->state = evt_read_req;
+	cli->poll.poll_type = spt_tcp_cli;
+	cli->poll.u.cli = cli;
+	cli->evt.events = EPOLLIN | EPOLLHUP;
+	cli->evt.data.ptr = &cli->poll;
+	INIT_LIST_HEAD(&cli->write_q);
+	cli->req_ptr = cli->req_buf;
+	memset(&cli->req, 0, sizeof(cli->req) - sizeof(cli->req.hdr));
+
+	return cli;
+}
+
 static bool cli_evt_dispose(struct client *cli, unsigned int events)
 {
 	/* if write queue is not empty, we should continue to get
@@ -1002,22 +1023,13 @@ static void tcp_srv_event(unsigned int events, struct server_socket *sock)
 	char host[64];
 	int rc;
 
-	/* alloc and init client info */
-	cli = calloc(1, sizeof(*cli));
+	cli = cli_alloc();
 	if (!cli) {
 		syslog(LOG_ERR, "out of memory");
 		return;
 	}
 
 	cli->db = storaged_srv.db;
-	cli->state = evt_read_req;
-	cli->poll.poll_type = spt_tcp_cli;
-	cli->poll.u.cli = cli;
-	cli->evt.events = EPOLLIN | EPOLLHUP;
-	cli->evt.data.ptr = &cli->poll;
-	INIT_LIST_HEAD(&cli->write_q);
-	cli->req_ptr = cli->req_buf;
-	memset(&cli->req, 0, sizeof(cli->req) - sizeof(cli->req.hdr));
 
 	/* receive TCP connection from kernel */
 	cli->fd = accept(sock->fd, (struct sockaddr *) &cli->addr, &addrlen);
