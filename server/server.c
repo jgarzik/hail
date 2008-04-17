@@ -30,7 +30,6 @@
 #define PROGRAM_NAME PACKAGE
 
 #define MY_ENDPOINT "pretzel.yyz.us"
-#define STORAGED_DEF_PORT "8080"
 
 const char *argp_program_version = PACKAGE_VERSION;
 
@@ -50,8 +49,6 @@ static struct argp_option options[] = {
 	  "Enable debug output" },
 	{ "foreground", 'F', NULL, 0,
 	  "Run in foreground, do not fork" },
-	{ "port", 'p', "PORT", 0,
-	  "bind to port PORT" },
 	{ "pid", 'P', "FILE", 0,
 	  "Write daemon process id to FILE" },
 	{ }
@@ -74,7 +71,6 @@ SSL_CTX *ssl_ctx = NULL;
 struct server storaged_srv = {
 	.config			= "/spare/tmp/storaged/etc/storaged.conf",
 	.pid_file		= "/spare/tmp/storaged/run/storaged.pid",
-	.port			= STORAGED_DEF_PORT,
 };
 
 struct compiled_pat patterns[] = {
@@ -148,14 +144,6 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 		break;
 	case 'F':
 		storaged_srv.flags |= SFL_FOREGROUND;
-		break;
-	case 'p':
-		if (atoi(arg) > 0 && atoi(arg) < 65536)
-			storaged_srv.port = arg;
-		else {
-			fprintf(stderr, "invalid port %s\n", arg);
-			argp_usage(state);
-		}
 		break;
 	case 'P':
 		storaged_srv.pid_file = arg;
@@ -1067,7 +1055,7 @@ err_out:
 	free(cli);
 }
 
-static int net_open(void)
+static int net_open(struct listen_cfg *cfg)
 {
 	int rc;
 	struct addrinfo hints, *res, *res0;
@@ -1077,10 +1065,11 @@ static int net_open(void)
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE;
 
-	rc = getaddrinfo(NULL, storaged_srv.port, &hints, &res0);
+	rc = getaddrinfo(cfg->node, cfg->port, &hints, &res0);
 	if (rc) {
-		syslog(LOG_ERR, "getaddrinfo(*:%s) failed: %s",
-		       storaged_srv.port, gai_strerror(rc));
+		syslog(LOG_ERR, "getaddrinfo(%s:%s) failed: %s",
+		       cfg->node ? cfg->node : "*",
+		       cfg->port, gai_strerror(rc));
 		return -EINVAL;
 	}
 
@@ -1151,12 +1140,6 @@ static int net_open(void)
 	}
 
 	freeaddrinfo(res0);
-
-	ssl_ctx = SSL_CTX_new(TLSv1_server_method());
-	if (!ssl_ctx) {
-		syslog(LOG_ERR, "SSL_CTX_new failed");
-		exit(1);
-	}
 
 	return 0;
 
@@ -1245,6 +1228,7 @@ int main (int argc, char *argv[])
 {
 	error_t aprc;
 	int rc = 1;
+	GList *tmpl;
 
 	srand(time(NULL));
 
@@ -1311,10 +1295,22 @@ int main (int argc, char *argv[])
 		goto err_out_pid;
 	}
 
+	/* init SSL */
+	ssl_ctx = SSL_CTX_new(TLSv1_server_method());
+	if (!ssl_ctx) {
+		syslog(LOG_ERR, "SSL_CTX_new failed");
+		exit(1);
+	}
+
 	/* set up server networking */
-	rc = net_open();
-	if (rc)
-		goto err_out_epoll;
+	tmpl = storaged_srv.listeners;
+	while (tmpl) {
+		rc = net_open(tmpl->data);
+		if (rc)
+			goto err_out_epoll;
+
+		tmpl = tmpl->next;
+	}
 
 	syslog(LOG_INFO, "initialized");
 

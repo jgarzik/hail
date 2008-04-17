@@ -229,8 +229,10 @@ static struct {
 	char		*text;
 	bool		in_vol;
 	bool		in_ssl;
+	bool		in_listen;
 	bool		have_ssl;
 	struct server_volume *tmp_vol;
+	struct listen_cfg tmp_listen;
 } cfg_context;
 
 static void free_server_volume(struct server_volume *v)
@@ -272,6 +274,11 @@ static void cfg_elm_start (GMarkupParseContext *context,
 	}
 	else if (!strcmp(element_name, "SSL"))
 		cfg_context.in_ssl = true;
+	else if (!strcmp(element_name, "Listen")) {
+		cfg_context.in_listen = true;
+		memset(&cfg_context.tmp_listen, 0,
+			sizeof(cfg_context.tmp_listen));
+	}
 }
 
 static void cfg_elm_end (GMarkupParseContext *context,
@@ -281,21 +288,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 {
 	struct stat st;
 
-	if (!strcmp(element_name, "Port") && cfg_context.text) {
-		int i = atoi(cfg_context.text);
-
-		if (i > 0 && i < 65536)
-			storaged_srv.port = cfg_context.text;
-		else {
-			syslog(LOG_WARNING, "cfgfile Port '%s' invalid, ignoring",
-				cfg_context.text);
-			free(cfg_context.text);
-		}
-
-		cfg_context.text = NULL;
-	}
-
-	else if (!strcmp(element_name, "PID") && cfg_context.text) {
+	if (!strcmp(element_name, "PID") && cfg_context.text) {
 		storaged_srv.pid_file = cfg_context.text;
 		cfg_context.text = NULL;
 	}
@@ -408,6 +401,63 @@ static void cfg_elm_end (GMarkupParseContext *context,
 
 		cfg_context.have_ssl = true;
 	}
+
+	else if (!strcmp(element_name, "Listen")) {
+		struct listen_cfg *cfg;
+
+		cfg_context.in_listen = false;
+
+		if (!cfg_context.tmp_listen.port) {
+			free(cfg_context.tmp_listen.node);
+			cfg_context.tmp_listen.node = NULL;
+			cfg_context.tmp_listen.encrypt = false;
+			syslog(LOG_WARNING, "cfgfile: TCP port not specified in Listen");
+			return;
+		}
+
+		cfg = malloc(sizeof(*cfg));
+		if (!cfg) {
+			syslog(LOG_ERR, "OOM");
+			return;
+		}
+
+		memcpy(cfg, &cfg_context.tmp_listen, sizeof(*cfg));
+		storaged_srv.listeners =
+			g_list_append(storaged_srv.listeners, cfg);
+	}
+
+	else if (cfg_context.in_listen && cfg_context.text &&
+		 !strcmp(element_name, "Port")) {
+		int i = atoi(cfg_context.text);
+
+		if (i > 0 && i < 65536) {
+			free(cfg_context.tmp_listen.port);
+			cfg_context.tmp_listen.port = cfg_context.text;
+		} else {
+			syslog(LOG_WARNING, "cfgfile Port '%s' invalid, ignoring",
+				cfg_context.text);
+			free(cfg_context.text);
+		}
+
+		cfg_context.text = NULL;
+	}
+
+	else if (cfg_context.in_listen && cfg_context.text &&
+		 !strcmp(element_name, "Node")) {
+		cfg_context.tmp_listen.node = cfg_context.text;
+		cfg_context.text = NULL;
+	}
+
+	else if (cfg_context.in_listen && cfg_context.text &&
+		 !strcmp(element_name, "Encrypt")) {
+		if (!strcasecmp(cfg_context.text, "yes") ||
+		    !strcasecmp(cfg_context.text, "true"))
+			cfg_context.tmp_listen.encrypt = true;
+
+		free(cfg_context.text);
+		cfg_context.text = NULL;
+	}
+
 }
 
 static const GMarkupParser cfg_parse_ops = {
@@ -465,6 +515,11 @@ void read_config(void)
 	} else if (cfg_context.have_ssl &&
 		   !SSL_CTX_check_private_key(ssl_ctx)) {
 		syslog(LOG_ERR, "SSL private key does not match certificate public key");
+		exit(1);
+	}
+
+	if (!storaged_srv.listeners) {
+		syslog(LOG_ERR, "error: no listen addresses specified");
 		exit(1);
 	}
 }

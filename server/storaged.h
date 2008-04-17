@@ -185,6 +185,12 @@ struct backend_info {
 					       struct database *);
 };
 
+struct listen_cfg {
+	char			*node;
+	char			*port;
+	bool			encrypt;
+};
+
 struct server_stats {
 	unsigned long		poll;		/* number polls */
 	unsigned long		event;		/* events dispatched */
@@ -212,8 +218,6 @@ struct server {
 	char			*data_dir;
 	char			*pid_file;	/* PID file */
 
-	char			*port;		/* bind port */
-
 	int			epoll_fd;	/* epoll descriptor */
 
 	struct database		*db;
@@ -221,6 +225,7 @@ struct server {
 	GHashTable		*volumes;
 	GHashTable		*backends;
 
+	GList			*listeners;
 	GList			*sockets;
 
 	struct server_stats	stats;		/* global statistics */

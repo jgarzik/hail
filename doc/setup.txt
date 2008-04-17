@@ -19,7 +19,9 @@
 5) choose TCP listen port for HTTP server.  recommend something other
    than port 80, since this is a non-standard service.
 
-	<Port>18080</Port>
+	<Listen>
+		<Port>18080</Port>
+	</Listen>
 
 6) choose pathname (dir + filename) where daemon should store its
    PID file (normally found somewhere in /var/run):
