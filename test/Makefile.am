@@ -26,7 +26,7 @@ check_PROGRAMS		= basic-object it-works
 
 TESTLDADD		= ../lib/libstc.a	\
 			  ../lib/libhttputil.a	\
-			  @PCRE_LIBS@ @LIBCURL@ @GLIB_LIBS@ @SSL_LIBS@ \
+			  @PCRE_LIBS@ @LIBCURL@ @GLIB_LIBS@ @CRYPTO_LIBS@ \
 			  @XML_LIBS@
 basic_object_LDADD	= $(TESTLDADD)
 it_works_LDADD		= $(TESTLDADD)

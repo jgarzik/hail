@@ -43,7 +43,7 @@ dnl -----------------------------
 dnl Checks for required libraries
 dnl -----------------------------
 AC_CHECK_LIB(pcre, pcre_compile, PCRE_LIBS=-lpcre)
-AC_CHECK_LIB(crypto, MD5_Init, SSL_LIBS=-lcrypto)
+AC_CHECK_LIB(crypto, MD5_Init, CRYPTO_LIBS=-lcrypto)
 AC_CHECK_LIB(sqlite3, sqlite3_open, SQLITE_LIBS=-lsqlite3)
 
 dnl -------------------------------------
@@ -63,7 +63,7 @@ AM_PATH_XML2(2.6.0, , exit 1)
 LIBCURL_CHECK_CONFIG(, 7.10.1, , exit 1)
 
 AC_SUBST(PCRE_LIBS)
-AC_SUBST(SSL_LIBS)
+AC_SUBST(CRYPTO_LIBS)
 AC_SUBST(SQLITE_LIBS)
 
 AC_CONFIG_FILES([doc/Makefile
