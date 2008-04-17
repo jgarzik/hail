@@ -56,7 +56,14 @@ printable ASCII with many exceptions, etc.), because the user may choose to
 specify the volume via the HTTP 'Host' header and DNS, rather than as the
 first component of the URI. 
 
-9) start daemon (it will put itself into the background) with the
+9) configure SSL if desired, by providing private key and certificate
+
+	<SSL>
+		<PrivateKey>/etc/pki/server-private-key.pem</PrivateKey>
+		<Cert>/etc/pki/cert-public-key.pem</Cert>
+	</SSL>
+
+10) start daemon (it will put itself into the background) with the
 configuration file just created:
 
 	/usr/sbin/storaged -f /etc/storaged.conf

@@ -4,6 +4,7 @@
 #include <sys/epoll.h>
 #include <netinet/in.h>
 #include <openssl/sha.h>
+#include <openssl/ssl.h>
 #include <glib.h>
 #include <pcre.h>
 #include <sqlite3.h>
@@ -263,6 +264,7 @@ extern struct database *db_open(void);
 extern void db_close(struct database *db);
 
 /* server.c */
+extern SSL_CTX *ssl_ctx;
 extern int debugging;
 extern struct server storaged_srv;
 extern struct compiled_pat patterns[];

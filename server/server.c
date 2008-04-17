@@ -21,10 +21,9 @@
 #include <time.h>
 #include <pcre.h>
 #include <sys/types.h>
-#include <dirent.h>
 #include <glib.h>
 #include <openssl/hmac.h>
-#include <sqlite3.h>
+#include <openssl/ssl.h>
 #include <elist.h>
 #include "storaged.h"
 
@@ -70,6 +69,7 @@ static const struct argp argp = { options, parse_opt, NULL, doc };
 static bool server_running = true;
 static bool dump_stats;
 int debugging = 0;
+SSL_CTX *ssl_ctx = NULL;
 
 struct server storaged_srv = {
 	.config			= "/spare/tmp/storaged/etc/storaged.conf",
@@ -1110,6 +1110,13 @@ static int net_open(void)
 	}
 
 	storaged_srv.tcp_fd = fd;
+
+	ssl_ctx = SSL_CTX_new(TLSv1_server_method());
+	if (!ssl_ctx) {
+		syslog(LOG_ERR, "SSL_CTX_new failed");
+		exit(1);
+	}
+
 	return 0;
 
 err_out:
@@ -1224,6 +1231,7 @@ int main (int argc, char *argv[])
 		syslog(LOG_INFO, "Verbose debug output enabled");
 
 	g_thread_init(NULL);
+	SSL_library_init();
 
 	compile_patterns();
 

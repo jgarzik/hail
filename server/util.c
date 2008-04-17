@@ -228,6 +228,8 @@ void db_close(struct database *db)
 static struct {
 	char		*text;
 	bool		in_vol;
+	bool		in_ssl;
+	bool		have_ssl;
 	struct server_volume *tmp_vol;
 } cfg_context;
 
@@ -268,6 +270,8 @@ static void cfg_elm_start (GMarkupParseContext *context,
 		free_server_volume(cfg_context.tmp_vol);
 		cfg_context.tmp_vol = calloc(1, sizeof(struct server_volume));
 	}
+	else if (!strcmp(element_name, "SSL"))
+		cfg_context.in_ssl = true;
 }
 
 static void cfg_elm_end (GMarkupParseContext *context,
@@ -374,6 +378,35 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		free(cfg_context.text);
 		cfg_context.text = NULL;
 	}
+
+	else if (!strcmp(element_name, "SSL"))
+		cfg_context.in_ssl = false;
+
+	else if (cfg_context.in_ssl && cfg_context.text &&
+		 !strcmp(element_name, "PrivateKey")) {
+		if (SSL_CTX_use_PrivateKey_file(ssl_ctx, cfg_context.text,
+						SSL_FILETYPE_PEM) <= 0)
+			syslog(LOG_ERR, "Failed to read SSL private key '%s'",
+				cfg_context.text);
+
+		free(cfg_context.text);
+		cfg_context.text = NULL;
+
+		cfg_context.have_ssl = true;
+	}
+
+	else if (cfg_context.in_ssl && cfg_context.text &&
+		 !strcmp(element_name, "Cert")) {
+		if (SSL_CTX_use_certificate_file(ssl_ctx, cfg_context.text,
+						 SSL_FILETYPE_PEM) <= 0)
+			syslog(LOG_ERR, "Failed to read SSL certificate '%s'",
+				cfg_context.text);
+
+		free(cfg_context.text);
+		cfg_context.text = NULL;
+
+		cfg_context.have_ssl = true;
+	}
 }
 
 static const GMarkupParser cfg_parse_ops = {
@@ -422,6 +455,15 @@ void read_config(void)
 
 	if (!storaged_srv.data_dir) {
 		syslog(LOG_ERR, "error: no database dir defined in cfg file");
+		exit(1);
+	}
+
+	if (!cfg_context.have_ssl) {
+		SSL_CTX_free(ssl_ctx);
+		ssl_ctx = NULL;
+	} else if (cfg_context.have_ssl &&
+		   !SSL_CTX_check_private_key(ssl_ctx)) {
+		syslog(LOG_ERR, "SSL private key does not match certificate public key");
 		exit(1);
 	}
 }
