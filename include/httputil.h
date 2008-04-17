@@ -43,6 +43,7 @@ struct http_req {
 	struct uri		uri;		/* URI */
 	int			major;		/* HTTP version */
 	int			minor;
+	bool			pipeline;
 
 	char			*orig_path;
 

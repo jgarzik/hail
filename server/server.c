@@ -219,6 +219,7 @@ static void cli_free(struct client *cli)
 	}
 
 	cli_out_end(cli);
+	cli_in_end(cli);
 
 	/* clean up network socket */
 	if (cli->fd >= 0) {
@@ -229,6 +230,9 @@ static void cli_free(struct client *cli)
 	}
 
 	req_free(&cli->req);
+
+	if (debugging)
+		syslog(LOG_DEBUG, "client %s ended", cli->addr_host);
 
 	free(cli);
 }
@@ -505,7 +509,7 @@ bool cli_resp_xml(struct client *cli, int http_status,
 {
 	int rc;
 	char *hdr, timestr[50];
-	bool rcb, cxn_close = !http11(&cli->req);
+	bool rcb, cxn_close = !cli->req.pipeline;
 
 	if (asprintf(&hdr,
 "HTTP/%d.%d %d x\r\n"
@@ -555,7 +559,7 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 {
 	int captured[16];
 	struct http_req *req = &cli->req;
-	char *host, *auth, *content_len_str;
+	char *host, *auth, *content_len_str, *cxn_str;
 	char *volume = NULL;
 	char *path = NULL;
 	char *user = NULL;
@@ -563,6 +567,7 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 	char *method = req->method;
 	bool rcb, pslash, buck_in_path = false;
 	bool expect_cont = false;
+	bool force_close = false;
 	enum errcode err;
 	struct server_volume *vol = NULL;
 
@@ -570,11 +575,17 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 	host = req_hdr(req, "host");
 	content_len_str = req_hdr(req, "content-length");
 	auth = req_hdr(req, "authorization");
+	cxn_str = req_hdr(req, "connection");
 	if (req->major > 1 || req->minor > 0) {
 		char *expect = req_hdr(req, "expect");
 		if (expect && strcasestr(expect, "100-continue"))
 			expect_cont = true;
 	}
+
+	if (cxn_str && strcasestr(cxn_str, "close"))
+		force_close = true;
+	if (http11(req) && !force_close)
+		req->pipeline = true;
 
 	if (!host) {
 		syslog(LOG_INFO, "%s missing Host header", cli->addr_host);
@@ -659,7 +670,7 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 	 * the operations below may override this next-state setting,
 	 * however.
 	 */
-	if (http11(req))
+	if (req->pipeline)
 		cli->state = evt_recycle;
 	else
 		cli->state = evt_dispose;
@@ -977,6 +988,8 @@ static void tcp_cli_event(unsigned int events, struct client *cli)
 		events &= ~EPOLLOUT;
 		cli_writable(cli);
 	}
+	if ((events & EPOLLHUP) && (cli->state == evt_recycle))
+		cli->state = evt_dispose;
 
 	do {
 		loop = state_funcs[cli->state](cli, events);
@@ -1001,7 +1014,7 @@ static void tcp_srv_event(unsigned int events, void *event_data)
 	cli->state = evt_read_req;
 	cli->poll.poll_type = spt_tcp_cli;
 	cli->poll.u.cli = cli;
-	cli->evt.events = EPOLLIN;
+	cli->evt.events = EPOLLIN | EPOLLHUP;
 	cli->evt.data.ptr = &cli->poll;
 	INIT_LIST_HEAD(&cli->write_q);
 	cli->req_ptr = cli->req_buf;

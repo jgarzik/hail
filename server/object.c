@@ -66,7 +66,7 @@ static bool object_put_end(struct client *cli)
 	enum errcode err = InternalError;
 	bool rcb;
 
-	if (http11(&cli->req))
+	if (cli->req.pipeline)
 		cli->state = evt_recycle;
 	else
 		cli->state = evt_dispose;
@@ -216,7 +216,7 @@ bool object_put(struct client *cli, const char *user,
 	return true;
 }
 
-static void cli_in_end(struct client *cli)
+void cli_in_end(struct client *cli)
 {
 	cli->in_vol->be->obj_free(cli->in_obj);
 }

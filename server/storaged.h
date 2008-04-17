@@ -236,6 +236,7 @@ extern bool object_get(struct client *cli, const char *user,
                        const char *key, bool want_body);
 extern bool cli_evt_http_data_in(struct client *cli, unsigned int events);
 extern void cli_out_end(struct client *cli);
+extern void cli_in_end(struct client *cli);
 
 /* util.c */
 extern size_t strlist_len(GList *l);
