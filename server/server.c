@@ -576,8 +576,10 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 			expect_cont = true;
 	}
 
-	if (!host)
+	if (!host) {
+		syslog(LOG_INFO, "%s missing Host header", cli->addr_host);
 		return cli_err(cli, InvalidArgument);
+	}
 
 	/* attempt to obtain volume name from Host */
 	if (pcre_exec(patterns[pat_volume_host].re, NULL,
@@ -622,6 +624,8 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 		if (pcre_exec(patterns[pat_auth].re, NULL,
 			      auth, strlen(auth), 0, 0,
 			      captured, 16) != 3) {
+			syslog(LOG_INFO, "%s: Authorization header parse fail",
+			       cli->addr_host);
 			err = InvalidArgument;
 			goto err_out;
 		}
@@ -928,6 +932,7 @@ static bool cli_evt_parse_req(struct client *cli, unsigned int events)
 	/* HTTP version is the final token, following second space */
 	if ((sscanf(sp2 + 1, "HTTP/%d.%d", &cli->req.major, &cli->req.minor) != 2) ||
 	    (cli->req.major != 1) || (cli->req.minor < 0) || (cli->req.minor > 1)) {
+		syslog(LOG_INFO, "%s: invalid HTTP version", cli->addr_host);
 		err_resp = InvalidArgument;
 		goto err_out;
 	}
