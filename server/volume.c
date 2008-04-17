@@ -12,7 +12,6 @@
 #include <errno.h>
 #include <glib.h>
 #include <pcre.h>
-#include <sqlite3.h>
 #include "storaged.h"
 
 struct vol_foreach_info {
@@ -102,34 +101,14 @@ bool volume_valid(const char *volume)
 	return (rc > 0);
 }
 
-struct volume_list_info {
-	GList *res;
-	int n_keys;
-	const char *next_key;
-};
-
-static bool volume_list_iter(const char *name,
-			     const char *hash, struct volume_list_info *bli)
-{
-	bli->res = g_list_append(bli->res, strdup(name));
-	bli->res = g_list_append(bli->res, strdup(hash));
-
-	return false;		/* continue traversal */
-}
-
 bool volume_list(struct client *cli, const char *user,
 		 struct server_volume *vol)
 {
 	enum errcode err = InternalError;
 	char *s;
-	int rc;
 	GList *content, *tmpl;
-	struct volume_list_info bli;
-	char *zsql = "select name, hash from objects where volume = ?";
-	const char *dummy;
 	bool rcb;
-	sqlite3_stmt *select;
-	char *volume;
+	GList *res = NULL;
 
 	/* verify READ access */
 	if (!vol) {
@@ -141,46 +120,18 @@ bool volume_list(struct client *cli, const char *user,
 		goto err_out;
 	}
 
-	volume = vol->name;
-
-	/* build SQL SELECT statement */
-	rc = sqlite3_prepare_v2(cli->db->sqldb, zsql,
-				-1, &select, &dummy);
-	if (rc != SQLITE_OK)
-		goto err_out_param;
-
-	/* exec SQL query */
-	sqlite3_bind_text(select, 1, volume, -1, SQLITE_STATIC);
-
-	memset(&bli, 0, sizeof(bli));
-
-	/* iterate through each returned SQL data row */
-	while (1) {
-		const char *name, *hash;
-
-		rc = sqlite3_step(select);
-		if (rc != SQLITE_ROW)
-			break;
-
-		name = (const char *) sqlite3_column_text(select, 0);
-		hash = (const char *) sqlite3_column_text(select, 1);
-
-		if (!volume_list_iter(name, hash, &bli))
-			break;
-	}
-
-	sqlite3_finalize(select);
+	res = vol->be->list_objs(vol, cli->db);
 
 	asprintf(&s,
 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
 "<ListVolumeResult xmlns=\"http://indy.yyz.us/doc/2006-03-01/\">\r\n"
 "  <Name>%s</Name>\r\n",
 
-		 volume);
+		 vol->name);
 
 	content = g_list_append(NULL, s);
 
-	tmpl = bli.res;
+	tmpl = res;
 	while (tmpl) {
 		char *hash;
 		char *fn, *name, timestr[50];
@@ -225,7 +176,7 @@ do_next:
 		free(fn);
 	}
 
-	g_list_free(bli.res);
+	g_list_free(res);
 
 	s = strdup("</ListVolumeResult>\r\n");
 	content = g_list_append(content, s);
@@ -236,7 +187,6 @@ do_next:
 
 	return rcb;
 
-err_out_param:
 err_out:
 	return cli_err(cli, err);
 }

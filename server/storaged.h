@@ -179,6 +179,8 @@ struct backend_info {
 					      const char *,
 					      enum errcode *);
 	void			(*obj_free)(struct backend_obj *);
+	GList			* (*list_objs)(struct server_volume *,
+					       struct database *);
 };
 
 struct server_stats {

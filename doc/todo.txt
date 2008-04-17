@@ -5,7 +5,6 @@ general:
 	- optional private thread pool for a single volume
 
 storage backends:
-	- add support for multiple storage backends
 	- support for "one big file" (or blk device) storage backend
 
 network:

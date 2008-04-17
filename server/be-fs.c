@@ -344,6 +344,42 @@ err_out:
 	return false;
 }
 
+static GList *fs_list_objs(struct server_volume *vol, struct database *db)
+{
+	char *zsql = "select name, hash from objects where volume = ?";
+	sqlite3_stmt *select;
+	GList *res = NULL;
+	const char *dummy;
+	int rc;
+
+	/* build SQL SELECT statement */
+	rc = sqlite3_prepare_v2(db->sqldb, zsql, -1, &select, &dummy);
+	if (rc != SQLITE_OK)
+		return NULL;
+
+	/* exec SQL query */
+	sqlite3_bind_text(select, 1, vol->name, -1, SQLITE_STATIC);
+
+	/* iterate through each returned SQL data row */
+	while (1) {
+		const char *name, *hash;
+
+		rc = sqlite3_step(select);
+		if (rc != SQLITE_ROW)
+			break;
+
+		name = (const char *) sqlite3_column_text(select, 0);
+		hash = (const char *) sqlite3_column_text(select, 1);
+
+		res = g_list_append(res, strdup(name));
+		res = g_list_append(res, strdup(hash));
+	}
+
+	sqlite3_finalize(select);
+
+	return res;
+}
+
 static struct backend_info fs_info = {
 	.name			= BE_NAME,
 	.obj_new		= fs_obj_new,
@@ -353,6 +389,7 @@ static struct backend_info fs_info = {
 	.obj_write_commit	= fs_obj_write_commit,
 	.obj_delete		= fs_obj_delete,
 	.obj_free		= fs_obj_free,
+	.list_objs		= fs_list_objs,
 };
 
 int be_fs_init(void)
