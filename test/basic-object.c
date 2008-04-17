@@ -50,5 +50,7 @@ int main(int argc, char *argv[])
 	rcb = stc_del(stc, "testvol", key);
 	OK(rcb);
 
+	stc_free(stc);
+
 	return 0;
 }
