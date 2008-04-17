@@ -33,6 +33,8 @@ void stc_free(struct st_client *stc)
 	free(stc->user);
 	free(stc->key);
 	free(stc);
+
+	curl_global_cleanup();
 }
 
 struct st_client *stc_new(const char *service_host,
