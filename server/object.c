@@ -203,8 +203,6 @@ bool cli_evt_http_data_in(struct client *cli, unsigned int events)
 		bytes = cli->out_vol->be->obj_write(cli->out_bo, p, avail);
 		if (bytes < 0) {
 			cli_out_end(cli);
-			syslog(LOG_ERR, "write(2) error in HTTP data-in: %s",
-				strerror(errno));
 			return cli_err(cli, InternalError);
 		}
 
@@ -286,14 +284,7 @@ bool object_put(struct client *cli, const char *user,
 
 static void cli_in_end(struct client *cli)
 {
-	if (cli->in_fd >= 0) {
-		close(cli->in_fd);
-		cli->in_fd = -1;
-	}
-
-	free(cli->in_fn);
-
-	cli->in_fn = NULL;
+	cli->in_vol->be->obj_free(cli->in_obj);
 }
 
 static bool object_get_more(struct client *cli, struct client_write *wr,
@@ -310,15 +301,13 @@ static bool object_get_more(struct client *cli, struct client_write *wr,
 		return false;
 
 	/* do not queue more, if !completion or fd was closed early */
-	if (!done || cli->in_fd < 0)
+	if (!done)
 		goto err_out_buf;
 
-	bytes = read(cli->in_fd, buf, MIN(cli->in_len, CLI_DATA_BUF_SZ));
-	if (bytes < 0) {
-		syslog(LOG_ERR, "read obj(%s) failed: %s", cli->in_fn,
-			strerror(errno));
+	bytes = cli->in_vol->be->obj_read(cli->in_obj, buf,
+					  MIN(cli->in_len, CLI_DATA_BUF_SZ));
+	if (bytes < 0)
 		goto err_out;
-	}
 	if (bytes == 0 && cli->in_len != 0)
 		goto err_out;
 
@@ -344,65 +333,30 @@ bool object_get(struct client *cli, const char *user,
 		struct server_volume *vol,
 		const char *basename, bool want_body)
 {
-	const char *hashstr;
-	char timestr[50], modstr[50], *hdr, *fn, *tmp;
+	char timestr[50], modstr[50], *hdr, *tmp;
 	int rc;
 	enum errcode err = InternalError;
-	struct stat st;
 	ssize_t bytes;
-	sqlite3_stmt *stmt;
 	bool modified = true;
-	char *volume;
-
-	if (!sql_begin(cli->db))
-		return cli_err(cli, InternalError);
+	struct backend_obj *obj;
 
 	if (!vol) {
 		err = NoSuchVolume;
-		goto err_out_rb;
+		goto err_out;
 	}
 	if (!user) {
 		err = AccessDenied;
-		goto err_out_rb;
+		goto err_out;
 	}
 
-	volume = vol->name;
-
-	stmt = cli->db->prep_stmts[st_object];
-	sqlite3_bind_text(stmt, 1, volume, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 2, basename, -1, SQLITE_STATIC);
-
-	rc = sqlite3_step(stmt);
-	if (rc != SQLITE_ROW) {
-		err = NoSuchKey;
-		goto err_out_reset;
-	}
-
-	hashstr = (const char *) sqlite3_column_text(stmt, 1);
+	obj = vol->be->obj_open(vol, cli->db, basename, &err);
+	if (!obj)
+		goto err_out;
 
 	hdr = req_hdr(&cli->req, "if-match");
-	if (hdr && strcmp(hashstr, hdr)) {
+	if (hdr && strcmp(obj->hashstr, hdr)) {
 		err = PreconditionFailed;
-		goto err_out_reset;
-	}
-
-	if (asprintf(&fn, "%s/%s", vol->path, basename) < 0)
-		goto err_out_str;
-
-	cli->in_fd = open(fn, O_RDONLY);
-	if (cli->in_fd < 0) {
-		free(fn);
-		syslog(LOG_ERR, "open obj(%s) failed: %s", fn,
-			strerror(errno));
-		goto err_out_str;
-	}
-
-	cli->in_fn = fn;
-
-	if (fstat(cli->in_fd, &st) < 0) {
-		syslog(LOG_ERR, "fstat obj(%s) failed: %s", fn,
-			strerror(errno));
-		goto err_out_in_end;
+		goto err_out_obj;
 	}
 
 	hdr = req_hdr(&cli->req, "if-unmodified-since");
@@ -412,12 +366,12 @@ bool object_get(struct client *cli, const char *user,
 		t = str2time(hdr);
 		if (!t) {
 			err = InvalidArgument;
-			goto err_out_in_end;
+			goto err_out_obj;
 		}
 
-		if (st.st_mtime > t) {
+		if (obj->mtime > t) {
 			err = PreconditionFailed;
-			goto err_out_in_end;
+			goto err_out_obj;
 		}
 	}
 
@@ -428,17 +382,17 @@ bool object_get(struct client *cli, const char *user,
 		t = str2time(hdr);
 		if (!t) {
 			err = InvalidArgument;
-			goto err_out_in_end;
+			goto err_out_obj;
 		}
 
-		if (st.st_mtime <= t) {
+		if (obj->mtime <= t) {
 			modified = false;
 			want_body = false;
 		}
 	}
 
 	hdr = req_hdr(&cli->req, "if-none-match");
-	if (hdr && (!strcmp(hashstr, hdr))) {
+	if (hdr && (!strcmp(obj->hashstr, hdr))) {
 		modified = false;
 		want_body = false;
 	}
@@ -454,11 +408,11 @@ bool object_get(struct client *cli, const char *user,
 		     cli->req.major,
 		     cli->req.minor,
 		     modified ? 200 : 304,
-		     (unsigned long long) st.st_size,
-		     hashstr,
+		     (unsigned long long) obj->size,
+		     obj->hashstr,
 		     time2str(timestr, time(NULL)),
-		     time2str(modstr, st.st_mtime)) < 0)
-		goto err_out_in_end;
+		     time2str(modstr, obj->mtime)) < 0)
+		goto err_out_obj;
 
 	if (!want_body) {
 		cli_in_end(cli);
@@ -471,16 +425,16 @@ bool object_get(struct client *cli, const char *user,
 		goto start_write;
 	}
 
-	cli->in_len = st.st_size;
+	cli->in_len = obj->size;
+	cli->in_vol = vol;
+	cli->in_obj = obj;
 
-	bytes = read(cli->in_fd, cli->netbuf, MIN(st.st_size, CLI_DATA_BUF_SZ));
-	if (bytes < 0) {
-		syslog(LOG_ERR, "read obj(%s) failed: %s", fn,
-			strerror(errno));
-		goto err_out_in_end;
-	}
+	bytes = vol->be->obj_read(cli->in_obj, cli->netbuf,
+				  MIN(cli->in_len, CLI_DATA_BUF_SZ));
+	if (bytes < 0)
+		goto err_out_obj;
 	if (bytes == 0 && cli->in_len != 0)
-		goto err_out_in_end;
+		goto err_out_obj;
 
 	cli->in_len -= bytes;
 
@@ -489,7 +443,7 @@ bool object_get(struct client *cli, const char *user,
 
 	tmp = malloc(bytes);
 	if (!tmp)
-		goto err_out_in_end;
+		goto err_out_obj;
 	memcpy(tmp, cli->netbuf, bytes);
 
 	rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
@@ -501,20 +455,14 @@ bool object_get(struct client *cli, const char *user,
 
 	if (cli_writeq(cli, tmp, bytes,
 		       cli->in_len ? object_get_more : cli_cb_free, tmp))
-		goto err_out_in_end;
+		goto err_out_obj;
 
 start_write:
-	sqlite3_reset(cli->db->prep_stmts[st_object]);
-	sql_commit(cli->db);
 	return cli_write_start(cli);
 
-err_out_in_end:
+err_out_obj:
 	cli_in_end(cli);
-err_out_str:
-err_out_reset:
-	sqlite3_reset(cli->db->prep_stmts[st_object]);
-err_out_rb:
-	sql_rollback(cli->db);
+err_out:
 	return cli_err(cli, err);
 }
 

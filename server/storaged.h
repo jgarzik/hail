@@ -136,9 +136,9 @@ struct client {
 
 	struct backend_obj	*out_bo;
 
-	int			in_fd;
-	char			*in_fn;
 	long			in_len;
+	struct server_volume	*in_vol;
+	struct backend_obj	*in_obj;
 
 	/* we put the big arrays and objects at the end... */
 
@@ -153,6 +153,10 @@ struct backend_obj {
 	struct server_volume	*vol;
 	void			*private;
 	char			cookie[MAX_COOKIE_LEN + 1];
+
+	uint64_t		size;
+	time_t			mtime;
+	char			hashstr[50];
 };
 
 struct backend_info {
@@ -160,6 +164,12 @@ struct backend_info {
 
 	struct backend_obj	* (*obj_new) (struct server_volume *,
 					      struct database *);
+	struct backend_obj	* (*obj_open) (struct server_volume *,
+					       struct database *,
+					       const char *,
+					       enum errcode *);
+	ssize_t			(*obj_read)(struct backend_obj *,
+					    void *, size_t);
 	ssize_t			(*obj_write)(struct backend_obj *,
 					     const void *, size_t);
 	bool			(*obj_write_commit)(struct backend_obj *,
