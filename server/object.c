@@ -1,95 +1,33 @@
 #define _GNU_SOURCE
 #include "storaged-config.h"
 #include <sys/types.h>
-#include <sys/stat.h>
 #include <stdlib.h>
-#include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
 #include <stdio.h>
 #include <syslog.h>
-#include <alloca.h>
 #include <glib.h>
 #include <openssl/sha.h>
 #include "storaged.h"
 
-static bool __object_del(struct client *cli, const char *volume, const char *fn)
-{
-	int rc;
-	sqlite3_stmt *stmt;
-
-	/* delete object metadata */
-	stmt = cli->db->prep_stmts[st_del_obj];
-	sqlite3_bind_text(stmt, 1, volume, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 2, fn, -1, SQLITE_STATIC);
-
-	rc = sqlite3_step(stmt);
-	sqlite3_reset(stmt);
-
-	if (rc != SQLITE_DONE) {
-		syslog(LOG_ERR, "SQL st_del_obj failed: %d", rc);
-		return false;
-	}
-
-	return true;
-}
-
 bool object_del(struct client *cli, const char *user,
 		struct server_volume *vol, const char *basename)
 {
-	char timestr[50], *hdr, *fn;
+	char timestr[50], *hdr;
 	int rc;
 	enum errcode err = InternalError;
-	sqlite3_stmt *stmt;
-	char *volume;
+	bool rcb;
 
-	/* begin trans */
-	if (!sql_begin(cli->db)) {
-		syslog(LOG_ERR, "SQL BEGIN failed in obj-del");
-		return cli_err(cli, InternalError);
-	}
+	if (!vol)
+		return cli_err(cli, NoSuchVolume);
+	if (!user)
+		return cli_err(cli, AccessDenied);
 
-	if (!vol) {
-		err = NoSuchVolume;
-		goto err_out;
-	}
-	if (!user) {
-		err = AccessDenied;
-		goto err_out;
-	}
+	rcb = vol->be->obj_delete(vol, cli->db, basename, &err);
+	if (!rcb)
+		return cli_err(cli, err);
 
-	volume = vol->name;
-
-	/* read existing object info, if any */
-	stmt = cli->db->prep_stmts[st_object];
-	sqlite3_bind_text(stmt, 1, volume, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 2, basename, -1, SQLITE_STATIC);
-
-	rc = sqlite3_step(stmt);
-	if (rc != SQLITE_ROW) {
-		sqlite3_reset(stmt);
-		err = NoSuchKey;
-		goto err_out;
-	}
-
-	sqlite3_reset(stmt);
-
-	/* build data filename, for later use */
-	fn = alloca(strlen(vol->path) + strlen(basename) + 2);
-	sprintf(fn, "%s/%s", vol->path, basename);
-
-	if (!__object_del(cli, volume, basename))
-		goto err_out;
-
-	if (!sql_commit(cli->db)) {
-		syslog(LOG_ERR, "SQL COMMIT failed in obj-del");
-		return cli_err(cli, InternalError);
-	}
-
-	if (unlink(fn) < 0)
-		syslog(LOG_ERR, "object data(%s) unlink failed: %s",
-		       fn, strerror(errno));
 	if (asprintf(&hdr,
 "HTTP/%d.%d 204 x\r\n"
 "Content-Length: 0\r\n"
@@ -108,10 +46,6 @@ bool object_del(struct client *cli, const char *user,
 	}
 
 	return cli_write_start(cli);
-
-err_out:
-	sql_rollback(cli->db);
-	return cli_err(cli, err);
 }
 
 void cli_out_end(struct client *cli)

@@ -270,6 +270,79 @@ err_out_rb:
 	return false;
 }
 
+static bool __object_del(struct database *db, const char *volume, const char *fn)
+{
+	int rc;
+	sqlite3_stmt *stmt;
+
+	/* delete object metadata */
+	stmt = db->prep_stmts[st_del_obj];
+	sqlite3_bind_text(stmt, 1, volume, -1, SQLITE_STATIC);
+	sqlite3_bind_text(stmt, 2, fn, -1, SQLITE_STATIC);
+
+	rc = sqlite3_step(stmt);
+	sqlite3_reset(stmt);
+
+	if (rc != SQLITE_DONE) {
+		syslog(LOG_ERR, "SQL st_del_obj failed: %d", rc);
+		return false;
+	}
+
+	return true;
+}
+
+static bool fs_obj_delete(struct server_volume *vol, struct database *db,
+			  const char *cookie, enum errcode *err_code)
+{
+	sqlite3_stmt *stmt;
+	char *fn;
+	int rc;
+
+	*err_code = InternalError;
+
+	/* begin trans */
+	if (!sql_begin(db)) {
+		syslog(LOG_ERR, "SQL BEGIN failed in obj-del");
+		return false;
+	}
+
+	/* read existing object info, if any */
+	stmt = db->prep_stmts[st_object];
+	sqlite3_bind_text(stmt, 1, vol->name, -1, SQLITE_STATIC);
+	sqlite3_bind_text(stmt, 2, cookie, -1, SQLITE_STATIC);
+
+	rc = sqlite3_step(stmt);
+	if (rc != SQLITE_ROW) {
+		sqlite3_reset(stmt);
+		*err_code = NoSuchKey;
+		goto err_out;
+	}
+
+	sqlite3_reset(stmt);
+
+	if (!__object_del(db, vol->name, cookie))
+		goto err_out;
+
+	if (!sql_commit(db)) {
+		syslog(LOG_ERR, "SQL COMMIT failed in obj-del");
+		return false;
+	}
+
+	/* build data filename */
+	fn = alloca(strlen(vol->path) + strlen(cookie) + 2);
+	sprintf(fn, "%s/%s", vol->path, cookie);
+
+	if (unlink(fn) < 0)
+		syslog(LOG_ERR, "DANGLING DATA ERROR: "
+		       "object data(%s) unlink failed: %s",
+		       fn, strerror(errno));
+
+	return true;
+
+err_out:
+	sql_rollback(db);
+	return false;
+}
 
 static struct backend_info fs_info = {
 	.name			= BE_NAME,
@@ -278,6 +351,7 @@ static struct backend_info fs_info = {
 	.obj_read		= fs_obj_read,
 	.obj_write		= fs_obj_write,
 	.obj_write_commit	= fs_obj_write_commit,
+	.obj_delete		= fs_obj_delete,
 	.obj_free		= fs_obj_free,
 };
 

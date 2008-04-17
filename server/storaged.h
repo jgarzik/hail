@@ -174,6 +174,10 @@ struct backend_info {
 					     const void *, size_t);
 	bool			(*obj_write_commit)(struct backend_obj *,
 						    const char *, const char *);
+	bool			(*obj_delete)(struct server_volume *,
+					      struct database *,
+					      const char *,
+					      enum errcode *);
 	void			(*obj_free)(struct backend_obj *);
 };
 
