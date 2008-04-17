@@ -30,13 +30,13 @@
 #define PROGRAM_NAME PACKAGE
 
 #define MY_ENDPOINT "pretzel.yyz.us"
+#define STORAGED_DEF_PORT "8080"
 
 const char *argp_program_version = PACKAGE_VERSION;
 
 enum {
 	STORAGED_EPOLL_INIT_SIZE	= 200,		/* passed to epoll_create(2) */
 	STORAGED_EPOLL_MAX_EVT	= 100,		/* max events per poll */
-	STORAGED_DEF_PORT		= 8080,		/* default bind(2) port */
 
 	CLI_MAX_WR_IOV		= 32,		/* max iov per writev(2) */
 
@@ -75,7 +75,6 @@ struct server storaged_srv = {
 	.config			= "/spare/tmp/storaged/etc/storaged.conf",
 	.pid_file		= "/spare/tmp/storaged/run/storaged.pid",
 	.port			= STORAGED_DEF_PORT,
-	.tcp_poll		= { spt_tcp_srv, },
 };
 
 struct compiled_pat patterns[] = {
@@ -152,7 +151,7 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 		break;
 	case 'p':
 		if (atoi(arg) > 0 && atoi(arg) < 65536)
-			storaged_srv.port = atoi(arg);
+			storaged_srv.port = arg;
 		else {
 			fprintf(stderr, "invalid port %s\n", arg);
 			argp_usage(state);
@@ -996,9 +995,9 @@ static void tcp_cli_event(unsigned int events, struct client *cli)
 	} while (loop);
 }
 
-static void tcp_srv_event(unsigned int events, void *event_data)
+static void tcp_srv_event(unsigned int events, struct server_socket *sock)
 {
-	socklen_t addrlen = sizeof(struct sockaddr_in);
+	socklen_t addrlen = sizeof(struct sockaddr_in6);
 	struct client *cli;
 	char host[64];
 	int rc;
@@ -1021,8 +1020,7 @@ static void tcp_srv_event(unsigned int events, void *event_data)
 	memset(&cli->req, 0, sizeof(cli->req) - sizeof(cli->req.hdr));
 
 	/* receive TCP connection from kernel */
-	cli->fd = accept(storaged_srv.tcp_fd, (struct sockaddr *) &cli->addr,
-			 &addrlen);
+	cli->fd = accept(sock->fd, (struct sockaddr *) &cli->addr, &addrlen);
 	if (cli->fd < 0) {
 		syslogerr("tcp accept");
 		goto err_out;
@@ -1042,7 +1040,7 @@ static void tcp_srv_event(unsigned int events, void *event_data)
 	}
 
 	/* pretty-print incoming cxn info */
-	getnameinfo((struct sockaddr *) &cli->addr, sizeof(struct sockaddr_in),
+	getnameinfo((struct sockaddr *) &cli->addr, sizeof(struct sockaddr_in6),
 		    host, sizeof(host), NULL, 0, NI_NUMERICHOST);
 	host[sizeof(host) - 1] = 0;
 	syslog(LOG_INFO, "client %s connected", host);
@@ -1059,57 +1057,88 @@ err_out:
 
 static int net_open(void)
 {
-	int fd, rc, on = 1;
-	struct sockaddr_in addr;
+	int rc;
+	struct addrinfo hints, *res, *res0;
 
-	/*
-	 * set up TCP server socket
-	 */
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = PF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_flags = AI_PASSIVE;
 
-	fd = socket(PF_INET, SOCK_STREAM, 0);
-	if (fd < 0) {
-		syslogerr("tcp socket");
-		return -errno;
+	rc = getaddrinfo(NULL, storaged_srv.port, &hints, &res0);
+	if (rc) {
+		syslog(LOG_ERR, "getaddrinfo(*:%s) failed: %s",
+		       storaged_srv.port, gai_strerror(rc));
+		return -EINVAL;
 	}
 
-	if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) < 0) {
-		syslogerr("setsockopt(SO_REUSEADDR)");
-		rc = -errno;
-		goto err_out;
+	for (res = res0; res; res = res->ai_next) {
+		struct server_socket *sock;
+		int fd, on;
+
+		fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+		if (fd < 0) {
+			syslogerr("tcp socket");
+			return -errno;
+		}
+
+		on = 1;
+		if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on,
+			       sizeof(on)) < 0) {
+			syslogerr("setsockopt(SO_REUSEADDR)");
+			rc = -errno;
+			goto err_out;
+		}
+
+		if (bind(fd, res->ai_addr, res->ai_addrlen) < 0) {
+			/* sigh... */
+			if (errno == EADDRINUSE && res->ai_family == PF_INET) {
+				if (debugging)
+					syslog(LOG_INFO, "already bound to socket, ignoring");
+				close(fd);
+				continue;
+			}
+
+			syslogerr("tcp bind");
+			rc = -errno;
+			goto err_out;
+		}
+
+		if (listen(fd, 100) < 0) {
+			syslogerr("tcp listen");
+			rc = -errno;
+			goto err_out;
+		}
+
+		rc = fsetflags("tcp server", fd, O_NONBLOCK);
+		if (rc)
+			goto err_out;
+
+		sock = calloc(1, sizeof(*sock));
+		if (!sock) {
+			rc = -ENOMEM;
+			goto err_out;
+		}
+
+		sock->fd = fd;
+		sock->poll.poll_type = spt_tcp_srv;
+		sock->poll.u.sock = sock;
+		sock->evt.events = EPOLLIN;
+		sock->evt.data.ptr = &sock->poll;
+
+		rc = epoll_ctl(storaged_srv.epoll_fd, EPOLL_CTL_ADD, fd,
+			       &sock->evt);
+		if (rc < 0) {
+			syslogerr("tcp socket epoll_ctl");
+			rc = -errno;
+			goto err_out;
+		}
+
+		storaged_srv.sockets =
+			g_list_append(storaged_srv.sockets, sock);
 	}
 
-	memset(&addr, 0, sizeof(addr));
-	addr.sin_family = AF_INET;
-	addr.sin_port = htons(storaged_srv.port);
-	addr.sin_addr.s_addr = htonl(INADDR_ANY);
-
-	if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-		syslogerr("tcp bind");
-		rc = -errno;
-		goto err_out;
-	}
-
-	if (listen(fd, 100) < 0) {
-		syslogerr("tcp listen");
-		rc = -errno;
-		goto err_out;
-	}
-
-	rc = fsetflags("tcp server", fd, O_NONBLOCK);
-	if (rc)
-		goto err_out;
-
-	storaged_srv.tcp_evt.events = EPOLLIN;
-	storaged_srv.tcp_evt.data.ptr = &storaged_srv.tcp_poll;
-
-	rc = epoll_ctl(storaged_srv.epoll_fd, EPOLL_CTL_ADD, fd, &storaged_srv.tcp_evt);
-	if (rc < 0) {
-		syslogerr("tcp socket epoll_ctl");
-		rc = -errno;
-		goto err_out;
-	}
-
-	storaged_srv.tcp_fd = fd;
+	freeaddrinfo(res0);
 
 	ssl_ctx = SSL_CTX_new(TLSv1_server_method());
 	if (!ssl_ctx) {
@@ -1120,7 +1149,6 @@ static int net_open(void)
 	return 0;
 
 err_out:
-	close(fd);
 	return rc;
 }
 
@@ -1132,7 +1160,7 @@ static void handle_event(unsigned int events, void *event_data)
 
 	switch (sp->poll_type) {
 	case spt_tcp_srv:
-		tcp_srv_event(events, sp->u.ptr);
+		tcp_srv_event(events, sp->u.sock);
 		break;
 	case spt_tcp_cli:
 		tcp_cli_event(events, sp->u.cli);

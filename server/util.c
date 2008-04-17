@@ -285,12 +285,13 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		int i = atoi(cfg_context.text);
 
 		if (i > 0 && i < 65536)
-			storaged_srv.port = i;
-		else
+			storaged_srv.port = cfg_context.text;
+		else {
 			syslog(LOG_WARNING, "cfgfile Port '%s' invalid, ignoring",
 				cfg_context.text);
+			free(cfg_context.text);
+		}
 
-		free(cfg_context.text);
 		cfg_context.text = NULL;
 	}
 

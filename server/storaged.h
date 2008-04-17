@@ -60,6 +60,7 @@ enum server_poll_type {
 struct client;
 struct client_write;
 struct server_volume;
+struct server_socket;
 
 struct database {
 	sqlite3		*sqldb;
@@ -69,8 +70,8 @@ struct database {
 struct server_poll {
 	enum server_poll_type	poll_type;	/* spt_xxx above */
 	union {
-		void		*ptr;
-		struct client	*cli;
+		struct server_socket	*sock;
+		struct client		*cli;
 	} u;
 };
 
@@ -114,7 +115,7 @@ enum client_state {
 struct client {
 	enum client_state	state;		/* socket state */
 
-	struct sockaddr_in	addr;		/* inet address */
+	struct sockaddr_in6	addr;		/* inet address */
 	char			addr_host[64];	/* ASCII version of inet addr */
 	int			fd;		/* socket */
 	struct server_poll	poll;		/* poll info */
@@ -198,6 +199,12 @@ struct server_volume {
 	struct backend_info	*be;
 };
 
+struct server_socket {
+	int			fd;
+	struct server_poll	poll;
+	struct epoll_event	evt;
+};
+
 struct server {
 	unsigned long		flags;		/* SFL_xxx above */
 
@@ -205,18 +212,16 @@ struct server {
 	char			*data_dir;
 	char			*pid_file;	/* PID file */
 
-	int			port;		/* bind port */
+	char			*port;		/* bind port */
 
 	int			epoll_fd;	/* epoll descriptor */
-
-	int			tcp_fd;		/* TCP server desc */
-	struct server_poll	tcp_poll;	/* poll info */
-	struct epoll_event	tcp_evt;	/* epoll info */
 
 	struct database		*db;
 
 	GHashTable		*volumes;
 	GHashTable		*backends;
+
+	GList			*sockets;
 
 	struct server_stats	stats;		/* global statistics */
 };
