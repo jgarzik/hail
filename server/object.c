@@ -116,97 +116,34 @@ err_out:
 
 void cli_out_end(struct client *cli)
 {
-	if (cli->out_fn) {
-		unlink(cli->out_fn);
-		free(cli->out_fn);
-		cli->out_fn = NULL;
-	}
+	cli->out_vol->be->obj_free(cli->out_bo);
+	cli->out_bo = NULL;
 
 	free(cli->out_user);
-
 	cli->out_user = NULL;
-
-	if (cli->out_fd >= 0) {
-		close(cli->out_fd);
-		cli->out_fd = -1;
-	}
 }
 
 static bool object_put_end(struct client *cli)
 {
 	unsigned char md[SHA_DIGEST_LENGTH];
-	char counterstr[32], hashstr[50], timestr[50];
-	char *hdr, *fn = NULL;
+	char hashstr[50], timestr[50];
+	char *hdr;
 	int rc;
 	enum errcode err = InternalError;
-	sqlite3_stmt *stmt;
+	bool rcb;
 
 	if (http11(&cli->req))
 		cli->state = evt_recycle;
 	else
 		cli->state = evt_dispose;
 
-	if (fsync(cli->out_fd) < 0) {
-		syslog(LOG_ERR, "fsync(%s) failed: %s",
-		       cli->out_fn, strerror(errno));
-		goto err_out;
-	}
-
-	if (debugging) {
-		struct stat sst;
-		if (fstat(cli->out_fd, &sst) < 0)
-			syslog(LOG_ERR, "fstat(%s) failed: %s",
-			       cli->out_fn, strerror(errno));
-		else
-			syslog(LOG_DEBUG, "STORED %s, size %llu",
-			       cli->out_fn,
-			       (unsigned long long) sst.st_size);
-	}
-
-	close(cli->out_fd);
-	cli->out_fd = -1;
-
 	SHA1_Final(md, &cli->out_hash);
-
-	sprintf(counterstr, "%016llX", (unsigned long long) cli->out_counter);
 	shastr(md, hashstr);
 
-	/* begin trans */
-	if (!sql_begin(cli->db)) {
-		syslog(LOG_ERR, "SQL BEGIN failed in put-end");
+	rcb = cli->out_vol->be->obj_write_commit(cli->out_bo, cli->out_user,
+						 hashstr);
+	if (!rcb)
 		goto err_out;
-	}
-
-	/* insert object */
-	stmt = cli->db->prep_stmts[st_add_obj];
-	sqlite3_bind_text(stmt, 1, cli->out_vol->name, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 2, hashstr, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 3, counterstr, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 4, cli->out_user, -1, SQLITE_STATIC);
-
-	rc = sqlite3_step(stmt);
-	sqlite3_reset(stmt);
-
-	if (rc != SQLITE_DONE) {
-		syslog(LOG_ERR, "SQL INSERT(obj) failed");
-		goto err_out_rb;
-	}
-
-	/* commit */
-	if (!sql_commit(cli->db)) {
-		syslog(LOG_ERR, "SQL COMMIT");
-		goto err_out;
-	}
-
-	if (fn && (unlink(fn) < 0))
-		syslog(LOG_ERR, "object data(%s) unlink failed: %s",
-		       fn, strerror(errno));
-
-	free(cli->out_fn);
-	free(cli->out_user);
-
-	cli->out_user =
-	cli->out_fn = NULL;
 
 	if (asprintf(&hdr,
 "HTTP/%d.%d 200 x\r\n"
@@ -219,12 +156,13 @@ static bool object_put_end(struct client *cli)
 		     cli->req.major,
 		     cli->req.minor,
 		     hashstr,
-		     counterstr,
+		     cli->out_bo->cookie,
 		     time2str(timestr, time(NULL))) < 0) {
-		/* FIXME: cleanup failure */
 		syslog(LOG_ERR, "OOM in object_put_end");
-		return cli_err(cli, InternalError);
+		goto err_out;
 	}
+
+	cli_out_end(cli);
 
 	rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
 	if (rc) {
@@ -234,8 +172,6 @@ static bool object_put_end(struct client *cli)
 
 	return cli_write_start(cli);
 
-err_out_rb:
-	sql_rollback(cli->db);
 err_out:
 	cli_out_end(cli);
 	return cli_err(cli, err);
@@ -264,7 +200,7 @@ bool cli_evt_http_data_in(struct client *cli, unsigned int events)
 	}
 
 	while (avail > 0) {
-		bytes = write(cli->out_fd, p, avail);
+		bytes = cli->out_vol->be->obj_write(cli->out_bo, p, avail);
 		if (bytes < 0) {
 			cli_out_end(cli);
 			syslog(LOG_ERR, "write(2) error in HTTP data-in: %s",
@@ -285,56 +221,29 @@ bool cli_evt_http_data_in(struct client *cli, unsigned int events)
 	return (avail == CLI_DATA_BUF_SZ) ? true : false;
 }
 
-static uint64_t next_counter(void)
-{
-	static GStaticMutex mutex = G_STATIC_MUTEX_INIT;
-	uint64_t rv;
-
-	g_static_mutex_lock (&mutex);
-
-	rv = global_counter++;
-
-	g_static_mutex_unlock (&mutex);
-
-	return rv;
-}
-
 bool object_put(struct client *cli, const char *user,
 		struct server_volume *vol,
 		long content_len, bool expect_cont)
 {
-	char *fn = NULL;
 	long avail;
-	uint64_t counter = 0xdeadbeef;
 
 	if (!vol)
 		return cli_err(cli, NoSuchVolume);
 	if (!user)
 		return cli_err(cli, AccessDenied);
  
-	while (cli->out_fd < 0) {
-		counter = next_counter();
+	cli->out_bo = vol->be->obj_new(vol, cli->db);
+	if (!cli->out_bo)
+		return cli_err(cli, InternalError);
 
-		free(fn);
-
-		if (asprintf(&fn, "%s/%016llX", vol->path,
-			     (unsigned long long) counter) < 0) {
-			syslog(LOG_ERR, "OOM in object_put");
-			return cli_err(cli, InternalError);
-		}
-
-		cli->out_fd = open(fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
-	}
-
-	cli->out_fn = fn;
 	cli->out_vol = vol;
 	SHA1_Init(&cli->out_hash);
 	cli->out_len = content_len;
-	cli->out_counter = counter;
 	cli->out_user = strdup(user);
 
 	/* handle Expect: 100-continue header, by unconditionally
-	 * requesting that they continue.
+	 * requesting that they continue.  At this point, the storage
+	 * backend has verified that we may proceed.
 	 */
 	if (expect_cont) {
 		char *cont;
@@ -351,7 +260,8 @@ bool object_put(struct client *cli, const char *user,
 		ssize_t bytes;
 
 		while (avail > 0) {
-			bytes = write(cli->out_fd, cli->req_ptr, avail);
+			bytes = vol->be->obj_write(cli->out_bo,
+						   cli->req_ptr, avail);
 			if (bytes < 0) {
 				cli_out_end(cli);
 				syslog(LOG_ERR, "write(2) error in object_put: %s",

@@ -20,6 +20,8 @@ enum {
 	STORAGED_PGSZ_SESSION	= 512,
 	STORAGED_PGSZ_LOCK	= 512,
 
+	MAX_COOKIE_LEN		= 128,
+
 	CLI_REQ_BUF_SZ		= 8192,		/* buffer for req + hdrs */
 	CLI_DATA_BUF_SZ		= 8192,
 };
@@ -127,13 +129,12 @@ struct client {
 	char			*hdr_start;	/* current hdr start */
 	char			*hdr_end;	/* current hdr end (so far) */
 
-	int			out_fd;		/* current output file */
-	char			*out_fn;	/* current output filename */
 	struct server_volume	*out_vol;
 	char			*out_user;
 	SHA_CTX			out_hash;
 	long			out_len;
-	uint64_t		out_counter;
+
+	struct backend_obj	*out_bo;
 
 	int			in_fd;
 	char			*in_fn;
@@ -148,8 +149,22 @@ struct client {
 	char			netbuf[CLI_DATA_BUF_SZ];
 };
 
+struct backend_obj {
+	struct server_volume	*vol;
+	void			*private;
+	char			cookie[MAX_COOKIE_LEN + 1];
+};
+
 struct backend_info {
 	const char		*name;
+
+	struct backend_obj	* (*obj_new) (struct server_volume *,
+					      struct database *);
+	ssize_t			(*obj_write)(struct backend_obj *,
+					     const void *, size_t);
+	bool			(*obj_write_commit)(struct backend_obj *,
+						    const char *, const char *);
+	void			(*obj_free)(struct backend_obj *);
 };
 
 struct server_stats {
@@ -232,7 +247,6 @@ extern void db_close(struct database *db);
 
 /* server.c */
 extern int debugging;
-extern uint64_t global_counter;
 extern struct server storaged_srv;
 extern struct compiled_pat patterns[];
 extern bool cli_err(struct client *cli, enum errcode code);

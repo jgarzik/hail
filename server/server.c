@@ -69,7 +69,6 @@ static const struct argp argp = { options, parse_opt, NULL, doc };
 
 static bool server_running = true;
 static bool dump_stats;
-uint64_t global_counter;
 int debugging = 0;
 
 struct server storaged_srv = {
@@ -1001,7 +1000,6 @@ static void tcp_srv_event(unsigned int events, void *event_data)
 	cli->evt.data.ptr = &cli->poll;
 	INIT_LIST_HEAD(&cli->write_q);
 	cli->req_ptr = cli->req_buf;
-	cli->out_fd = -1;
 	memset(&cli->req, 0, sizeof(cli->req) - sizeof(cli->req.hdr));
 
 	/* receive TCP connection from kernel */
@@ -1182,12 +1180,8 @@ int main (int argc, char *argv[])
 {
 	error_t aprc;
 	int rc = 1;
-	uint64_t r1, r2;
 
 	srand(time(NULL));
-	r1 = rand();
-	r2 = rand();
-	global_counter = (r1 << 32) | (r2 & 0xffffffff);
 
 	/* isspace() and strcasecmp() consistency requires this */
 	setlocale(LC_ALL, "C");
