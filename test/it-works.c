@@ -9,6 +9,7 @@ int main(int argc, char *argv[])
 {
 	struct st_client *stc;
 	struct st_vlist *vlist;
+	struct st_volume *vol;
 
 	setlocale(LC_ALL, "C");
 
@@ -17,6 +18,13 @@ int main(int argc, char *argv[])
 
 	vlist = stc_list_volumes(stc);
 	OK(vlist);
+	OK(vlist->list);
+	OK(vlist->list->next == NULL);
+
+	vol = vlist->list->data;
+	OK(vol);
+	OK(vol->name);
+	OK(!strcmp(vol->name, "testvol"));
 
 	OK(!strcmp(vlist->owner, stc->user));
 

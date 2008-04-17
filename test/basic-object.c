@@ -7,6 +7,8 @@
 
 int main(int argc, char *argv[])
 {
+	struct st_object *obj;
+	struct st_keylist *klist;
 	struct st_client *stc;
 	bool rcb;
 	char val[] = "my first value";
@@ -22,6 +24,21 @@ int main(int argc, char *argv[])
 	/* store object */
 	rcb = stc_put_inline(stc, "testvol", val, strlen(val), key);
 	OK(rcb);
+
+	/* make sure object appears in list of volume keys */
+	klist = stc_keys(stc, "testvol");
+	OK(klist);
+	OK(klist->contents);
+	OK(klist->contents->next == NULL);
+
+	obj = klist->contents->data;
+	OK(obj);
+	OK(obj->name);
+	OK(!strcmp(obj->name, key));
+	OK(obj->time_mod);
+	OK(obj->etag);
+	OK(obj->size == strlen(val));
+	OK(obj->owner);
 
 	/* get object */
 	mem = stc_get_inline(stc, "testvol", key, false, &len);
