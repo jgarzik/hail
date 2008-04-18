@@ -210,6 +210,8 @@ static void cli_free(struct client *cli)
 
 	/* clean up network socket */
 	if (cli->fd >= 0) {
+		if (cli->ssl)
+			SSL_shutdown(cli->ssl);
 		if (epoll_ctl(storaged_srv.epoll_fd, EPOLL_CTL_DEL,
 			      cli->fd, NULL) < 0)
 			syslogerr("TCP client epoll_ctl(EPOLL_CTL_DEL)");
