@@ -110,6 +110,7 @@ enum client_state {
 	evt_http_data_in,			/* HTTP request's content */
 	evt_dispose,				/* dispose of client */
 	evt_recycle,				/* restart HTTP request parse */
+	evt_ssl_accept,				/* SSL cxn negotiation */
 };
 
 struct client {
@@ -120,6 +121,9 @@ struct client {
 	int			fd;		/* socket */
 	struct server_poll	poll;		/* poll info */
 	struct epoll_event	evt;		/* epoll info */
+
+	SSL			*ssl;
+	bool			ssl_write;
 
 	struct list_head	write_q;	/* list of async writes */
 
@@ -207,6 +211,7 @@ struct server_volume {
 
 struct server_socket {
 	int			fd;
+	bool			encrypt;
 	struct server_poll	poll;
 	struct epoll_event	evt;
 };
@@ -287,6 +292,7 @@ extern bool cli_cb_free(struct client *cli, struct client_write *wr,
 			bool done);
 extern bool cli_write_start(struct client *cli);
 extern int cli_req_avail(struct client *cli);
+extern int cli_epoll_mod(struct client *cli);
 
 /* storage.c */
 extern int register_storage(struct backend_info *be);

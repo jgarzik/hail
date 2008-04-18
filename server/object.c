@@ -119,18 +119,38 @@ bool cli_evt_http_data_in(struct client *cli, unsigned int events)
 	if (!cli->out_len)
 		return object_put_end(cli);
 
-	avail = read(cli->fd, cli->netbuf, MIN(cli->out_len, CLI_DATA_BUF_SZ));
-	if (avail <= 0) {
-		if ((avail < 0) && (errno == EAGAIN))
-			return false;
+	if (cli->ssl) {
+		int rc = SSL_read(cli->ssl, cli->netbuf,
+				  MIN(cli->out_len, CLI_DATA_BUF_SZ));
+		if (rc <= 0) {
+			rc = SSL_get_error(cli->ssl, rc);
+			if (rc == SSL_ERROR_WANT_READ)
+				return false;
+			if (rc == SSL_ERROR_WANT_WRITE) {
+				cli->evt.events |= EPOLLOUT;
+				cli->ssl_write = true;
+				if (cli_epoll_mod(cli) < 0)
+					return cli_err(cli, InternalError);
+				return false;
+			}
+			return cli_err(cli, InternalError);
+		}
+		avail = rc;
+	} else {
+		avail = read(cli->fd, cli->netbuf,
+			     MIN(cli->out_len, CLI_DATA_BUF_SZ));
+		if (avail <= 0) {
+			if ((avail < 0) && (errno == EAGAIN))
+				return false;
 
-		cli_out_end(cli);
-		if (avail < 0)
-			syslog(LOG_ERR, "object read(2) error: %s",
-				strerror(errno));
-		else
-			syslog(LOG_ERR, "object read(2) unexpected EOF");
-		return cli_err(cli, InternalError);
+			cli_out_end(cli);
+			if (avail < 0)
+				syslog(LOG_ERR, "object read(2) error: %s",
+					strerror(errno));
+			else
+				syslog(LOG_ERR, "object read(2) unexpected EOF");
+			return cli_err(cli, InternalError);
+		}
 	}
 
 	while (avail > 0) {

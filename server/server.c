@@ -221,10 +221,13 @@ static void cli_free(struct client *cli)
 	if (debugging)
 		syslog(LOG_DEBUG, "client %s ended", cli->addr_host);
 
+	if (cli->ssl)
+		SSL_free(cli->ssl);
+
 	free(cli);
 }
 
-static struct client *cli_alloc(void)
+static struct client *cli_alloc(bool encrypt)
 {
 	struct client *cli;
 
@@ -233,10 +236,19 @@ static struct client *cli_alloc(void)
 	if (!cli)
 		return NULL;
 
+	if (encrypt) {
+		cli->ssl = SSL_new(ssl_ctx);
+		if (!cli->ssl) {
+			syslog(LOG_ERR, "SSL_new failed");
+			free(cli);
+			return NULL;
+		}
+	}
+
 	cli->state = evt_read_req;
 	cli->poll.poll_type = spt_tcp_cli;
 	cli->poll.u.cli = cli;
-	cli->evt.events = EPOLLIN | EPOLLHUP;
+	cli->evt.events = EPOLLIN;
 	cli->evt.data.ptr = &cli->poll;
 	INIT_LIST_HEAD(&cli->write_q);
 	cli->req_ptr = cli->req_buf;
@@ -281,6 +293,18 @@ static bool cli_evt_recycle(struct client *cli, unsigned int events)
 	memset(&cli->req, 0, sizeof(cli->req));
 
 	return true;
+}
+
+int cli_epoll_mod(struct client *cli)
+{
+	int rrc = epoll_ctl(storaged_srv.epoll_fd, EPOLL_CTL_MOD,
+			    cli->fd, &cli->evt);
+	if (rrc < 0) {
+		syslogerr("epoll_ctl(EPOLL_CTL_MOD)");
+		return -errno;
+	}
+
+	return 0;
 }
 
 static void cli_writable(struct client *cli)
@@ -343,19 +367,13 @@ do_write:
 	/* if we emptied the queue, clear write notification */
 	if (list_empty(&cli->write_q)) {
 		cli->evt.events &= ~EPOLLOUT;
-		int rrc = epoll_ctl(storaged_srv.epoll_fd, EPOLL_CTL_MOD,
-				    cli->fd, &cli->evt);
-		if (rrc < 0) {
-			syslogerr("cli_writable epoll_ctl(EPOLL_CTL_MOD)");
+		if (cli_epoll_mod(cli) < 0)
 			cli->state = evt_dispose;
-		}
 	}
 }
 
 bool cli_write_start(struct client *cli)
 {
-	int rc;
-
 	if (list_empty(&cli->write_q))
 		return true;		/* loop, not epoll */
 
@@ -375,11 +393,8 @@ bool cli_write_start(struct client *cli)
 
 	cli->evt.events |= EPOLLOUT;
 
-	rc = epoll_ctl(storaged_srv.epoll_fd, EPOLL_CTL_MOD, cli->fd, &cli->evt);
-	if (rc < 0) {
-		syslogerr("cli_write epoll_ctl(EPOLL_CTL_MOD)");
+	if (cli_epoll_mod(cli) < 0)
 		return true;		/* loop, not epoll */
-	}
 
 	return false;			/* epoll wait */
 }
@@ -411,14 +426,32 @@ static int cli_read(struct client *cli)
 
 	/* read into remaining free space in buffer */
 do_read:
-	rc = read(cli->fd, cli->req_buf + cli->req_used,
-		  CLI_REQ_BUF_SZ - cli->req_used);
-	if (rc < 0) {
-		if (errno == EINTR)
-			goto do_read;
-		if (errno == EAGAIN)
-			return 0;
-		return -errno;
+	if (cli->ssl) {
+		rc = SSL_read(cli->ssl, cli->req_buf + cli->req_used,
+			      CLI_REQ_BUF_SZ - cli->req_used);
+		if (rc <= 0) {
+			rc = SSL_get_error(cli->ssl, rc);
+			if (rc == SSL_ERROR_WANT_READ)
+				return 0;
+			if (rc == SSL_ERROR_WANT_WRITE) {
+				cli->evt.events |= EPOLLOUT;
+				cli->ssl_write = true;
+				if (cli_epoll_mod(cli) < 0)
+					return -errno;
+				return 0;
+			}
+			return -EIO;
+		}
+	} else {
+		rc = read(cli->fd, cli->req_buf + cli->req_used,
+		  	CLI_REQ_BUF_SZ - cli->req_used);
+		if (rc < 0) {
+			if (errno == EINTR)
+				goto do_read;
+			if (errno == EAGAIN)
+				return 0;
+			return -errno;
+		}
 	}
 
 	cli->req_used += rc;
@@ -977,6 +1010,34 @@ static bool cli_evt_read_req(struct client *cli, unsigned int events)
 	return true;
 }
 
+static bool cli_evt_ssl_accept(struct client *cli, unsigned int events)
+{
+	int rc;
+
+	rc = SSL_accept(cli->ssl);
+	if (rc > 0) {
+		cli->state = evt_read_req;
+		return true;
+	}
+
+	rc = SSL_get_error(cli->ssl, rc);
+
+	if (rc == SSL_ERROR_WANT_READ)
+		return false;
+
+	if (rc == SSL_ERROR_WANT_WRITE) {
+		cli->evt.events |= EPOLLOUT;
+		cli->ssl_write = true;
+		if (cli_epoll_mod(cli) < 0)
+			goto out;
+		return false;
+	}
+
+out:
+	cli->state = evt_dispose;
+	return true;
+}
+
 static cli_evt_func state_funcs[] = {
 	[evt_read_req]		= cli_evt_read_req,
 	[evt_parse_req]		= cli_evt_parse_req,
@@ -986,6 +1047,7 @@ static cli_evt_func state_funcs[] = {
 	[evt_http_data_in]	= cli_evt_http_data_in,
 	[evt_dispose]		= cli_evt_dispose,
 	[evt_recycle]		= cli_evt_recycle,
+	[evt_ssl_accept]	= cli_evt_ssl_accept,
 };
 
 static void tcp_cli_event(unsigned int events, struct client *cli)
@@ -994,9 +1056,12 @@ static void tcp_cli_event(unsigned int events, struct client *cli)
 
 	if (events & EPOLLOUT) {
 		events &= ~EPOLLOUT;
-		cli_writable(cli);
+		if (cli->ssl_write)
+			cli->ssl_write = false;
+		else
+			cli_writable(cli);
 	}
-	if ((events & EPOLLHUP) && (cli->state == evt_recycle))
+	if ((events & (EPOLLHUP | EPOLLERR)) && (cli->state == evt_recycle))
 		cli->state = evt_dispose;
 
 	do {
@@ -1011,7 +1076,7 @@ static void tcp_srv_event(unsigned int events, struct server_socket *sock)
 	char host[64];
 	int rc;
 
-	cli = cli_alloc();
+	cli = cli_alloc(sock->encrypt);
 	if (!cli) {
 		syslog(LOG_ERR, "out of memory");
 		return;
@@ -1032,6 +1097,25 @@ static void tcp_srv_event(unsigned int events, struct server_socket *sock)
 	if (fsetflags("tcp client", cli->fd, O_NONBLOCK) < 0)
 		goto err_out_fd;
 
+	if (sock->encrypt) {
+		if (!SSL_set_fd(cli->ssl, cli->fd))
+			goto err_out_fd;
+
+		rc = SSL_accept(cli->ssl);
+		if (rc <= 0) {
+			rc = SSL_get_error(cli->ssl, rc);
+			if (rc == SSL_ERROR_WANT_READ)
+				cli->state = evt_ssl_accept;
+			else if (rc == SSL_ERROR_WANT_WRITE) {
+				cli->state = evt_ssl_accept;
+				cli->evt.events |= EPOLLOUT;
+				cli->ssl_write = true;
+			}
+			else
+				goto err_out_fd;
+		}
+	}
+
 	/* add to epoll watchlist */
 	rc = epoll_ctl(storaged_srv.epoll_fd, EPOLL_CTL_ADD, cli->fd, &cli->evt);
 	if (rc < 0) {
@@ -1050,12 +1134,11 @@ static void tcp_srv_event(unsigned int events, struct server_socket *sock)
 	return;
 
 err_out_fd:
-	close(cli->fd);
 err_out:
-	free(cli);
+	cli_free(cli);
 }
 
-static int net_open(struct listen_cfg *cfg)
+static int net_open(const struct listen_cfg *cfg)
 {
 	int rc;
 	struct addrinfo hints, *res, *res0;
@@ -1122,6 +1205,7 @@ static int net_open(struct listen_cfg *cfg)
 		}
 
 		sock->fd = fd;
+		sock->encrypt = cfg->encrypt;
 		sock->poll.poll_type = spt_tcp_srv;
 		sock->poll.u.sock = sock;
 		sock->evt.events = EPOLLIN;
