@@ -307,6 +307,30 @@ int cli_epoll_mod(struct client *cli)
 	return 0;
 }
 
+static int SSL_writev(SSL *ssl, const struct iovec *iov, int iovcnt)
+{
+	int i, bytes = 0;
+
+	for (i = 0; i < iovcnt; i++) {
+		int tmp;
+
+		tmp = SSL_write(ssl, iov[i].iov_base, iov[i].iov_len);
+		if (tmp > 0) {
+			bytes += tmp;
+
+			if (tmp == iov[i].iov_len)
+				continue;
+			return bytes;
+		}
+		if (bytes)
+			return bytes;
+
+		return -1;
+	}
+
+	return bytes;
+}
+
 static void cli_writable(struct client *cli)
 {
 	unsigned int n_iov = 0;
@@ -330,13 +354,25 @@ restart:
 
 	/* execute non-blocking write */
 do_write:
-	rc = writev(cli->fd, iov, n_iov);
-	if (rc < 0) {
-		if (errno == EINTR)
-			goto do_write;
-		if (errno != EAGAIN)
+	if (cli->ssl) {
+		rc = SSL_writev(cli->ssl, iov, n_iov);
+		if (rc <= 0) {
+			rc = SSL_get_error(cli->ssl, rc);
+			if (rc == SSL_ERROR_WANT_READ ||
+			    rc == SSL_ERROR_WANT_WRITE)
+				return;
 			cli->state = evt_dispose;
-		return;
+			return;
+		}
+	} else {
+		rc = writev(cli->fd, iov, n_iov);
+		if (rc < 0) {
+			if (errno == EINTR)
+				goto do_write;
+			if (errno != EAGAIN)
+				cli->state = evt_dispose;
+			return;
+		}
 	}
 
 	/* iterate through write queue, issuing completions based on
@@ -1385,6 +1421,9 @@ int main (int argc, char *argv[])
 		syslog(LOG_ERR, "SSL_CTX_new failed");
 		exit(1);
 	}
+
+	SSL_CTX_set_mode(ssl_ctx, SSL_CTX_get_mode(ssl_ctx) |
+			 SSL_MODE_ENABLE_PARTIAL_WRITE);
 
 	/* set up server networking */
 	tmpl = storaged_srv.listeners;
