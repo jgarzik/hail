@@ -50,8 +50,14 @@ bool object_del(struct client *cli, const char *user,
 
 void cli_out_end(struct client *cli)
 {
-	cli->out_vol->be->obj_free(cli->out_bo);
-	cli->out_bo = NULL;
+	if (!cli)
+		return;
+
+	if (cli->out_bo) {
+		g_assert(cli->out_vol != NULL);
+		cli->out_vol->be->obj_free(cli->out_bo);
+		cli->out_bo = NULL;
+	}
 
 	free(cli->out_user);
 	cli->out_user = NULL;
@@ -239,7 +245,14 @@ bool object_put(struct client *cli, const char *user,
 
 void cli_in_end(struct client *cli)
 {
-	cli->in_vol->be->obj_free(cli->in_obj);
+	if (!cli)
+		return;
+
+	if (cli->in_obj) {
+		g_assert(cli->in_vol != NULL);
+		cli->in_vol->be->obj_free(cli->in_obj);
+		cli->in_obj = NULL;
+	}
 }
 
 static bool object_get_more(struct client *cli, struct client_write *wr,
