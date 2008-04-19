@@ -121,7 +121,6 @@ bool cli_evt_http_data_in(struct client *cli, unsigned int events)
 {
 	char *p = cli->netbuf;
 	ssize_t avail, bytes;
-	bool rcb;
 
 	if (!cli->out_len)
 		return object_put_end(cli);
@@ -185,9 +184,7 @@ bool cli_evt_http_data_in(struct client *cli, unsigned int events)
 	if (!cli->out_len)
 		return object_put_end(cli);
 
-	rcb = (avail == CLI_DATA_BUF_SZ) ? true : false;
-
-	return rcb;
+	return true;
 }
 
 bool object_put(struct client *cli, const char *user,

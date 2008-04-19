@@ -473,6 +473,8 @@ do_read:
 		rc = SSL_read(cli->ssl, cli->req_buf + cli->req_used,
 			      CLI_REQ_BUF_SZ - cli->req_used);
 		if (rc <= 0) {
+			if (rc == 0)
+				return -EPIPE;
 			rc = SSL_get_error(cli->ssl, rc);
 			if (rc == SSL_ERROR_WANT_READ)
 				return 0;
