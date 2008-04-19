@@ -222,17 +222,6 @@ static bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 		return false;
 	}
 
-	if (debugging) {
-		struct stat sst;
-		if (fstat(obj->out_fd, &sst) < 0)
-			syslog(LOG_ERR, "fstat(%s) failed: %s",
-			       obj->out_fn, strerror(errno));
-		else
-			syslog(LOG_DEBUG, "STORED %s, size %llu",
-			       obj->out_fn,
-			       (unsigned long long) sst.st_size);
-	}
-
 	close(obj->out_fd);
 	obj->out_fd = -1;
 
