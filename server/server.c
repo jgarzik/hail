@@ -221,7 +221,8 @@ static void cli_free(struct client *cli)
 
 	req_free(&cli->req);
 
-	syslog(LOG_INFO, "client %s ended", cli->addr_host);
+	if (debugging)
+		syslog(LOG_DEBUG, "client %s ended", cli->addr_host);
 
 	if (cli->ssl)
 		SSL_free(cli->ssl);
