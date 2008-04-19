@@ -30,7 +30,7 @@ static size_t read_cb(void *ptr, size_t size, size_t nmemb, void *user_data)
 	return len;
 }
 
-static void test(void)
+static void test(bool encrypt)
 {
 	struct st_object *obj;
 	struct st_keylist *klist;
@@ -44,7 +44,8 @@ static void test(void)
 
 	memset(data, 0xdeadbeef, sizeof(data));
 
-	stc = stc_new(TEST_HOST, TEST_PORT, TEST_USER, TEST_USER_KEY, false);
+	stc = stc_new(TEST_HOST, encrypt ? TEST_SSL_PORT : TEST_PORT,
+		      TEST_USER, TEST_USER_KEY, encrypt);
 	OK(stc);
 
 	/* store object */
@@ -89,7 +90,7 @@ int main(int argc, char *argv[])
 {
 	setlocale(LC_ALL, "C");
 
-	test();
+	test(false);
 
 	return 0;
 }
