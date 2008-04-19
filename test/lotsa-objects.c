@@ -9,7 +9,7 @@ enum {
 	N_TEST_OBJS		= 1000,
 };
 
-static void test(int n_objects)
+static void test(int n_objects, bool encrypt)
 {
 	struct st_keylist *klist;
 	struct st_client *stc;
@@ -20,7 +20,8 @@ static void test(int n_objects)
 	GList *keys = NULL, *tmpl;
 	char *k;
 
-	stc = stc_new(TEST_HOST, TEST_PORT, TEST_USER, TEST_USER_KEY, false);
+	stc = stc_new(TEST_HOST, encrypt ? TEST_SSL_PORT : TEST_PORT,
+		      TEST_USER, TEST_USER_KEY, encrypt);
 	OK(stc);
 
 	/* store object */
@@ -88,7 +89,8 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "testing %d objects...\n", n_objects);
 	}
 
-	test(n_objects);
+	test(n_objects, false);
+	test(n_objects, true);
 
 	return 0;
 }
