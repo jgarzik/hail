@@ -24,6 +24,7 @@
 #include <glib.h>
 #include <openssl/hmac.h>
 #include <openssl/ssl.h>
+#include <openssl/err.h>
 #include <elist.h>
 #include "storaged.h"
 
@@ -1154,8 +1155,16 @@ static void tcp_srv_event(unsigned int events, struct server_socket *sock)
 				cli->evt.events |= EPOLLOUT;
 				cli->ssl_write = true;
 			}
-			else
+			else {
+				unsigned long e = ERR_get_error();
+				char estr[121] = "(none?)";
+
+				if (e)
+					ERR_error_string(e, estr);
+				syslog(LOG_WARNING, "%s SSL error %s",
+				       cli->addr_host, estr);
 				goto err_out_fd;
+			}
 		}
 	}
 
@@ -1170,7 +1179,8 @@ static void tcp_srv_event(unsigned int events, struct server_socket *sock)
 	getnameinfo((struct sockaddr *) &cli->addr, sizeof(struct sockaddr_in6),
 		    host, sizeof(host), NULL, 0, NI_NUMERICHOST);
 	host[sizeof(host) - 1] = 0;
-	syslog(LOG_INFO, "client %s connected", host);
+	syslog(LOG_INFO, "client %s connected%s", host,
+		cli->ssl ? " via SSL" : "");
 
 	strcpy(cli->addr_host, host);
 
@@ -1388,6 +1398,18 @@ int main (int argc, char *argv[])
 
 	register_backends();
 
+	/* init SSL */
+	SSL_load_error_strings();
+
+	ssl_ctx = SSL_CTX_new(SSLv23_server_method());
+	if (!ssl_ctx) {
+		syslog(LOG_ERR, "SSL_CTX_new failed");
+		exit(1);
+	}
+
+	SSL_CTX_set_mode(ssl_ctx, SSL_CTX_get_mode(ssl_ctx) |
+			 SSL_MODE_ENABLE_PARTIAL_WRITE);
+
 	/*
 	 * read master configuration
 	 */
@@ -1421,16 +1443,6 @@ int main (int argc, char *argv[])
 		syslogerr("epoll_create");
 		goto err_out_pid;
 	}
-
-	/* init SSL */
-	ssl_ctx = SSL_CTX_new(TLSv1_server_method());
-	if (!ssl_ctx) {
-		syslog(LOG_ERR, "SSL_CTX_new failed");
-		exit(1);
-	}
-
-	SSL_CTX_set_mode(ssl_ctx, SSL_CTX_get_mode(ssl_ctx) |
-			 SSL_MODE_ENABLE_PARTIAL_WRITE);
 
 	/* set up server networking */
 	tmpl = storaged_srv.listeners;
