@@ -221,8 +221,7 @@ static void cli_free(struct client *cli)
 
 	req_free(&cli->req);
 
-	if (debugging)
-		syslog(LOG_DEBUG, "client %s ended", cli->addr_host);
+	syslog(LOG_INFO, "client %s ended", cli->addr_host);
 
 	if (cli->ssl)
 		SSL_free(cli->ssl);
@@ -362,8 +361,11 @@ do_write:
 		rc = SSL_writev(cli->ssl, iov, n_iov);
 		if (rc <= 0) {
 			rc = SSL_get_error(cli->ssl, rc);
-			if (rc == SSL_ERROR_WANT_READ ||
-			    rc == SSL_ERROR_WANT_WRITE)
+			if (rc == SSL_ERROR_WANT_READ) {
+				cli->write_want_read = true;
+				return;
+			}
+			if (rc == SSL_ERROR_WANT_WRITE)
 				return;
 			cli->state = evt_dispose;
 			return;
@@ -476,7 +478,7 @@ do_read:
 				return 0;
 			if (rc == SSL_ERROR_WANT_WRITE) {
 				cli->evt.events |= EPOLLOUT;
-				cli->ssl_write = true;
+				cli->read_want_write = true;
 				if (cli_epoll_mod(cli) < 0)
 					return -errno;
 				return 0;
@@ -486,7 +488,9 @@ do_read:
 	} else {
 		rc = read(cli->fd, cli->req_buf + cli->req_used,
 		  	CLI_REQ_BUF_SZ - cli->req_used);
-		if (rc < 0) {
+		if (rc <= 0) {
+			if (rc == 0)
+				return -EPIPE;
 			if (errno == EINTR)
 				goto do_read;
 			if (errno == EAGAIN)
@@ -868,6 +872,7 @@ static bool cli_hdr_flush(struct client *cli, bool *loop_state)
 	tmp = cli->hdr_start;
 	while (*tmp) {
 		if (isspace(*tmp)) {
+			syslog(LOG_WARNING, "whitespace in header key");
 			err_resp = InvalidArgument;
 			goto err_out;
 		}
@@ -885,6 +890,7 @@ static bool cli_hdr_flush(struct client *cli, bool *loop_state)
 
 	/* add to list of headers */
 	if (req_hdr_push(&cli->req, cli->hdr_start, tmp + 1)) {
+		syslog(LOG_WARNING, "cannot add to list of headers");
 		err_resp = InvalidArgument;
 		goto err_out;
 	}
@@ -961,8 +967,10 @@ static bool cli_evt_read_hdr(struct client *cli, unsigned int events)
 {
 	int rc = cli_read(cli);
 	if (rc < 0) {
-		if (rc == -ENOSPC)
+		if (rc == -ENOSPC) {
+			syslog(LOG_WARNING, "too much invalid header data");
 			return cli_err(cli, InvalidArgument);
+		}
 
 		cli->state = evt_dispose;
 	} else
@@ -990,16 +998,19 @@ static bool cli_evt_parse_req(struct client *cli, unsigned int events)
 	 * that the first and second tokens are non-empty
 	 */
 	if (*buf == ' ') {
+		syslog(LOG_WARNING, "parse req 1 failed");
 		err_resp = InvalidArgument;
 		goto err_out;
 	}
 	sp1 = strchr(buf, ' ');
 	if ((!sp1) || (*(sp1 + 1) == ' ')) {
+		syslog(LOG_WARNING, "parse req 2 failed");
 		err_resp = InvalidArgument;
 		goto err_out;
 	}
 	sp2 = strchr(sp1 + 1, ' ');
 	if (!sp2) {
+		syslog(LOG_WARNING, "parse req 3 failed");
 		err_resp = InvalidArgument;
 		goto err_out;
 	}
@@ -1044,8 +1055,10 @@ static bool cli_evt_read_req(struct client *cli, unsigned int events)
 {
 	int rc = cli_read(cli);
 	if (rc < 0) {
-		if (rc == -ENOSPC)
+		if (rc == -ENOSPC) {
+			syslog(LOG_WARNING, "too much invalid header data 1");
 			return cli_err(cli, InvalidArgument);
+		}
 
 		cli->state = evt_dispose;
 	} else
@@ -1071,7 +1084,7 @@ static bool cli_evt_ssl_accept(struct client *cli, unsigned int events)
 
 	if (rc == SSL_ERROR_WANT_WRITE) {
 		cli->evt.events |= EPOLLOUT;
-		cli->ssl_write = true;
+		cli->read_want_write = true;
 		if (cli_epoll_mod(cli) < 0)
 			goto out;
 		return false;
@@ -1096,21 +1109,33 @@ static cli_evt_func state_funcs[] = {
 
 static void tcp_cli_event(unsigned int events, struct client *cli)
 {
-	bool loop;
+	bool loop = false;
+	bool writabled = false;
 
+	if (events & EPOLLIN) {
+		if (cli->write_want_read) {
+			cli->write_want_read = false;
+			cli_writable(cli);
+			writabled = true;
+		} else
+			loop = true;
+	}
 	if (events & EPOLLOUT) {
-		events &= ~EPOLLOUT;
-		if (cli->ssl_write)
-			cli->ssl_write = false;
-		else
+		if (cli->read_want_write) {
+			cli->read_want_write = false;
+			loop = true;
+			cli->evt.events &= ~EPOLLOUT;
+			if (cli_epoll_mod(cli) < 0)
+				cli->state = evt_dispose;
+		} else if (!writabled)
 			cli_writable(cli);
 	}
 	if ((events & (EPOLLHUP | EPOLLERR)) && (cli->state == evt_recycle))
 		cli->state = evt_dispose;
 
-	do {
+	while (loop) {
 		loop = state_funcs[cli->state](cli, events);
-	} while (loop);
+	}
 }
 
 static void tcp_srv_event(unsigned int events, struct server_socket *sock)
@@ -1153,7 +1178,7 @@ static void tcp_srv_event(unsigned int events, struct server_socket *sock)
 			else if (rc == SSL_ERROR_WANT_WRITE) {
 				cli->state = evt_ssl_accept;
 				cli->evt.events |= EPOLLOUT;
-				cli->ssl_write = true;
+				cli->read_want_write = true;
 			}
 			else {
 				unsigned long e = ERR_get_error();
@@ -1429,6 +1454,7 @@ int main (int argc, char *argv[])
 	 */
 
 	signal(SIGHUP, SIG_IGN);
+	signal(SIGPIPE, SIG_IGN);
 	signal(SIGINT, term_signal);
 	signal(SIGTERM, term_signal);
 	signal(SIGUSR1, stats_signal);

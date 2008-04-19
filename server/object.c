@@ -121,6 +121,7 @@ bool cli_evt_http_data_in(struct client *cli, unsigned int events)
 {
 	char *p = cli->netbuf;
 	ssize_t avail, bytes;
+	bool rcb;
 
 	if (!cli->out_len)
 		return object_put_end(cli);
@@ -129,12 +130,17 @@ bool cli_evt_http_data_in(struct client *cli, unsigned int events)
 		int rc = SSL_read(cli->ssl, cli->netbuf,
 				  MIN(cli->out_len, CLI_DATA_BUF_SZ));
 		if (rc <= 0) {
+			if (rc == 0) {
+				cli->state = evt_dispose;
+				return true;
+			}
+
 			rc = SSL_get_error(cli->ssl, rc);
 			if (rc == SSL_ERROR_WANT_READ)
 				return false;
 			if (rc == SSL_ERROR_WANT_WRITE) {
 				cli->evt.events |= EPOLLOUT;
-				cli->ssl_write = true;
+				cli->read_want_write = true;
 				if (cli_epoll_mod(cli) < 0)
 					return cli_err(cli, InternalError);
 				return false;
@@ -146,15 +152,18 @@ bool cli_evt_http_data_in(struct client *cli, unsigned int events)
 		avail = read(cli->fd, cli->netbuf,
 			     MIN(cli->out_len, CLI_DATA_BUF_SZ));
 		if (avail <= 0) {
-			if ((avail < 0) && (errno == EAGAIN))
+			if (avail == 0) {
+				syslog(LOG_ERR, "object read(2) unexpected EOF");
+				cli->state = evt_dispose;
+				return true;
+			}
+
+			if (errno == EAGAIN)
 				return false;
 
 			cli_out_end(cli);
-			if (avail < 0)
-				syslog(LOG_ERR, "object read(2) error: %s",
+			syslog(LOG_ERR, "object read(2) error: %s",
 					strerror(errno));
-			else
-				syslog(LOG_ERR, "object read(2) unexpected EOF");
 			return cli_err(cli, InternalError);
 		}
 	}
@@ -176,7 +185,9 @@ bool cli_evt_http_data_in(struct client *cli, unsigned int events)
 	if (!cli->out_len)
 		return object_put_end(cli);
 
-	return (avail == CLI_DATA_BUF_SZ) ? true : false;
+	rcb = (avail == CLI_DATA_BUF_SZ) ? true : false;
+
+	return rcb;
 }
 
 bool object_put(struct client *cli, const char *user,

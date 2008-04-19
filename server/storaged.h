@@ -123,7 +123,8 @@ struct client {
 	struct epoll_event	evt;		/* epoll info */
 
 	SSL			*ssl;
-	bool			ssl_write;
+	bool			read_want_write;
+	bool			write_want_read;
 
 	struct list_head	write_q;	/* list of async writes */
 
