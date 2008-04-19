@@ -335,13 +335,14 @@ static int SSL_writev(SSL *ssl, const struct iovec *iov, int iovcnt)
 
 static void cli_writable(struct client *cli)
 {
-	unsigned int n_iov = 0;
+	unsigned int n_iov;
 	struct client_write *tmp;
 	ssize_t rc;
 	struct iovec iov[CLI_MAX_WR_IOV];
 	bool more_work;
 
 restart:
+	n_iov = 0;
 	more_work = false;
 
 	/* accumulate pending writes into iovec */
@@ -389,6 +390,7 @@ do_write:
 		/* mark data consumed by decreasing tmp->len */
 		sz = (tmp->len < rc) ? tmp->len : rc;
 		tmp->len -= sz;
+		tmp->buf += sz;
 		rc -= sz;
 
 		/* if tmp->len reaches zero, write is complete,

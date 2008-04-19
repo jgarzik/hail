@@ -8,10 +8,6 @@ general:
 storage backends:
 	- support for "one big file" (or blk device) storage backend
 
-network:
-	- BUG: writev() completion modifies tmp->len but not tmp->buf,
-	  which creates data corruption
-
 test suite:
 	- fine-grained HTTP header tests
 		- if-*
