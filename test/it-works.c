@@ -5,16 +5,16 @@
 #include <stc.h>
 #include "test.h"
 
-int main(int argc, char *argv[])
+static void test(bool ssl)
 {
 	struct st_client *stc;
 	struct st_vlist *vlist;
 	struct st_volume *vol;
 
-	setlocale(LC_ALL, "C");
-
 	stc = stc_new(TEST_HOST, TEST_USER, TEST_USER_KEY);
 	OK(stc);
+
+	stc->ssl = ssl;
 
 	vlist = stc_list_volumes(stc);
 	OK(vlist);
@@ -28,7 +28,15 @@ int main(int argc, char *argv[])
 
 	OK(!strcmp(vlist->owner, stc->user));
 
+	stc_free_vlist(vlist);
 	stc_free(stc);
+}
+
+int main(int argc, char *argv[])
+{
+	setlocale(LC_ALL, "C");
+
+	test(false);
 
 	return 0;
 }
