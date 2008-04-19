@@ -35,6 +35,7 @@ struct st_client {
 	char		*user;
 	char		*key;
 	bool		verbose;
+	bool		ssl;
 	pcre		*volkey_re;
 };
 

@@ -110,7 +110,8 @@ bool stc_get(struct st_client *stc, const char *volume, const char *key,
 
 	sprintf(auth, "Authorization: STOR %s:%s", stc->user, hmac);
 	sprintf(host, "Host: %s", stc->host);
-	sprintf(url, "http://localhost:18080%s", orig_path);
+	sprintf(url, "http%s://localhost:18080%s",
+		stc->ssl ? "s" : "", orig_path);
 
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
@@ -196,7 +197,8 @@ bool stc_put(struct st_client *stc, const char *volume,
 
 	sprintf(auth, "Authorization: STOR %s:%s", stc->user, hmac);
 	sprintf(host, "Host: %s", stc->host);
-	sprintf(url, "http://localhost:18080%s", orig_path);
+	sprintf(url, "http%s://localhost:18080%s",
+		stc->ssl ? "s" : "", orig_path);
 
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
@@ -300,7 +302,8 @@ bool stc_del(struct st_client *stc, const char *volume, const char *key)
 
 	sprintf(auth, "Authorization: STOR %s:%s", stc->user, hmac);
 	sprintf(host, "Host: %s", stc->host);
-	sprintf(url, "http://localhost:18080%s", orig_path);
+	sprintf(url, "http%s://localhost:18080%s",
+		stc->ssl ? "s" : "", orig_path);
 
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
@@ -398,7 +401,7 @@ next:
 struct st_vlist *stc_list_volumes(struct st_client *stc)
 {
 	struct http_req req;
-	char datestr[80], timestr[64], hmac[64], auth[128], host[80];
+	char datestr[80], timestr[64], hmac[64], auth[128], host[80], url[80];
 	struct curl_slist *headers = NULL;
 	struct st_vlist *vlist;
 	xmlDocPtr doc;
@@ -428,10 +431,12 @@ struct st_vlist *stc_list_volumes(struct st_client *stc)
 	headers = curl_slist_append(headers, datestr);
 	headers = curl_slist_append(headers, auth);
 
+	sprintf(url, "http%s://localhost:18080/", stc->ssl ? "s" : "");
+
 	curl_easy_reset(stc->curl);
 	if (stc->verbose)
 		curl_easy_setopt(stc->curl, CURLOPT_VERBOSE, 1);
-	curl_easy_setopt(stc->curl, CURLOPT_URL, "http://localhost:18080/");
+	curl_easy_setopt(stc->curl, CURLOPT_URL, url);
 	curl_easy_setopt(stc->curl, CURLOPT_HTTPHEADER, headers);
 	curl_easy_setopt(stc->curl, CURLOPT_ENCODING, "");
 	curl_easy_setopt(stc->curl, CURLOPT_FAILONERROR, 1);
@@ -619,7 +624,10 @@ struct st_keylist *stc_keys(struct st_client *stc, const char *volume)
 		goto err_out;
 	}
 
-	url = g_string_append(url, "http://localhost:18080");
+	url = g_string_append(url, "http");
+	if (stc->ssl)
+		url = g_string_append(url, "s");
+	url = g_string_append(url, "://localhost:18080");
 	url = g_string_append(url, orig_path);
 
 	curl_easy_reset(stc->curl);
