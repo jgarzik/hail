@@ -19,10 +19,11 @@ TESTS =				\
 	daemon-running		\
 	it-works		\
 	basic-object		\
+	large-object		\
 	stop-daemon		\
 	clean-db
 
-check_PROGRAMS		= basic-object it-works
+check_PROGRAMS		= basic-object it-works large-object
 
 TESTLDADD		= ../lib/libstc.a	\
 			  ../lib/libhttputil.a	\
@@ -30,5 +31,6 @@ TESTLDADD		= ../lib/libstc.a	\
 			  @XML_LIBS@
 basic_object_LDADD	= $(TESTLDADD)
 it_works_LDADD		= $(TESTLDADD)
+large_object_LDADD	= $(TESTLDADD)
 
 TESTS_ENVIRONMENT=top_srcdir=$(top_srcdir)
