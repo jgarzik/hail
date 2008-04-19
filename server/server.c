@@ -472,7 +472,7 @@ static int cli_read(struct client *cli)
 do_read:
 	if (cli->ssl) {
 		rc = SSL_read(cli->ssl, cli->req_buf + cli->req_used,
-			      CLI_REQ_BUF_SZ - cli->req_used);
+			      (CLI_REQ_BUF_SZ - 1) - cli->req_used);
 		if (rc <= 0) {
 			if (rc == 0)
 				return -EPIPE;
@@ -490,7 +490,7 @@ do_read:
 		}
 	} else {
 		rc = read(cli->fd, cli->req_buf + cli->req_used,
-		  	CLI_REQ_BUF_SZ - cli->req_used);
+		  	  (CLI_REQ_BUF_SZ - 1) - cli->req_used);
 		if (rc <= 0) {
 			if (rc == 0)
 				return -EPIPE;

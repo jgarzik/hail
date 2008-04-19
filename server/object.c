@@ -192,6 +192,7 @@ bool object_put(struct client *cli, const char *user,
 		long content_len, bool expect_cont, bool sync_data)
 {
 	long avail;
+	bool start_write = false;
 
 	if (!vol)
 		return cli_err(cli, NoSuchVolume);
@@ -219,7 +220,7 @@ bool object_put(struct client *cli, const char *user,
 		asprintf(&cont, "HTTP/%d.%d 100 Continue\r\n\r\n",
 			 cli->req.major, cli->req.minor);
 		cli_writeq(cli, cont, strlen(cont), cli_cb_free, cont);
-		cli_write_start(cli);
+		start_write = true;
 	}
 
 	avail = MIN(cli_req_avail(cli), content_len);
@@ -248,7 +249,8 @@ bool object_put(struct client *cli, const char *user,
 		return object_put_end(cli);
 
 	cli->state = evt_http_data_in;
-	return true;
+
+	return start_write ? cli_write_start(cli) : true;
 }
 
 void cli_in_end(struct client *cli)
