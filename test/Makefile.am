@@ -20,10 +20,12 @@ TESTS =				\
 	it-works		\
 	basic-object		\
 	large-object		\
+	lotsa-objects		\
 	stop-daemon		\
 	clean-db
 
-check_PROGRAMS		= basic-object it-works large-object
+check_PROGRAMS		= basic-object it-works large-object \
+			  lotsa-objects
 
 TESTLDADD		= ../lib/libstc.a	\
 			  ../lib/libhttputil.a	\
@@ -32,5 +34,6 @@ TESTLDADD		= ../lib/libstc.a	\
 basic_object_LDADD	= $(TESTLDADD)
 it_works_LDADD		= $(TESTLDADD)
 large_object_LDADD	= $(TESTLDADD)
+lotsa_objects_LDADD	= $(TESTLDADD)
 
 TESTS_ENVIRONMENT=top_srcdir=$(top_srcdir)
