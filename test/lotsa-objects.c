@@ -20,7 +20,7 @@ static void test(int n_objects)
 	GList *keys = NULL, *tmpl;
 	char *k;
 
-	stc = stc_new(TEST_HOST, TEST_USER, TEST_USER_KEY);
+	stc = stc_new(TEST_HOST, TEST_PORT, TEST_USER, TEST_USER_KEY, false);
 	OK(stc);
 
 	/* store object */

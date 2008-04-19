@@ -15,5 +15,5 @@ test suite:
 		- etc.
 
 network:
+	- BUG: make MY_ENDPOINT a cfgfile option, not compile-time option
 	- BUG: notice, when a client disconnects
-

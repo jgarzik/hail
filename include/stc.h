@@ -37,6 +37,8 @@ struct st_client {
 	bool		verbose;
 	bool		ssl;
 	pcre		*volkey_re;
+
+	char		*url;
 };
 
 extern void stc_free(struct st_client *stc);
@@ -45,8 +47,9 @@ extern void stc_free_vlist(struct st_vlist *vlist);
 extern void stc_free_keylist(struct st_keylist *keylist);
 extern void stc_free_object(struct st_object *obj);
 
-extern struct st_client *stc_new(const char *service_host,
-				 const char *user, const char *secret_key);
+extern struct st_client *stc_new(const char *service_host, int port,
+				 const char *user, const char *secret_key,
+				 bool encrypt);
 
 extern bool stc_get(struct st_client *stc, const char *volume, const char *key,
 	     size_t (*write_cb)(void *, size_t, size_t, void *),

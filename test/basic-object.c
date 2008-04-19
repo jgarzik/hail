@@ -16,7 +16,7 @@ static void test(void)
 	size_t len = 0;
 	void *mem;
 
-	stc = stc_new(TEST_HOST, TEST_USER, TEST_USER_KEY);
+	stc = stc_new(TEST_HOST, TEST_PORT, TEST_USER, TEST_USER_KEY, false);
 	OK(stc);
 
 	/* store object */

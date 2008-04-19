@@ -32,13 +32,15 @@ void stc_free(struct st_client *stc)
 	free(stc->host);
 	free(stc->user);
 	free(stc->key);
+	free(stc->url);
 	free(stc);
 
 	curl_global_cleanup();
 }
 
-struct st_client *stc_new(const char *service_host,
-				 const char *user, const char *secret_key)
+struct st_client *stc_new(const char *service_host, int port,
+			  const char *user, const char *secret_key,
+			  bool encrypt)
 {
 	struct st_client *stc;
 	const char *errptr = NULL;
@@ -48,10 +50,17 @@ struct st_client *stc_new(const char *service_host,
 	if (!stc)
 		return NULL;
 
+	stc->ssl = encrypt;
 	stc->host = strdup(service_host);
 	stc->user = strdup(user);
 	stc->key = strdup(secret_key);
-	if (!stc->host || !stc->user || !stc->key)
+
+	asprintf(&stc->url, "http%s://%s:%d",
+		 encrypt ? "s" : "",
+		 service_host,
+		 port);
+
+	if (!stc->host || !stc->user || !stc->key || !stc->url)
 		goto err_out;
 
 	if (curl_global_init(CURL_GLOBAL_ALL))
@@ -110,8 +119,7 @@ bool stc_get(struct st_client *stc, const char *volume, const char *key,
 
 	sprintf(auth, "Authorization: STOR %s:%s", stc->user, hmac);
 	sprintf(host, "Host: %s", stc->host);
-	sprintf(url, "http%s://localhost:18080%s",
-		stc->ssl ? "s" : "", orig_path);
+	sprintf(url, "%s%s", stc->url, orig_path);
 
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
@@ -197,8 +205,7 @@ bool stc_put(struct st_client *stc, const char *volume,
 
 	sprintf(auth, "Authorization: STOR %s:%s", stc->user, hmac);
 	sprintf(host, "Host: %s", stc->host);
-	sprintf(url, "http%s://localhost:18080%s",
-		stc->ssl ? "s" : "", orig_path);
+	sprintf(url, "%s%s", stc->url, orig_path);
 
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
@@ -302,8 +309,7 @@ bool stc_del(struct st_client *stc, const char *volume, const char *key)
 
 	sprintf(auth, "Authorization: STOR %s:%s", stc->user, hmac);
 	sprintf(host, "Host: %s", stc->host);
-	sprintf(url, "http%s://localhost:18080%s",
-		stc->ssl ? "s" : "", orig_path);
+	sprintf(url, "%s%s", stc->url, orig_path);
 
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
@@ -431,7 +437,7 @@ struct st_vlist *stc_list_volumes(struct st_client *stc)
 	headers = curl_slist_append(headers, datestr);
 	headers = curl_slist_append(headers, auth);
 
-	sprintf(url, "http%s://localhost:18080/", stc->ssl ? "s" : "");
+	sprintf(url, "%s/", stc->url);
 
 	curl_easy_reset(stc->curl);
 	if (stc->verbose)
@@ -624,10 +630,7 @@ struct st_keylist *stc_keys(struct st_client *stc, const char *volume)
 		goto err_out;
 	}
 
-	url = g_string_append(url, "http");
-	if (stc->ssl)
-		url = g_string_append(url, "s");
-	url = g_string_append(url, "://localhost:18080");
+	url = g_string_append(url, stc->url);
 	url = g_string_append(url, orig_path);
 
 	curl_easy_reset(stc->curl);

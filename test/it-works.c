@@ -11,7 +11,7 @@ static void test(bool ssl)
 	struct st_vlist *vlist;
 	struct st_volume *vol;
 
-	stc = stc_new(TEST_HOST, TEST_USER, TEST_USER_KEY);
+	stc = stc_new(TEST_HOST, TEST_PORT, TEST_USER, TEST_USER_KEY, false);
 	OK(stc);
 
 	stc->ssl = ssl;

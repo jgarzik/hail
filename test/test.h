@@ -4,9 +4,10 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#define TEST_HOST "pretzel.yyz.us"
+#define TEST_HOST "localhost"
 #define TEST_USER "testuser"
 #define TEST_USER_KEY "testuser"
+#define TEST_PORT 18080
 
 #define OK(expr)				\
 	do {					\
