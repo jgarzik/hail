@@ -11,10 +11,9 @@ static void test(bool ssl)
 	struct st_vlist *vlist;
 	struct st_volume *vol;
 
-	stc = stc_new(TEST_HOST, TEST_PORT, TEST_USER, TEST_USER_KEY, false);
+	stc = stc_new(TEST_HOST, ssl ? TEST_SSL_PORT : TEST_PORT,
+		      TEST_USER, TEST_USER_KEY, ssl);
 	OK(stc);
-
-	stc->ssl = ssl;
 
 	vlist = stc_list_volumes(stc);
 	OK(vlist);
@@ -37,6 +36,7 @@ int main(int argc, char *argv[])
 	setlocale(LC_ALL, "C");
 
 	test(false);
+	test(true);
 
 	return 0;
 }

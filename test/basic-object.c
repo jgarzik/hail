@@ -5,7 +5,7 @@
 #include <stc.h>
 #include "test.h"
 
-static void test(void)
+static void test(bool encrypt)
 {
 	struct st_object *obj;
 	struct st_keylist *klist;
@@ -16,7 +16,8 @@ static void test(void)
 	size_t len = 0;
 	void *mem;
 
-	stc = stc_new(TEST_HOST, TEST_PORT, TEST_USER, TEST_USER_KEY, false);
+	stc = stc_new(TEST_HOST, encrypt ? TEST_SSL_PORT : TEST_PORT,
+		      TEST_USER, TEST_USER_KEY, encrypt);
 	OK(stc);
 
 	/* store object */
@@ -59,7 +60,8 @@ int main(int argc, char *argv[])
 {
 	setlocale(LC_ALL, "C");
 
-	test();
+	test(false);
+	test(true);
 
 	return 0;
 }

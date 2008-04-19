@@ -10,7 +10,8 @@ EXTRA_DIST =			\
 	pid-exists		\
 	daemon-running		\
 	stop-daemon		\
-	clean-db
+	clean-db		\
+	ssl-key.pem ssl-cert.pem
 
 TESTS =				\
 	prep-db			\

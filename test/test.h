@@ -8,6 +8,7 @@
 #define TEST_USER "testuser"
 #define TEST_USER_KEY "testuser"
 #define TEST_PORT 18080
+#define TEST_SSL_PORT 28080
 
 #define OK(expr)				\
 	do {					\
