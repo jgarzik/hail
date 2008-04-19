@@ -75,7 +75,7 @@ static bool object_put_end(struct client *cli)
 	shastr(md, hashstr);
 
 	rcb = cli->out_vol->be->obj_write_commit(cli->out_bo, cli->out_user,
-						 hashstr);
+						 hashstr, cli->out_sync);
 	if (!rcb)
 		goto err_out;
 
@@ -175,7 +175,7 @@ bool cli_evt_http_data_in(struct client *cli, unsigned int events)
 
 bool object_put(struct client *cli, const char *user,
 		struct server_volume *vol,
-		long content_len, bool expect_cont)
+		long content_len, bool expect_cont, bool sync_data)
 {
 	long avail;
 
@@ -192,6 +192,7 @@ bool object_put(struct client *cli, const char *user,
 	SHA1_Init(&cli->out_hash);
 	cli->out_len = content_len;
 	cli->out_user = strdup(user);
+	cli->out_sync = sync_data;
 
 	/* handle Expect: 100-continue header, by unconditionally
 	 * requesting that they continue.  At this point, the storage

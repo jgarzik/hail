@@ -210,13 +210,13 @@ static ssize_t fs_obj_write(struct backend_obj *bo, const void *ptr,
 }
 
 static bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
-				const char *hashstr)
+				const char *hashstr, bool sync_data)
 {
 	struct fs_obj *obj = bo->private;
 	sqlite3_stmt *stmt;
 	int rc;
 
-	if (fsync(obj->out_fd) < 0) {
+	if (sync_data && fsync(obj->out_fd) < 0) {
 		syslog(LOG_ERR, "fsync(%s) failed: %s",
 		       obj->out_fn, strerror(errno));
 		return false;

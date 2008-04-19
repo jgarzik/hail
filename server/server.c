@@ -649,6 +649,7 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 	bool rcb, pslash, buck_in_path = false;
 	bool expect_cont = false;
 	bool force_close = false;
+	bool sync_data;
 	enum errcode err;
 	struct server_volume *vol = NULL;
 
@@ -657,6 +658,7 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 	content_len_str = req_hdr(req, "content-length");
 	auth = req_hdr(req, "authorization");
 	cxn_str = req_hdr(req, "connection");
+	sync_data = req_hdr(req, "x-data-sync") ? true : false;
 	if (req->major > 1 || req->minor > 0) {
 		char *expect = req_hdr(req, "expect");
 		if (expect && strcasestr(expect, "100-continue"))
@@ -780,7 +782,8 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 
 		content_len = atol(content_len_str);
 
-		rcb = object_put(cli, user, vol, content_len, expect_cont);
+		rcb = object_put(cli, user, vol, content_len, expect_cont,
+				 sync_data);
 	} else if (volume && !pslash && !strcmp(method, "DELETE"))
 		rcb = object_del(cli, user, vol, key);
 

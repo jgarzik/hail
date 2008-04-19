@@ -86,7 +86,8 @@ Request URI:	PUT http://hostname:port/$VOLUME/
 
 Request headers:
 	Expect
-	Content-length (required)
+	Content-length	(required)
+	X-Data-Sync	(if present, wait for data ack from storage dev)
 
 Response headers:
 	Content-length: 0
