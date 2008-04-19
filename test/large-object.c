@@ -30,7 +30,7 @@ static size_t read_cb(void *ptr, size_t size, size_t nmemb, void *user_data)
 	return len;
 }
 
-int main(int argc, char *argv[])
+static void test(void)
 {
 	struct st_object *obj;
 	struct st_keylist *klist;
@@ -41,8 +41,6 @@ int main(int argc, char *argv[])
 	void *mem, *p;
 	char data[BUFSZ];
 	int i;
-
-	setlocale(LC_ALL, "C");
 
 	memset(data, 0xdeadbeef, sizeof(data));
 
@@ -85,6 +83,13 @@ int main(int argc, char *argv[])
 	OK(rcb);
 
 	stc_free(stc);
+}
+
+int main(int argc, char *argv[])
+{
+	setlocale(LC_ALL, "C");
+
+	test();
 
 	return 0;
 }

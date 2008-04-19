@@ -9,7 +9,7 @@ enum {
 	N_TEST_OBJS		= 1000,
 };
 
-int main(int argc, char *argv[])
+static void test(int n_objects)
 {
 	struct st_keylist *klist;
 	struct st_client *stc;
@@ -19,14 +19,6 @@ int main(int argc, char *argv[])
 	int i;
 	GList *keys = NULL, *tmpl;
 	char *k;
-	int n_objects = N_TEST_OBJS;
-
-	setlocale(LC_ALL, "C");
-
-	if (argc == 2 && (atoi(argv[1]) > 0)) {
-		n_objects = atoi(argv[1]);
-		fprintf(stderr, "testing %d objects...\n", n_objects);
-	}
 
 	stc = stc_new(TEST_HOST, TEST_USER, TEST_USER_KEY);
 	OK(stc);
@@ -76,9 +68,28 @@ int main(int argc, char *argv[])
 		k = tmpl->data;
 		rcb = stc_del(stc, "testvol", k);
 		OK(rcb);
+
+		free(k);
 	}
 
+	g_list_free(keys);
+
 	stc_free(stc);
+}
+
+int main(int argc, char *argv[])
+{
+	int n_objects = N_TEST_OBJS;
+
+	setlocale(LC_ALL, "C");
+
+	if (argc == 2 && (atoi(argv[1]) > 0)) {
+		n_objects = atoi(argv[1]);
+		fprintf(stderr, "testing %d objects...\n", n_objects);
+	}
+
+	test(n_objects);
 
 	return 0;
 }
+

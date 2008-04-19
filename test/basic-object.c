@@ -5,7 +5,7 @@
 #include <stc.h>
 #include "test.h"
 
-int main(int argc, char *argv[])
+static void test(void)
 {
 	struct st_object *obj;
 	struct st_keylist *klist;
@@ -15,8 +15,6 @@ int main(int argc, char *argv[])
 	char key[64] = "";
 	size_t len = 0;
 	void *mem;
-
-	setlocale(LC_ALL, "C");
 
 	stc = stc_new(TEST_HOST, TEST_USER, TEST_USER_KEY);
 	OK(stc);
@@ -40,17 +38,28 @@ int main(int argc, char *argv[])
 	OK(obj->size == strlen(val));
 	OK(obj->owner);
 
+	stc_free_keylist(klist);
+
 	/* get object */
 	mem = stc_get_inline(stc, "testvol", key, false, &len);
 	OK(mem);
 	OK(len == strlen(val));
 	OK(!memcmp(val, mem, strlen(val)));
 
+	free(mem);
+
 	/* delete object */
 	rcb = stc_del(stc, "testvol", key);
 	OK(rcb);
 
 	stc_free(stc);
+}
+
+int main(int argc, char *argv[])
+{
+	setlocale(LC_ALL, "C");
+
+	test();
 
 	return 0;
 }
