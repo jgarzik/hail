@@ -6,7 +6,7 @@ then
 	exit 1
 fi
 
-../server/storaged -f $top_srcdir/test/server-test.cfg --debug
+../server/storaged -f $top_srcdir/test/server-test.cfg $*
 
 sleep 3
 
