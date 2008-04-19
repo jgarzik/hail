@@ -128,6 +128,7 @@ bool stc_get(struct st_client *stc, const char *volume, const char *key,
 	curl_easy_reset(stc->curl);
 	if (stc->verbose)
 		curl_easy_setopt(stc->curl, CURLOPT_VERBOSE, 1);
+	curl_easy_setopt(stc->curl, CURLOPT_SSL_VERIFYPEER, 0);
 	curl_easy_setopt(stc->curl, CURLOPT_URL, url);
 	curl_easy_setopt(stc->curl, CURLOPT_HEADER, want_headers ? 1 : 0);
 	curl_easy_setopt(stc->curl, CURLOPT_HTTPHEADER, headers);
@@ -214,6 +215,7 @@ bool stc_put(struct st_client *stc, const char *volume,
 	curl_easy_reset(stc->curl);
 	if (stc->verbose)
 		curl_easy_setopt(stc->curl, CURLOPT_VERBOSE, 1);
+	curl_easy_setopt(stc->curl, CURLOPT_SSL_VERIFYPEER, 0);
 	curl_easy_setopt(stc->curl, CURLOPT_URL, url);
 	curl_easy_setopt(stc->curl, CURLOPT_HTTPHEADER, headers);
 	curl_easy_setopt(stc->curl, CURLOPT_FAILONERROR, 1);
@@ -318,6 +320,7 @@ bool stc_del(struct st_client *stc, const char *volume, const char *key)
 	curl_easy_reset(stc->curl);
 	if (stc->verbose)
 		curl_easy_setopt(stc->curl, CURLOPT_VERBOSE, 1);
+	curl_easy_setopt(stc->curl, CURLOPT_SSL_VERIFYPEER, 0);
 	curl_easy_setopt(stc->curl, CURLOPT_URL, url);
 	curl_easy_setopt(stc->curl, CURLOPT_HTTPHEADER, headers);
 	curl_easy_setopt(stc->curl, CURLOPT_FAILONERROR, 1);
@@ -442,6 +445,7 @@ struct st_vlist *stc_list_volumes(struct st_client *stc)
 	curl_easy_reset(stc->curl);
 	if (stc->verbose)
 		curl_easy_setopt(stc->curl, CURLOPT_VERBOSE, 1);
+	curl_easy_setopt(stc->curl, CURLOPT_SSL_VERIFYPEER, 0);
 	curl_easy_setopt(stc->curl, CURLOPT_URL, url);
 	curl_easy_setopt(stc->curl, CURLOPT_HTTPHEADER, headers);
 	curl_easy_setopt(stc->curl, CURLOPT_ENCODING, "");
@@ -636,6 +640,7 @@ struct st_keylist *stc_keys(struct st_client *stc, const char *volume)
 	curl_easy_reset(stc->curl);
 	if (stc->verbose)
 		curl_easy_setopt(stc->curl, CURLOPT_VERBOSE, 1);
+	curl_easy_setopt(stc->curl, CURLOPT_SSL_VERIFYPEER, 0);
 	curl_easy_setopt(stc->curl, CURLOPT_URL, url->str);
 	curl_easy_setopt(stc->curl, CURLOPT_HTTPHEADER, headers);
 	curl_easy_setopt(stc->curl, CURLOPT_ENCODING, "");
