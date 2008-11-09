@@ -20,6 +20,6 @@ push
 stamp-h1
 
 # app-specific
-skeleton
-skeleton*.tar.gz
-skeleton-config.h*
+cld
+cld*.tar.gz
+cld-config.h*
