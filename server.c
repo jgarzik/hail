@@ -58,22 +58,45 @@ struct server cld_srv = {
 	.port			= CLD_DEF_PORT,
 };
 
-void resp_err(struct server_socket *sock, struct client *cli,
-		     struct cld_msg *msg, enum cle_err_codes errcode)
+static void udp_tx(struct server_socket *sock, struct client *cli,
+		   const void *data, size_t data_len)
 {
-	/* FIXME */
+	ssize_t src;
+
+	src = sendto(sock->fd, data, data_len, 0, 
+		     (struct sockaddr *) &cli->addr, cli->addr_len);
+	if (src < 0)
+		syslogerr("sendto");
+}
+
+static void resp_copy(struct cld_msg_hdr *dest, const struct cld_msg_hdr *src)
+{
+	memcpy(dest, src, sizeof(*dest));
+	dest->n_data = 0;
+	dest->data_len = 0;
+}
+
+void resp_err(struct server_socket *sock, struct client *cli,
+		     struct cld_msg_hdr *msg, enum cle_err_codes errcode)
+{
+	struct cld_msg_resp resp;
+
+	resp_copy(&resp.hdr, msg);
+	resp.code = GUINT32_TO_LE(errcode);
+
+	udp_tx(sock, cli, &resp, sizeof(resp));
 }
 
 void resp_ok(struct server_socket *sock, struct client *cli,
-		    struct cld_msg *msg)
+		    struct cld_msg_hdr *msg)
 {
-	/* FIXME */
+	resp_err(sock, cli, msg, CLE_OK);
 }
 
 static bool udp_rx(struct server_socket *sock, DB_TXN *txn, struct client *cli,
 		   uint8_t *raw_msg, size_t msg_len)
 {
-	struct cld_msg *msg = (struct cld_msg *) raw_msg;
+	struct cld_msg_hdr *msg = (struct cld_msg_hdr *) raw_msg;
 
 	if (msg_len < sizeof(*msg))
 		return false;

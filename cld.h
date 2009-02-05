@@ -66,12 +66,6 @@ struct raw_session {
 	uint64_t		last_contact;	/* time of last contact */
 };
 
-enum cle_err_codes {
-	CLE_NONE,
-	CLE_CLI_EXISTS,
-	CLE_DB_ERR,
-};
-
 /* msg.c */
 bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
 		 struct client *cli, uint8_t *raw_msg, size_t msg_len);
@@ -80,9 +74,9 @@ bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
 extern struct server cld_srv;
 extern int debugging;
 extern void resp_err(struct server_socket *sock, struct client *cli,
-		     struct cld_msg *msg, enum cle_err_codes errcode);
+		     struct cld_msg_hdr *msg, enum cle_err_codes errcode);
 extern void resp_ok(struct server_socket *sock, struct client *cli,
-		    struct cld_msg *msg);
+		    struct cld_msg_hdr *msg);
 
 /* util.c */
 extern int write_pid_file(const char *pid_fn);
