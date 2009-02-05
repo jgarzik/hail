@@ -140,7 +140,7 @@ int cldb_open(struct cldb *cldb, unsigned int env_flags, unsigned int flags,
 	 * Open metadata database
 	 */
 
-	rc = open_db(dbenv, &cldb->session, "session", CLDB_PGSZ_PASSWD, flags);
+	rc = open_db(dbenv, &cldb->sessions, "sessions", CLDB_PGSZ_PASSWD, flags);
 	if (rc)
 		goto err_out;
 
@@ -153,10 +153,10 @@ err_out:
 
 void cldb_close(struct cldb *cldb)
 {
-	cldb->session->close(cldb->session, 0);
+	cldb->sessions->close(cldb->sessions, 0);
 	cldb->env->close(cldb->env, 0);
 
 	cldb->env = NULL;
-	cldb->session = NULL;
+	cldb->sessions = NULL;
 }
 

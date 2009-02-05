@@ -8,7 +8,7 @@ bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
 		 struct client *cli, uint8_t *raw_msg, size_t msg_len)
 {
 	struct cld_msg_hdr *msg = (struct cld_msg_hdr *) raw_msg;
-	DB *db = cld_srv.cldb.session;
+	DB *db = cld_srv.cldb.sessions;
 	struct raw_session sess;
 	DBT key, val;
 	int rc;
