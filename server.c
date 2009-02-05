@@ -11,7 +11,6 @@
 #include <locale.h>
 #include <argp.h>
 #include <netdb.h>
-#include "cldb.h"
 #include "cld.h"
 
 #define PROGRAM_NAME "cld"
@@ -21,8 +20,10 @@
 const char *argp_program_version = PACKAGE_VERSION;
 
 enum {
-	TABLED_EPOLL_INIT_SIZE	= 200,		/* passed to epoll_create(2) */
-	TABLED_EPOLL_MAX_EVT	= 100,		/* max events per poll */
+	CLD_EPOLL_INIT_SIZE	= 200,		/* passed to epoll_create(2) */
+	CLD_EPOLL_MAX_EVT	= 100,		/* max events per poll */
+
+	CLD_RAW_MSG_SZ		= 4096,
 };
 
 static struct argp_option options[] = {
@@ -57,37 +58,95 @@ struct server cld_srv = {
 	.port			= CLD_DEF_PORT,
 };
 
-static struct client *cli_alloc(void)
+void resp_err(struct server_socket *sock, struct client *cli,
+		     struct cld_msg *msg, enum cle_err_codes errcode)
 {
-	return calloc(1, sizeof(struct client));
+	/* FIXME */
+}
+
+void resp_ok(struct server_socket *sock, struct client *cli,
+		    struct cld_msg *msg)
+{
+	/* FIXME */
+}
+
+static bool udp_rx(struct server_socket *sock, DB_TXN *txn, struct client *cli,
+		   uint8_t *raw_msg, size_t msg_len)
+{
+	struct cld_msg *msg = (struct cld_msg *) raw_msg;
+
+	if (msg_len < sizeof(*msg))
+		return false;
+
+	switch(msg->op) {
+	case cmo_nop:
+		break;
+	case cmo_new_cli:
+		return msg_new_cli(sock, txn, cli, raw_msg, msg_len);
+	default:
+		return false;
+	}
+
+	return true;
 }
 
 static void udp_event(unsigned int events, struct server_socket *sock)
 {
-	struct client *cli;
+	struct client cli;
 	char host[64];
+	ssize_t rrc;
+	struct msghdr hdr;
+	struct iovec iov[2];
+	uint8_t raw_msg[CLD_RAW_MSG_SZ], ctl_msg[CLD_RAW_MSG_SZ];
+	int rc;
+	DB_ENV *dbenv = cld_srv.cldb.env;
+	DB_TXN *txn;
+	const char *dberrmsg;
 
-	/* alloc and init client info */
-	cli = cli_alloc();
-	if (!cli)
-		goto err_out;
+	memset(&cli, 0, sizeof(cli));
 
-	/* FIXME: fill in cli->addr */
+	iov[0].iov_base = raw_msg;
+	iov[0].iov_len = sizeof(raw_msg);
+
+	hdr.msg_name = &cli.addr;
+	hdr.msg_namelen = sizeof(cli.addr);
+	hdr.msg_iov = iov;
+	hdr.msg_iovlen = 1;
+	hdr.msg_control = ctl_msg;
+	hdr.msg_controllen = sizeof(ctl_msg);
+
+	rrc = recvmsg(sock->fd, &hdr, 0);
+	if (rrc < 0) {
+		syslogerr("UDP recvmsg");
+		return;
+	}
+	cli.addr_len = hdr.msg_namelen;
 
 	/* pretty-print incoming cxn info */
-	getnameinfo((struct sockaddr *) &cli->addr, sizeof(struct sockaddr_in6),
+	getnameinfo((struct sockaddr *) &cli.addr, cli.addr_len,
 		    host, sizeof(host), NULL, 0, NI_NUMERICHOST);
 	host[sizeof(host) - 1] = 0;
+
+	strcpy(cli.addr_host, host);
 
 	if (debugging)
 		syslog(LOG_DEBUG, "client %s message", host);
 
-	strcpy(cli->addr_host, host);
+	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
+		return;
+	}
 
-	return;
-
-err_out:
-	syslog(LOG_INFO, "client %s message error", host);
+	if (udp_rx(sock, txn, &cli, raw_msg, rrc)) {
+		rc = txn->commit(txn, 0);
+		dberrmsg = "DB_ENV->txn_commit";
+	} else {
+		rc = txn->abort(txn);
+		dberrmsg = "DB_ENV->txn_abort";
+	}
+	if (rc)
+		dbenv->err(dbenv, rc, dberrmsg);
 }
 
 static int net_open(void)
@@ -233,11 +292,11 @@ static void log_stats(void)
 
 static void main_loop(void)
 {
-	struct epoll_event evt[TABLED_EPOLL_MAX_EVT];
+	struct epoll_event evt[CLD_EPOLL_MAX_EVT];
 	int rc, i;
 
 	while (server_running) {
-		rc = epoll_wait(cld_srv.epoll_fd, evt, TABLED_EPOLL_MAX_EVT, -1);
+		rc = epoll_wait(cld_srv.epoll_fd, evt, CLD_EPOLL_MAX_EVT, -1);
 		if (rc < 0) {
 			if (errno == EINTR)
 				continue;
@@ -246,7 +305,7 @@ static void main_loop(void)
 			return;
 		}
 
-		if (rc == TABLED_EPOLL_MAX_EVT)
+		if (rc == CLD_EPOLL_MAX_EVT)
 			cld_srv.stats.max_evt++;
 		cld_srv.stats.poll++;
 
@@ -298,7 +357,9 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 static void cldb_init(void)
 {
 	cld_srv.cldb.home = cld_srv.data_dir;
-	if (cldb_open(&cld_srv.cldb, DB_RECOVER | DB_CREATE, DB_CREATE,
+	if (cldb_open(&cld_srv.cldb,
+		      DB_CREATE | DB_THREAD | DB_RECOVER,
+		      DB_CREATE | DB_THREAD,
 		      "cld", true))
 		exit(1);
 }
@@ -351,7 +412,7 @@ int main (int argc, char *argv[])
 	cldb_init();
 
 	/* create master epoll fd */
-	cld_srv.epoll_fd = epoll_create(TABLED_EPOLL_INIT_SIZE);
+	cld_srv.epoll_fd = epoll_create(CLD_EPOLL_INIT_SIZE);
 	if (cld_srv.epoll_fd < 0) {
 		syslogerr("epoll_create");
 		goto err_out_pid;

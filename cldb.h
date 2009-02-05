@@ -28,7 +28,7 @@ struct cldb {
 	char		*key;			/* database AES key */
 
 	DB_ENV		*env;			/* db4 env ptr */
-	DB		*passwd;		/* user/password db */
+	DB		*session;		/* client sessions */
 };
 
 

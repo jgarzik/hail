@@ -5,6 +5,7 @@
 #include <netinet/in.h>
 #include <glib.h>
 #include "cldb.h"
+#include "cld_msg.h"
 
 struct client;
 struct server_socket;
@@ -26,10 +27,8 @@ struct server_poll {
 
 struct client {
 	struct sockaddr_in6	addr;		/* inet address */
+	socklen_t		addr_len;	/* inet address len */
 	char			addr_host[64];	/* ASCII version of inet addr */
-	int			fd;		/* socket */
-	struct server_poll	poll;		/* poll info */
-	struct epoll_event	evt;		/* epoll info */
 };
 
 struct server_stats {
@@ -61,9 +60,29 @@ struct server {
 	struct server_stats	stats;		/* global statistics */
 };
 
+struct raw_session {
+	uint8_t			clid[8];	/* client id */
+	char			addr[64];	/* IP address */
+	uint64_t		last_contact;	/* time of last contact */
+};
+
+enum cle_err_codes {
+	CLE_NONE,
+	CLE_CLI_EXISTS,
+	CLE_DB_ERR,
+};
+
+/* msg.c */
+bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
+		 struct client *cli, uint8_t *raw_msg, size_t msg_len);
+
 /* server.c */
 extern struct server cld_srv;
 extern int debugging;
+extern void resp_err(struct server_socket *sock, struct client *cli,
+		     struct cld_msg *msg, enum cle_err_codes errcode);
+extern void resp_ok(struct server_socket *sock, struct client *cli,
+		    struct cld_msg *msg);
 
 /* util.c */
 extern int write_pid_file(const char *pid_fn);
