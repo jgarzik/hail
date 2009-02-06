@@ -1,0 +1,54 @@
+
+sessions	(key: clid)
+------------------------------------------------------
+
+clid:		client id
+addr:		IP address
+last_contact:	time of last contact
+next_handle:	number of next file handle
+
+
+handles		(key: clid, hid)
+------------------------------------------------------
+
+clid:		client id
+hid:		handle id
+ino:		inode
+mode:		open mode
+events:		event mask
+
+inodes		(key: name)
+------------------------------------------------------
+
+name
+size
+create time
+last mod time
+number of handles
+list of handles
+
+data		(key: inode name)
+------------------------------------------------------
+
+.. raw data ..
+
+
+=========================================================================
+
+open
+
+	read session
+	read inode
+	if creating
+		alloc & init new inode
+		read parent inode
+		read parent inode data
+		update parent inode data (add new inode to list)
+		update parent inode (last mod, size)
+	alloc & init handle
+	store new handle
+	add handle to session list
+	add handle to inode list
+	update inode
+	update session
+

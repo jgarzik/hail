@@ -1,6 +1,25 @@
 #ifndef __CLD_H__
 #define __CLD_H__
 
+/*
+ * Copyright 2009 Red Hat, Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; see the file COPYING.  If not, write to
+ * the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
+ *
+ */
+
+
 #include <sys/epoll.h>
 #include <netinet/in.h>
 #include <glib.h>
@@ -9,6 +28,8 @@
 
 struct client;
 struct server_socket;
+
+#define ALIGN8(n) ((8 - ((n) & 7)) & 7)
 
 enum {
 	SFL_FOREGROUND		= (1 << 0),	/* run in foreground */
@@ -60,14 +81,10 @@ struct server {
 	struct server_stats	stats;		/* global statistics */
 };
 
-struct raw_session {
-	uint8_t			clid[8];	/* client id */
-	char			addr[64];	/* IP address */
-	uint64_t		last_contact;	/* time of last contact */
-};
-
 /* msg.c */
-bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
+extern bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
+		 struct client *cli, uint8_t *raw_msg, size_t msg_len);
+extern bool msg_open(struct server_socket *sock, DB_TXN *txn,
 		 struct client *cli, uint8_t *raw_msg, size_t msg_len);
 
 /* server.c */
