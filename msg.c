@@ -183,8 +183,8 @@ static bool inode_append(struct raw_inode **ino, struct raw_handle *h)
 	return true;
 }
 
-bool msg_open(struct server_socket *sock, DB_TXN *txn,
-		 struct client *cli, uint8_t *raw_msg, size_t msg_len)
+bool msg_open(struct server_socket *sock, DB_TXN *txn, struct client *cli,
+	      struct session *sess, uint8_t *raw_msg, size_t msg_len)
 {
 	struct cld_msg_open *msg = (struct cld_msg_open *) raw_msg;
 	char *name;
@@ -198,7 +198,6 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn,
 	size_t parent_len;
 	uint32_t msg_mode, msg_events;
 	uint64_t fh;
-	struct session *sess;
 
 	/* make sure input data as large as expected */
 	if (msg_len < sizeof(*msg))
@@ -221,11 +220,6 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn,
 	}
 
 	pathname_parse(name, name_len, &pinfo);
-
-	/* look up client session, verify it matches IP */
-	sess = g_hash_table_lookup(cld_srv.sessions, msg->hdr.clid);
-	if (!sess || strcmp(sess->ipaddr, cli->addr_host))
-		return false;
 
 	/* read inode from db, if it exists */
 	rc = cldb_inode_get(txn, name, name_len, &inode, true, true);
@@ -281,7 +275,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn,
 			goto err_out;
 		}
 
-		parent->time_modify = GUINT64_TO_LE(time(NULL));
+		parent->time_modify = GUINT64_TO_LE(current_time);
 		parent->size = GUINT32_TO_LE(parent_len);
 
 		/* write parent inode */
@@ -312,7 +306,6 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn,
 	}
 
 	g_array_append_val(sess->handles, fh);
-	sess->last_contact = time(NULL);
 
 	raw_sess = session_new_raw(sess);
 
@@ -323,7 +316,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn,
 		goto err_out;
 	}
 
-	inode->time_modify = GUINT64_TO_LE(time(NULL));
+	inode->time_modify = GUINT64_TO_LE(current_time);
 
 	/* write inode */
 	rc = cldb_inode_put(txn, name, name_len, inode, 0);
@@ -371,7 +364,7 @@ bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
 
 	memcpy(&sess->clid, &msg->clid, sizeof(sess->clid));
 	strncpy(sess->ipaddr, cli->addr_host, sizeof(sess->ipaddr));
-	sess->last_contact = time(NULL);
+	sess->last_contact = current_time;
 
 	session_encode(&raw_sess, sess);
 
@@ -386,8 +379,7 @@ bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
 
 	rc = db->put(db, txn, &key, &val, DB_NOOVERWRITE);
 	if (rc) {
-		resp_err(sock, cli, msg,
-			(rc == DB_KEYEXIST) ? CLE_CLI_EXISTS : CLE_DB_ERR);
+		resp_err(sock, cli, msg, CLE_DB_ERR);
 		return false;
 	}
 

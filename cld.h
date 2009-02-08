@@ -97,13 +97,15 @@ struct server {
 extern bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
 		 struct client *cli, uint8_t *raw_msg, size_t msg_len);
 extern bool msg_open(struct server_socket *sock, DB_TXN *txn,
-		 struct client *cli, uint8_t *raw_msg, size_t msg_len);
+		 struct client *cli, struct session *sess, uint8_t *raw_msg,
+		 size_t msg_len);
 extern guint sess_hash(gconstpointer v);
 extern gboolean sess_equal(gconstpointer _a, gconstpointer _b);
 
 /* server.c */
 extern struct server cld_srv;
 extern int debugging;
+extern time_t current_time;
 extern void resp_err(struct server_socket *sock, struct client *cli,
 		     struct cld_msg_hdr *msg, enum cle_err_codes errcode);
 extern void resp_ok(struct server_socket *sock, struct client *cli,

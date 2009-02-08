@@ -325,7 +325,7 @@ struct raw_inode *cldb_inode_new(char *name, size_t name_len, uint32_t flags)
 	
 	ino->ino_len = GUINT32_TO_LE(name_len);
 	ino->time_create = 
-	ino->time_modify = GUINT64_TO_LE(time(NULL));
+	ino->time_modify = GUINT64_TO_LE(current_time);
 	ino->flags = GUINT32_TO_LE(flags);
 
 	mem = ino + sizeof(*ino);

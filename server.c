@@ -69,6 +69,7 @@ static const struct argp argp = { options, parse_opt, NULL, doc };
 static bool server_running = true;
 static bool dump_stats;
 int debugging = 0;
+time_t current_time;
 
 struct server cld_srv = {
 	.data_dir		= "/spare/tmp/cld/lib",
@@ -115,10 +116,24 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn, struct client *cli,
 		   uint8_t *raw_msg, size_t msg_len)
 {
 	struct cld_msg_hdr *msg = (struct cld_msg_hdr *) raw_msg;
+	struct session *sess = NULL;
 
 	if (msg_len < sizeof(*msg))
 		return false;
 	if (memcmp(msg->magic, CLD_MAGIC, sizeof(msg->magic)))
+		return false;
+
+	/* look up client session, verify it matches IP */
+	sess = g_hash_table_lookup(cld_srv.sessions, msg->clid);
+	if (sess && strcmp(sess->ipaddr, cli->addr_host))
+		return false;
+
+	if (msg->op != cmo_new_cli) {
+		if (!sess)
+			return false;
+
+		sess->last_contact = time(NULL);
+	} else if (sess)
 		return false;
 
 	switch(msg->op) {
@@ -127,7 +142,7 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn, struct client *cli,
 	case cmo_new_cli:
 		return msg_new_cli(sock, txn, cli, raw_msg, msg_len);
 	case cmo_open:
-		return msg_open(sock, txn, cli, raw_msg, msg_len);
+		return msg_open(sock, txn, cli, sess, raw_msg, msg_len);
 	default:
 		return false;
 	}
@@ -354,6 +369,8 @@ static void main_loop(void)
 			cld_srv.stats.max_evt++;
 		cld_srv.stats.poll++;
 
+		current_time = time(NULL);
+
 		for (i = 0; i < rc; i++)
 			handle_event(evt[i].events, evt[i].data.ptr);
 
@@ -416,6 +433,8 @@ int main (int argc, char *argv[])
 
 	/* isspace() and strcasecmp() consistency requires this */
 	setlocale(LC_ALL, "C");
+
+	current_time = time(NULL);
 
 	/*
 	 * parse command line
