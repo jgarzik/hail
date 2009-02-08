@@ -356,7 +356,8 @@ static void main_loop(void)
 	int rc, i;
 
 	while (server_running) {
-		rc = epoll_wait(cld_srv.epoll_fd, evt, CLD_EPOLL_MAX_EVT, -1);
+		rc = epoll_wait(cld_srv.epoll_fd, evt, CLD_EPOLL_MAX_EVT,
+				timer_next());
 		if (rc < 0) {
 			if (errno == EINTR)
 				continue;
@@ -373,6 +374,8 @@ static void main_loop(void)
 
 		for (i = 0; i < rc; i++)
 			handle_event(evt[i].events, evt[i].data.ptr);
+
+		timers_run();
 
 		if (dump_stats) {
 			log_stats();
@@ -476,7 +479,8 @@ int main (int argc, char *argv[])
 	cldb_init();
 
 	cld_srv.sessions = g_hash_table_new(sess_hash, sess_equal);
-	if (!cld_srv.sessions)
+	cld_srv.timers = g_queue_new();
+	if (!cld_srv.sessions || !cld_srv.timers)
 		goto err_out_pid;
 
 	/* create master epoll fd */

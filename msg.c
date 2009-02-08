@@ -33,6 +33,8 @@ struct pathname_info {
 	size_t		base_len;
 };
 
+static void session_timeout(struct timer *timer);
+
 static bool valid_inode_name(const char *name, size_t name_len)
 {
 	if (!name || !*name || !name_len)
@@ -121,6 +123,9 @@ static struct session *session_new(void)
 		return NULL;
 
 	sess->handles = g_array_new(FALSE, FALSE, sizeof(uint64_t));
+
+	sess->timer.cb = session_timeout;
+	sess->timer.cb_data = sess;
 
 	return sess;
 }
@@ -346,6 +351,11 @@ err_out:
 	return false;
 }
 
+static void session_timeout(struct timer *timer)
+{
+	/* FIXME */
+}
+
 bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
 		 struct client *cli, uint8_t *raw_msg, size_t msg_len)
 {
@@ -380,10 +390,14 @@ bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
 	rc = db->put(db, txn, &key, &val, DB_NOOVERWRITE);
 	if (rc) {
 		resp_err(sock, cli, msg, CLE_DB_ERR);
+		free(sess);
 		return false;
 	}
 
 	g_hash_table_insert(cld_srv.sessions, sess->clid, sess);
+
+	sess->timer.timeout = current_time + CLD_CLI_TIMEOUT;
+	timer_add(&sess->timer);
 
 	resp_ok(sock, cli, msg);
 	return true;

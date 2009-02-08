@@ -28,12 +28,14 @@
 
 struct client;
 struct server_socket;
+struct timer;
 
 #define ALIGN8(n) ((8 - ((n) & 7)) & 7)
 
 enum {
 	CLD_CLID_SZ		= 8,
 	CLD_IPADDR_SZ		= 64,
+	CLD_CLI_TIMEOUT		= 60,
 	SFL_FOREGROUND		= (1 << 0),	/* run in foreground */
 };
 
@@ -54,12 +56,22 @@ struct client {
 	char			addr_host[64];	/* ASCII version of inet addr */
 };
 
+typedef void (*timer_cb_t)(struct timer *);
+
+struct timer {
+	time_t			timeout;
+	bool			fired;
+	timer_cb_t		cb;
+	void			*cb_data;
+};
+
 struct session {
 	uint8_t			clid[CLD_CLID_SZ];
 	char			ipaddr[CLD_IPADDR_SZ];
 	uint64_t		last_contact;
 	uint64_t		next_fh;
 	GArray			*handles;
+	struct timer		timer;
 };
 
 struct server_stats {
@@ -90,6 +102,8 @@ struct server {
 
 	GHashTable		*sessions;
 
+	GQueue			*timers;
+
 	struct server_stats	stats;		/* global statistics */
 };
 
@@ -115,5 +129,8 @@ extern void resp_ok(struct server_socket *sock, struct client *cli,
 extern int write_pid_file(const char *pid_fn);
 extern void syslogerr(const char *prefix);
 extern int fsetflags(const char *prefix, int fd, int or_flags);
+extern void timer_add(struct timer *timer);
+extern int timer_next(void);
+extern void timers_run(void);
 
 #endif /* __CLD_H__ */
