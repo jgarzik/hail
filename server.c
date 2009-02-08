@@ -125,7 +125,8 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn, struct client *cli,
 
 	/* look up client session, verify it matches IP */
 	sess = g_hash_table_lookup(cld_srv.sessions, msg->clid);
-	if (sess && strcmp(sess->ipaddr, cli->addr_host))
+	if (sess && sess->addr_len == cli->addr_len &&
+	    memcmp(&sess->addr, &cli->addr, sess->addr_len))
 		return false;
 
 	if (msg->op != cmo_new_cli) {

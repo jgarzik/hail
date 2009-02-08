@@ -373,6 +373,8 @@ bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
 	}
 
 	memcpy(&sess->clid, &msg->clid, sizeof(sess->clid));
+	memcpy(&sess->addr, &cli->addr, sizeof(sess->addr));
+	sess->addr_len = cli->addr_len;
 	strncpy(sess->ipaddr, cli->addr_host, sizeof(sess->ipaddr));
 	sess->last_contact = current_time;
 

@@ -67,7 +67,11 @@ struct timer {
 
 struct session {
 	uint8_t			clid[CLD_CLID_SZ];
+
+	struct sockaddr_in6	addr;		/* inet address */
+	socklen_t		addr_len;	/* inet address len */
 	char			ipaddr[CLD_IPADDR_SZ];
+
 	uint64_t		last_contact;
 	uint64_t		next_fh;
 	GArray			*handles;
