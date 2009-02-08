@@ -456,6 +456,10 @@ int main (int argc, char *argv[])
 
 	cldb_init();
 
+	cld_srv.sessions = g_hash_table_new(sess_hash, sess_equal);
+	if (!cld_srv.sessions)
+		goto err_out_pid;
+
 	/* create master epoll fd */
 	cld_srv.epoll_fd = epoll_create(CLD_EPOLL_INIT_SIZE);
 	if (cld_srv.epoll_fd < 0) {

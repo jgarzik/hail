@@ -90,7 +90,7 @@ struct cld_msg_resp_open {
 	struct cld_msg_hdr	hdr;
 
 	uint32_t		code;		/* error code, CLE_xxx */
-	uint64_t		hid;		/* handle opened */
+	uint64_t		fh;		/* handle opened */
 };
 
 #endif /* __CLD_MSG_H__ */

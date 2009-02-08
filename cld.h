@@ -32,6 +32,8 @@ struct server_socket;
 #define ALIGN8(n) ((8 - ((n) & 7)) & 7)
 
 enum {
+	CLD_CLID_SZ		= 8,
+	CLD_IPADDR_SZ		= 64,
 	SFL_FOREGROUND		= (1 << 0),	/* run in foreground */
 };
 
@@ -50,6 +52,14 @@ struct client {
 	struct sockaddr_in6	addr;		/* inet address */
 	socklen_t		addr_len;	/* inet address len */
 	char			addr_host[64];	/* ASCII version of inet addr */
+};
+
+struct session {
+	uint8_t			clid[CLD_CLID_SZ];
+	char			ipaddr[CLD_IPADDR_SZ];
+	uint64_t		last_contact;
+	uint64_t		next_fh;
+	GArray			*handles;
 };
 
 struct server_stats {
@@ -78,6 +88,8 @@ struct server {
 
 	GList			*sockets;
 
+	GHashTable		*sessions;
+
 	struct server_stats	stats;		/* global statistics */
 };
 
@@ -86,6 +98,8 @@ extern bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
 		 struct client *cli, uint8_t *raw_msg, size_t msg_len);
 extern bool msg_open(struct server_socket *sock, DB_TXN *txn,
 		 struct client *cli, uint8_t *raw_msg, size_t msg_len);
+extern guint sess_hash(gconstpointer v);
+extern gboolean sess_equal(gconstpointer _a, gconstpointer _b);
 
 /* server.c */
 extern struct server cld_srv;

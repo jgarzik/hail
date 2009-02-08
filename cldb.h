@@ -23,6 +23,8 @@
 #include <stdbool.h>
 #include <db.h>
 
+struct session;
+
 enum inode_flags {
 	CIFL_DIR		= (1 << 0),	/* is a directory */
 };
@@ -38,12 +40,12 @@ struct raw_session {
 
 struct raw_handle_key {
 	uint8_t			clid[8];	/* client id */
-	uint64_t		hid;		/* handle id */
+	uint64_t		fh;		/* handle id */
 };
 
 struct raw_handle {
 	uint8_t			clid[8];	/* client id */
-	uint64_t		hid;		/* handle id */
+	uint64_t		fh;		/* handle id */
 	uint32_t		ino_len;	/* inode name len */
 	uint32_t		mode;		/* open mode */
 	uint32_t		events;		/* event mask */
@@ -94,7 +96,7 @@ extern int cldb_data_get(DB_TXN *txn, char *name, size_t name_len,
 extern int cldb_data_put(DB_TXN *txn, char *name, size_t name_len,
 		  void *data, size_t data_len, int put_flags);
 
-extern struct raw_handle *cldb_handle_new(struct raw_session *sess,
+extern struct raw_handle *cldb_handle_new(struct session *sess,
 				   const char *name, size_t name_len,
 				   uint32_t mode, uint32_t events);
 extern int cldb_handle_put(DB_TXN *txn, struct raw_handle *h, int put_flags);

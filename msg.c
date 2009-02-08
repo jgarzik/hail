@@ -96,27 +96,69 @@ static bool dirdata_append(void **data, size_t *data_len,
 	return true;
 }
 
-static bool sess_append(struct raw_session **sess, uint64_t hid)
+guint sess_hash(gconstpointer v)
 {
-	size_t harr_len, new_len, orig_len;
-	uint32_t *tmp32p, n_handles = GUINT32_FROM_LE((*sess)->n_handles);
-	void *mem, *p;
+	const struct session *sess = v;
+	const uint64_t *tmp = (const uint64_t *) sess->clid;
 
-	harr_len	= n_handles * sizeof(uint64_t);
-	orig_len	= sizeof(struct raw_session) + harr_len;
-	new_len		= orig_len + sizeof(uint64_t);
+	return (guint) *tmp;
+}
 
-	mem = realloc(*sess, new_len);
-	if (!mem)
-		return false;
+gboolean sess_equal(gconstpointer _a, gconstpointer _b)
+{
+	const struct session *a = _a;
+	const struct session *b = _b;
 
-	p = mem + sizeof(struct raw_session);
-	tmp32p = p;
-	tmp32p[n_handles] = GUINT64_TO_LE(hid);
+	return (memcmp(a->clid, b->clid, CLD_CLID_SZ) == 0);
+}
 
-	(*sess)->n_handles = GUINT32_TO_LE(n_handles + 1);
+static struct session *session_new(void)
+{
+	struct session *sess;
 
-	return true;
+	sess = calloc(1, sizeof(*sess));
+	if (!sess)
+		return NULL;
+
+	sess->handles = g_array_new(FALSE, FALSE, sizeof(uint64_t));
+
+	return sess;
+}
+
+static void session_encode(struct raw_session *raw, const struct session *sess)
+{
+	uint64_t *hsrc, *hdest;
+	int i;
+	void *p;
+
+	memcpy(raw, sess, CLD_CLID_SZ + CLD_IPADDR_SZ);
+	raw->last_contact = GUINT64_TO_LE(sess->last_contact);
+	raw->next_fh = GUINT64_TO_LE(sess->next_fh);
+	raw->n_handles = GUINT32_TO_LE(sess->handles->len);
+
+	hsrc = (uint64_t *) sess->handles->data;
+
+	p = raw;
+	p += sizeof(*raw);
+	hdest = p;
+
+	for (i = 0; i < sess->handles->len; i++)
+		hdest[i] = GUINT64_TO_LE(hsrc[i]);
+}
+
+static struct raw_session *session_new_raw(const struct session *sess)
+{
+	struct raw_session *raw_sess;
+	size_t alloc_len;
+
+	alloc_len = sizeof(*raw_sess) + (sizeof(uint64_t) * sess->handles->len);
+	raw_sess = malloc(alloc_len);
+	if (!raw_sess)
+		return NULL;
+
+	session_encode(raw_sess, sess);
+
+	return raw_sess;
 }
 
 static bool inode_append(struct raw_inode **ino, struct raw_handle *h)
@@ -146,7 +188,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn,
 {
 	struct cld_msg_open *msg = (struct cld_msg_open *) raw_msg;
 	char *name;
-	struct raw_session *sess = NULL;
+	struct raw_session *raw_sess = NULL;
 	struct raw_inode *inode = NULL, *parent = NULL;
 	struct raw_handle *h;
 	int rc, name_len;
@@ -155,7 +197,8 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn,
 	void *parent_data = NULL;
 	size_t parent_len;
 	uint32_t msg_mode, msg_events;
-	uint64_t hid;
+	uint64_t fh;
+	struct session *sess;
 
 	/* make sure input data as large as expected */
 	if (msg_len < sizeof(*msg))
@@ -179,13 +222,10 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn,
 
 	pathname_parse(name, name_len, &pinfo);
 
-	/* read client session from db */
-	rc = cldb_session_get(txn, msg->hdr.clid, &sess, true, true);
-	if (rc) {
-		resp_err(sock, cli, (struct cld_msg_hdr *) msg,
-			(rc == DB_NOTFOUND) ? CLE_CLI_INVAL : CLE_DB_ERR);
+	/* look up client session, verify it matches IP */
+	sess = g_hash_table_lookup(cld_srv.sessions, msg->hdr.clid);
+	if (!sess || strcmp(sess->ipaddr, cli->addr_host))
 		return false;
-	}
 
 	/* read inode from db, if it exists */
 	rc = cldb_inode_get(txn, name, name_len, &inode, true, true);
@@ -262,7 +302,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn,
 		goto err_out;
 	}
 
-	hid = GUINT64_FROM_LE(h->hid);
+	fh = GUINT64_FROM_LE(h->fh);
 
 	/* write newly created file handle */
 	rc = cldb_handle_put(txn, h, 0);
@@ -271,9 +311,13 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn,
 		goto err_out;
 	}
 
+	g_array_append_val(sess->handles, fh);
+	sess->last_contact = time(NULL);
+
+	raw_sess = session_new_raw(sess);
+
 	/* add handle to session, and to inode */
-	if (!sess_append(&sess, hid) ||
-	    !inode_append(&inode, h)) {
+	if (!raw_sess || !inode_append(&inode, h)) {
 		syslog(LOG_CRIT, "out of memory");
 		resp_err(sock, cli, (struct cld_msg_hdr *) msg, CLE_OOM);
 		goto err_out;
@@ -288,10 +332,8 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn,
 		goto err_out;
 	}
 
-	sess->last_contact = GUINT64_TO_LE(time(NULL));
-
 	/* write session */
-	rc = cldb_session_put(txn, sess, 0);
+	rc = cldb_session_put(txn, raw_sess, 0);
 	if (rc) {
 		resp_err(sock, cli, (struct cld_msg_hdr *) msg, CLE_DB_ERR);
 		goto err_out;
@@ -300,14 +342,14 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn,
 	free(parent_data);
 	free(parent);
 	free(inode);
-	free(sess);
+	free(raw_sess);
 	return true;
 
 err_out:
 	free(parent_data);
 	free(parent);
 	free(inode);
-	free(sess);
+	free(raw_sess);
 	return false;
 }
 
@@ -316,23 +358,31 @@ bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
 {
 	struct cld_msg_hdr *msg = (struct cld_msg_hdr *) raw_msg;
 	DB *db = cld_srv.cldb.sessions;
-	struct raw_session sess;
+	struct raw_session raw_sess;
+	struct session *sess;
 	DBT key, val;
 	int rc;
 
-	memset(&sess, 0, sizeof(sess));
-	memcpy(&sess.clid, &msg->clid, sizeof(sess.clid));
-	strncpy(sess.addr, cli->addr_host, sizeof(sess.addr));
-	sess.last_contact = GUINT64_TO_LE((uint64_t)time(NULL));
+	sess = session_new();
+	if (!sess) {
+		resp_err(sock, cli, msg, CLE_OOM);
+		return false;
+	}
+
+	memcpy(&sess->clid, &msg->clid, sizeof(sess->clid));
+	strncpy(sess->ipaddr, cli->addr_host, sizeof(sess->ipaddr));
+	sess->last_contact = time(NULL);
+
+	session_encode(&raw_sess, sess);
 
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
 
-	key.data = &sess.clid;
-	key.size = sizeof(sess.clid);
+	key.data = &raw_sess.clid;
+	key.size = sizeof(raw_sess.clid);
 
-	val.data = &sess;
-	val.size = sizeof(sess);
+	val.data = &raw_sess;
+	val.size = sizeof(raw_sess);
 
 	rc = db->put(db, txn, &key, &val, DB_NOOVERWRITE);
 	if (rc) {
@@ -340,6 +390,8 @@ bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
 			(rc == DB_KEYEXIST) ? CLE_CLI_EXISTS : CLE_DB_ERR);
 		return false;
 	}
+
+	g_hash_table_insert(cld_srv.sessions, sess->clid, sess);
 
 	resp_ok(sock, cli, msg);
 	return true;

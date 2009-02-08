@@ -392,12 +392,12 @@ int cldb_data_put(DB_TXN *txn, char *name, size_t name_len,
 	return rc;
 }
 
-struct raw_handle *cldb_handle_new(struct raw_session *sess,
+struct raw_handle *cldb_handle_new(struct session *sess,
 				   const char *name, size_t name_len,
 				   uint32_t mode, uint32_t events)
 {
 	struct raw_handle *h;
-	uint64_t hid;
+	uint64_t fh;
 	void *mem;
 
 	mem = calloc(1, sizeof(*h) + name_len + ALIGN8(name_len));
@@ -405,11 +405,11 @@ struct raw_handle *cldb_handle_new(struct raw_session *sess,
 		return NULL;
 
 	h = mem;
-	hid = GUINT64_FROM_LE(sess->next_fh);
-	sess->next_fh = GUINT64_TO_LE(hid + 1);
+	fh = sess->next_fh;
+	sess->next_fh++;
 
 	memcpy(h->clid, sess->clid, sizeof(h->clid));
-	h->hid = GUINT64_TO_LE(hid);
+	h->fh = GUINT64_TO_LE(fh);
 	h->ino_len = GUINT32_TO_LE(name_len);
 	h->mode = GUINT32_TO_LE(mode);
 	h->events = GUINT32_TO_LE(events);
