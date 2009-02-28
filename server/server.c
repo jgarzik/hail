@@ -3,7 +3,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
-#include <sys/epoll.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -35,9 +34,6 @@
 const char *argp_program_version = PACKAGE_VERSION;
 
 enum {
-	STORAGED_EPOLL_INIT_SIZE	= 200,		/* passed to epoll_create(2) */
-	STORAGED_EPOLL_MAX_EVT	= 100,		/* max events per poll */
-
 	CLI_MAX_WR_IOV		= 32,		/* max iov per writev(2) */
 
 	SFL_FOREGROUND		= (1 << 0),	/* run in foreground */
@@ -164,22 +160,23 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 static void term_signal(int signal)
 {
 	server_running = false;
+	event_loopbreak();
 }
 
 static void stats_signal(int signal)
 {
 	dump_stats = true;
+	event_loopbreak();
 }
 
 #define X(stat) \
 	syslog(LOG_INFO, "STAT %s %lu", #stat, storaged_srv.stats.stat)
 
-static void log_stats(void)
+static void stats_dump(void)
 {
 	X(poll);
 	X(event);
 	X(tcp_accept);
-	X(max_evt);
 	X(opt_write);
 }
 
@@ -213,9 +210,8 @@ static void cli_free(struct client *cli)
 	if (cli->fd >= 0) {
 		if (cli->ssl)
 			SSL_shutdown(cli->ssl);
-		if (epoll_ctl(storaged_srv.epoll_fd, EPOLL_CTL_DEL,
-			      cli->fd, NULL) < 0)
-			syslogerr("TCP client epoll_ctl(EPOLL_CTL_DEL)");
+		if (event_del(&cli->ev) < 0)
+			syslog(LOG_WARNING, "TCP client event_del");
 		close(cli->fd);
 	}
 
@@ -251,8 +247,6 @@ static struct client *cli_alloc(bool encrypt)
 	cli->state = evt_read_req;
 	cli->poll.poll_type = spt_tcp_cli;
 	cli->poll.u.cli = cli;
-	cli->evt.events = EPOLLIN;
-	cli->evt.data.ptr = &cli->poll;
 	INIT_LIST_HEAD(&cli->write_q);
 	cli->req_ptr = cli->req_buf;
 	memset(&cli->req, 0, sizeof(cli->req) - sizeof(cli->req.hdr));
@@ -263,7 +257,7 @@ static struct client *cli_alloc(bool encrypt)
 static bool cli_evt_dispose(struct client *cli, unsigned int events)
 {
 	/* if write queue is not empty, we should continue to get
-	 * epoll callbacks here until it is
+	 * poll callbacks here until it is
 	 */
 	if (list_empty(&cli->write_q))
 		cli_free(cli);
@@ -296,18 +290,6 @@ static bool cli_evt_recycle(struct client *cli, unsigned int events)
 	memset(&cli->req, 0, sizeof(cli->req));
 
 	return true;
-}
-
-int cli_epoll_mod(struct client *cli)
-{
-	int rrc = epoll_ctl(storaged_srv.epoll_fd, EPOLL_CTL_MOD,
-			    cli->fd, &cli->evt);
-	if (rrc < 0) {
-		syslogerr("epoll_ctl(EPOLL_CTL_MOD)");
-		return -errno;
-	}
-
-	return 0;
 }
 
 static int SSL_writev(SSL *ssl, const struct iovec *iov, int iovcnt)
@@ -410,8 +392,8 @@ do_write:
 
 	/* if we emptied the queue, clear write notification */
 	if (list_empty(&cli->write_q)) {
-		cli->evt.events &= ~EPOLLOUT;
-		if (cli_epoll_mod(cli) < 0)
+		cli->writing = false;
+		if (event_del(&cli->write_ev) < 0)
 			cli->state = evt_dispose;
 	}
 }
@@ -419,28 +401,28 @@ do_write:
 bool cli_write_start(struct client *cli)
 {
 	if (list_empty(&cli->write_q))
-		return true;		/* loop, not epoll */
+		return true;		/* loop, not poll */
 
-	/* if EPOLLOUT already active, nothing further to do */
-	if (cli->evt.events & EPOLLOUT)
-		return false;		/* epoll wait */
+	/* if already writing, nothing further to do */
+	if (cli->writing)
+		return false;		/* poll wait */
 
-	/* attempt optimistic write, in hopes of avoiding epoll,
+	/* attempt optimistic write, in hopes of avoiding poll,
 	 * or at least refill the write buffers so as to not
 	 * get -immediately- called again by the kernel
 	 */
 	cli_writable(cli);
 	if (list_empty(&cli->write_q)) {
 		storaged_srv.stats.opt_write++;
-		return true;		/* loop, not epoll */
+		return true;		/* loop, not poll */
 	}
 
-	cli->evt.events |= EPOLLOUT;
+	if (event_add(&cli->write_ev, NULL) < 0)
+		return true;		/* loop, not poll */
 
-	if (cli_epoll_mod(cli) < 0)
-		return true;		/* loop, not epoll */
+	cli->writing = true;
 
-	return false;			/* epoll wait */
+	return false;			/* poll wait */
 }
 
 int cli_writeq(struct client *cli, const void *buf, unsigned int buflen,
@@ -480,10 +462,9 @@ do_read:
 			if (rc == SSL_ERROR_WANT_READ)
 				return 0;
 			if (rc == SSL_ERROR_WANT_WRITE) {
-				cli->evt.events |= EPOLLOUT;
 				cli->read_want_write = true;
-				if (cli_epoll_mod(cli) < 0)
-					return -errno;
+				if (event_add(&cli->write_ev, NULL) < 0)
+					return -EIO;
 				return 0;
 			}
 			return -EIO;
@@ -1086,9 +1067,8 @@ static bool cli_evt_ssl_accept(struct client *cli, unsigned int events)
 		return false;
 
 	if (rc == SSL_ERROR_WANT_WRITE) {
-		cli->evt.events |= EPOLLOUT;
 		cli->read_want_write = true;
-		if (cli_epoll_mod(cli) < 0)
+		if (event_add(&cli->write_ev, NULL) < 0)
 			goto out;
 		return false;
 	}
@@ -1110,39 +1090,39 @@ static cli_evt_func state_funcs[] = {
 	[evt_ssl_accept]	= cli_evt_ssl_accept,
 };
 
-static void tcp_cli_event(unsigned int events, struct client *cli)
+static void tcp_cli_wr_event(int fd, short events, void *userdata)
 {
-	bool loop = false;
-	bool writabled = false;
+	struct client *cli = userdata;
 
-	if (events & EPOLLIN) {
+	if (cli->read_want_write) {
+		cli->read_want_write = false;
+		if (event_del(&cli->write_ev) < 0)
+			cli->state = evt_dispose;
+	} else
+		cli_writable(cli);
+}
+
+static void tcp_cli_event(int fd, short events, void *userdata)
+{
+	struct client *cli = userdata;
+	bool loop = false;
+
+	if (events & EV_READ) {
 		if (cli->write_want_read) {
 			cli->write_want_read = false;
 			cli_writable(cli);
-			writabled = true;
 		} else
 			loop = true;
 	}
-	if (events & EPOLLOUT) {
-		if (cli->read_want_write) {
-			cli->read_want_write = false;
-			loop = true;
-			cli->evt.events &= ~EPOLLOUT;
-			if (cli_epoll_mod(cli) < 0)
-				cli->state = evt_dispose;
-		} else if (!writabled)
-			cli_writable(cli);
-	}
-	if ((events & (EPOLLHUP | EPOLLERR)) && (cli->state == evt_recycle))
-		cli->state = evt_dispose;
 
 	while (loop) {
 		loop = state_funcs[cli->state](cli, events);
 	}
 }
 
-static void tcp_srv_event(unsigned int events, struct server_socket *sock)
+static void tcp_srv_event(int fd, short events, void *userdata)
 {
+	struct server_socket *sock = userdata;
 	socklen_t addrlen = sizeof(struct sockaddr_in6);
 	struct client *cli;
 	char host[64];
@@ -1165,7 +1145,7 @@ static void tcp_srv_event(unsigned int events, struct server_socket *sock)
 
 	storaged_srv.stats.tcp_accept++;
 
-	/* mark non-blocking, for upcoming epoll use */
+	/* mark non-blocking, for upcoming poll use */
 	if (fsetflags("tcp client", cli->fd, O_NONBLOCK) < 0)
 		goto err_out_fd;
 
@@ -1180,7 +1160,6 @@ static void tcp_srv_event(unsigned int events, struct server_socket *sock)
 				cli->state = evt_ssl_accept;
 			else if (rc == SSL_ERROR_WANT_WRITE) {
 				cli->state = evt_ssl_accept;
-				cli->evt.events |= EPOLLOUT;
 				cli->read_want_write = true;
 			}
 			else {
@@ -1196,11 +1175,22 @@ static void tcp_srv_event(unsigned int events, struct server_socket *sock)
 		}
 	}
 
-	/* add to epoll watchlist */
-	rc = epoll_ctl(storaged_srv.epoll_fd, EPOLL_CTL_ADD, cli->fd, &cli->evt);
-	if (rc < 0) {
-		syslogerr("tcp client epoll_ctl");
+	event_set(&cli->ev, cli->fd, EV_READ | EV_PERSIST, tcp_cli_event, cli);
+	event_set(&cli->write_ev, cli->fd, EV_WRITE | EV_PERSIST,
+		  tcp_cli_wr_event, cli);
+
+	/* add to poll watchlist */
+	if (event_add(&cli->ev, NULL) < 0) {
+		syslog(LOG_WARNING, "tcp client event_add");
 		goto err_out_fd;
+	}
+
+	if (cli->read_want_write) {
+		cli->writing = true;
+		if (event_add(&cli->write_ev, NULL) < 0) {
+			syslog(LOG_WARNING, "tcp client event_add 2");
+			goto err_out_fd;
+		}
 	}
 
 	/* pretty-print incoming cxn info */
@@ -1221,6 +1211,7 @@ err_out:
 
 static int net_open(const struct listen_cfg *cfg)
 {
+	int ipv6_found;
 	int rc;
 	struct addrinfo hints, *res, *res0;
 
@@ -1237,9 +1228,28 @@ static int net_open(const struct listen_cfg *cfg)
 		return -EINVAL;
 	}
 
+	/*
+	 * We rely on getaddrinfo to discover if the box supports IPv6.
+	 * Much easier to sanitize its output than to try to figure what
+	 * to put into ai_family.
+	 *
+	 * These acrobatics are required on Linux because we should bind
+	 * to ::0 if we want to listen to both ::0 and 0.0.0.0. Else, we
+	 * may bind to 0.0.0.0 by accident (depending on order getaddrinfo
+	 * returns them), then bind(::0) fails and we only listen to IPv4.
+	 */
+	ipv6_found = 0;
+	for (res = res0; res; res = res->ai_next) {
+		if (res->ai_family == PF_INET6)
+			ipv6_found = 1;
+	}
+
 	for (res = res0; res; res = res->ai_next) {
 		struct server_socket *sock;
 		int fd, on;
+
+		if (ipv6_found && res->ai_family == PF_INET)
+			continue;
 
 		fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
 		if (fd < 0) {
@@ -1289,14 +1299,13 @@ static int net_open(const struct listen_cfg *cfg)
 		sock->encrypt = cfg->encrypt;
 		sock->poll.poll_type = spt_tcp_srv;
 		sock->poll.u.sock = sock;
-		sock->evt.events = EPOLLIN;
-		sock->evt.data.ptr = &sock->poll;
 
-		rc = epoll_ctl(storaged_srv.epoll_fd, EPOLL_CTL_ADD, fd,
-			       &sock->evt);
-		if (rc < 0) {
-			syslogerr("tcp socket epoll_ctl");
-			rc = -errno;
+		event_set(&sock->ev, fd, EV_READ | EV_PERSIST,
+			  tcp_srv_event, sock);
+
+		if (event_add(&sock->ev, NULL) < 0) {
+			syslog(LOG_WARNING, "tcp socket event_add");
+			rc = -EIO;
 			goto err_out;
 		}
 
@@ -1310,51 +1319,6 @@ static int net_open(const struct listen_cfg *cfg)
 
 err_out:
 	return rc;
-}
-
-static void handle_event(unsigned int events, void *event_data)
-{
-	struct server_poll *sp = event_data;
-
-	storaged_srv.stats.event++;
-
-	switch (sp->poll_type) {
-	case spt_tcp_srv:
-		tcp_srv_event(events, sp->u.sock);
-		break;
-	case spt_tcp_cli:
-		tcp_cli_event(events, sp->u.cli);
-		break;
-	}
-}
-
-static void main_loop(void)
-{
-	struct epoll_event evt[STORAGED_EPOLL_MAX_EVT];
-	int rc, i;
-
-	while (server_running) {
-		rc = epoll_wait(storaged_srv.epoll_fd, evt, STORAGED_EPOLL_MAX_EVT, -1);
-		if (rc < 0) {
-			if (errno == EINTR)
-				continue;
-
-			syslogerr("epoll_wait");
-			return;
-		}
-
-		if (rc == STORAGED_EPOLL_MAX_EVT)
-			storaged_srv.stats.max_evt++;
-		storaged_srv.stats.poll++;
-
-		for (i = 0; i < rc; i++)
-			handle_event(evt[i].events, evt[i].data.ptr);
-
-		if (dump_stats) {
-			log_stats();
-			dump_stats = false;
-		}
-	}
 }
 
 static void compile_patterns(void)
@@ -1462,30 +1426,32 @@ int main (int argc, char *argv[])
 	signal(SIGTERM, term_signal);
 	signal(SIGUSR1, stats_signal);
 
+	event_init();
+
 	storaged_srv.db = db_open();
 	if (!storaged_srv.db)
 		exit(1);
-
-	/* create master epoll fd */
-	storaged_srv.epoll_fd = epoll_create(STORAGED_EPOLL_INIT_SIZE);
-	if (storaged_srv.epoll_fd < 0) {
-		syslogerr("epoll_create");
-		goto err_out_pid;
-	}
 
 	/* set up server networking */
 	tmpl = storaged_srv.listeners;
 	while (tmpl) {
 		rc = net_open(tmpl->data);
 		if (rc)
-			goto err_out_epoll;
+			goto err_out_pid;
 
 		tmpl = tmpl->next;
 	}
 
 	syslog(LOG_INFO, "initialized");
 
-	main_loop();
+	while (server_running) {
+		event_dispatch();
+
+		if (dump_stats) {
+			dump_stats = false;
+			stats_dump();
+		}
+	}
 
 	syslog(LOG_INFO, "shutting down");
 
@@ -1493,8 +1459,6 @@ int main (int argc, char *argv[])
 
 	rc = 0;
 
-err_out_epoll:
-	close(storaged_srv.epoll_fd);
 err_out_pid:
 	unlink(storaged_srv.pid_file);
 err_out:

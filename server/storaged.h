@@ -1,14 +1,14 @@
 #ifndef __STORAGED_H__
 #define __STORAGED_H__
 
-#include <sys/epoll.h>
+#include <stdbool.h>
 #include <netinet/in.h>
 #include <openssl/sha.h>
 #include <openssl/ssl.h>
 #include <glib.h>
 #include <pcre.h>
 #include <sqlite3.h>
-#include <stdbool.h>
+#include <event.h>
 #include <httputil.h>
 #include <elist.h>
 
@@ -120,13 +120,15 @@ struct client {
 	char			addr_host[64];	/* ASCII version of inet addr */
 	int			fd;		/* socket */
 	struct server_poll	poll;		/* poll info */
-	struct epoll_event	evt;		/* epoll info */
+	struct event		ev;
+	struct event		write_ev;
 
 	SSL			*ssl;
 	bool			read_want_write;
 	bool			write_want_read;
 
 	struct list_head	write_q;	/* list of async writes */
+	bool			writing;
 
 	struct database		*db;
 
@@ -202,7 +204,6 @@ struct server_stats {
 	unsigned long		poll;		/* number polls */
 	unsigned long		event;		/* events dispatched */
 	unsigned long		tcp_accept;	/* TCP accepted cxns */
-	unsigned long		max_evt;	/* epoll events max'd out */
 	unsigned long		opt_write;	/* optimistic writes */
 };
 
@@ -216,7 +217,7 @@ struct server_socket {
 	int			fd;
 	bool			encrypt;
 	struct server_poll	poll;
-	struct epoll_event	evt;
+	struct event		ev;
 };
 
 struct server {
@@ -225,8 +226,6 @@ struct server {
 	char			*config;	/* master config file */
 	char			*data_dir;
 	char			*pid_file;	/* PID file */
-
-	int			epoll_fd;	/* epoll descriptor */
 
 	struct database		*db;
 
@@ -295,7 +294,7 @@ extern bool cli_cb_free(struct client *cli, struct client_write *wr,
 			bool done);
 extern bool cli_write_start(struct client *cli);
 extern int cli_req_avail(struct client *cli);
-extern int cli_epoll_mod(struct client *cli);
+extern int cli_poll_mod(struct client *cli);
 
 /* storage.c */
 extern int register_storage(struct backend_info *be);

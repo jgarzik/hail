@@ -138,9 +138,8 @@ bool cli_evt_http_data_in(struct client *cli, unsigned int events)
 			if (rc == SSL_ERROR_WANT_READ)
 				return false;
 			if (rc == SSL_ERROR_WANT_WRITE) {
-				cli->evt.events |= EPOLLOUT;
 				cli->read_want_write = true;
-				if (cli_epoll_mod(cli) < 0)
+				if (event_add(&cli->write_ev, NULL) < 0)
 					return cli_err(cli, InternalError);
 				return false;
 			}

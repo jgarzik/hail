@@ -46,6 +46,8 @@ AC_CHECK_LIB(pcre, pcre_compile, PCRE_LIBS=-lpcre)
 AC_CHECK_LIB(crypto, MD5_Init, CRYPTO_LIBS=-lcrypto)
 AC_CHECK_LIB(ssl, SSL_new, SSL_LIBS=-lssl)
 AC_CHECK_LIB(sqlite3, sqlite3_open, SQLITE_LIBS=-lsqlite3)
+AC_CHECK_LIB(event, event_base_new, EVENT_LIBS=-levent, exit 1)
+AC_CHECK_LIB(argp, argp_parse, ARGP_LIBS=-largp)
 
 dnl -------------------------------------
 dnl Checks for optional library functions
@@ -67,6 +69,8 @@ AC_SUBST(PCRE_LIBS)
 AC_SUBST(CRYPTO_LIBS)
 AC_SUBST(SSL_LIBS)
 AC_SUBST(SQLITE_LIBS)
+AC_SUBST(EVENT_LIBS)
+AC_SUBST(ARGP_LIBS)
 
 AC_CONFIG_FILES([doc/Makefile
 		 lib/Makefile
