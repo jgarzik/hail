@@ -52,11 +52,6 @@ enum sql_stmt_indices {
 	st_last = st_object
 };
 
-enum server_poll_type {
-	spt_tcp_srv,				/* TCP server */
-	spt_tcp_cli,				/* TCP client */
-};
-
 struct client;
 struct client_write;
 struct server_volume;
@@ -65,14 +60,6 @@ struct server_socket;
 struct database {
 	sqlite3		*sqldb;
 	sqlite3_stmt	*prep_stmts[st_last + 1];
-};
-
-struct server_poll {
-	enum server_poll_type	poll_type;	/* spt_xxx above */
-	union {
-		struct server_socket	*sock;
-		struct client		*cli;
-	} u;
 };
 
 enum {
@@ -119,7 +106,6 @@ struct client {
 	struct sockaddr_in6	addr;		/* inet address */
 	char			addr_host[64];	/* ASCII version of inet addr */
 	int			fd;		/* socket */
-	struct server_poll	poll;		/* poll info */
 	struct event		ev;
 	struct event		write_ev;
 
@@ -216,7 +202,6 @@ struct server_volume {
 struct server_socket {
 	int			fd;
 	bool			encrypt;
-	struct server_poll	poll;
 	struct event		ev;
 };
 

@@ -246,8 +246,6 @@ static struct client *cli_alloc(bool encrypt)
 	}
 
 	cli->state = evt_read_req;
-	cli->poll.poll_type = spt_tcp_cli;
-	cli->poll.u.cli = cli;
 	INIT_LIST_HEAD(&cli->write_q);
 	cli->req_ptr = cli->req_buf;
 	memset(&cli->req, 0, sizeof(cli->req) - sizeof(cli->req.hdr));
@@ -1298,8 +1296,6 @@ static int net_open(const struct listen_cfg *cfg)
 
 		sock->fd = fd;
 		sock->encrypt = cfg->encrypt;
-		sock->poll.poll_type = spt_tcp_srv;
-		sock->poll.u.sock = sock;
 
 		event_set(&sock->ev, fd, EV_READ | EV_PERSIST,
 			  tcp_srv_event, sock);
