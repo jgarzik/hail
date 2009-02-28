@@ -3,6 +3,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
+#include <sys/uio.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -670,9 +671,9 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 		if ((strlen(MY_ENDPOINT) == (captured[5] - captured[4])) &&
 		    (!memcmp(MY_ENDPOINT, host + captured[4],
 		    	     strlen(MY_ENDPOINT)))) {
-			volume = strndup(host + captured[2],
+			volume = g_strndup(host + captured[2],
 					 captured[3] - captured[2]);
-			path = strndup(req->uri.path, req->uri.path_len);
+			path = g_strndup(req->uri.path, req->uri.path_len);
 		}
 	}
 
@@ -680,12 +681,12 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 	if (!volume && pcre_exec(patterns[pat_volume_path].re, NULL,
 			   req->uri.path, req->uri.path_len,
 			   0, 0, captured, 16) == 3) {
-		volume = strndup(req->uri.path + captured[2],
+		volume = g_strndup(req->uri.path + captured[2],
 				 captured[3] - captured[2]);
 		buck_in_path = true;
 
 		if ((captured[5] - captured[4]) > 0)
-			path = strndup(req->uri.path + captured[4],
+			path = g_strndup(req->uri.path + captured[4],
 				       captured[5] - captured[4]);
 	}
 
@@ -713,7 +714,7 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 			goto err_out;
 		}
 
-		user = strndup(auth + captured[2], captured[3] - captured[2]);
+		user = g_strndup(auth + captured[2], captured[3] - captured[2]);
 		usiglen = captured[5] - captured[4];
 
 		req_sign(&cli->req, buck_in_path ? NULL : volume, user, b64sig);
@@ -1015,7 +1016,7 @@ static bool cli_evt_parse_req(struct client *cli, unsigned int events)
 		goto err_out;
 	}
 
-	cli->req.orig_path = strndup(cli->req.uri.path, cli->req.uri.path_len);
+	cli->req.orig_path = g_strndup(cli->req.uri.path, cli->req.uri.path_len);
 
 	cli->req.uri.path_len = field_unescape(cli->req.uri.path,
 					       cli->req.uri.path_len);

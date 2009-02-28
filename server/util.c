@@ -257,7 +257,7 @@ static void cfg_elm_text (GMarkupParseContext *context,
 			  GError	**error)
 {
 	free(cfg_context.text);
-	cfg_context.text = strndup(text, text_len);
+	cfg_context.text = g_strndup(text, text_len);
 }
 
 static void cfg_elm_start (GMarkupParseContext *context,
