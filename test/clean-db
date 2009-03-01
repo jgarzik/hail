@@ -6,6 +6,6 @@ then
 	exit 1
 fi
 
-rm -rf data
+rm -rf data ssl-*.pem
 
 exit 0
