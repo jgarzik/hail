@@ -16,7 +16,4 @@ test suite:
 
 network:
 	- BUG: make MY_ENDPOINT a cfgfile option, not compile-time option
-	- BUG: large-objects over SSL fails.  SSL_read() returns
-	  SSL_ERROR_WANT_READ, but epoll never delivers another event.
-
 

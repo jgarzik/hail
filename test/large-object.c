@@ -91,9 +91,9 @@ int main(int argc, char *argv[])
 	setlocale(LC_ALL, "C");
 
 	test(false);
-#if 0
+
+	read_offset = 0;
 	test(true);
-#endif
 
 	return 0;
 }
