@@ -32,6 +32,7 @@ enum {
 	CLDB_PGSZ_DATA			= 4096,
 	CLDB_PGSZ_HANDLES		= 4096,
 	CLDB_PGSZ_HANDLE_IDX		= 4096,
+	CLDB_PGSZ_LOCKS			= 4096,
 };
 
 static void db4syslog(const DB_ENV *dbenv, const char *errpfx, const char *msg)
@@ -235,6 +236,11 @@ int cldb_open(struct cldb *cldb, unsigned int env_flags, unsigned int flags,
 		goto err_out_handle_idx;
 	}
 
+	rc = open_db(dbenv, &cldb->locks, "locks", CLDB_PGSZ_LOCKS,
+		     DB_HASH, flags | DB_DUP, NULL);
+	if (rc)
+		goto err_out_handle_idx;
+
 	return 0;
 
 err_out_handle_idx:
@@ -256,6 +262,7 @@ err_out:
 
 void cldb_close(struct cldb *cldb)
 {
+	cldb->locks->close(cldb->locks, 0);
 	cldb->handle_idx->close(cldb->handle_idx, 0);
 	cldb->handles->close(cldb->handles, 0);
 	cldb->data->close(cldb->data, 0);
@@ -264,6 +271,7 @@ void cldb_close(struct cldb *cldb)
 	cldb->sessions->close(cldb->sessions, 0);
 	cldb->env->close(cldb->env, 0);
 
+	cldb->locks = NULL;
 	cldb->handle_idx = NULL;
 	cldb->handles = NULL;
 	cldb->data = NULL;
@@ -662,6 +670,138 @@ int cldb_handle_del(DB_TXN *txn, uint8_t *clid, uint64_t fh)
 	if (rc)
 		dbenv->err(dbenv, rc, "db_handle->put");
 
+	return rc;
+}
+
+int cldb_lock_del(DB_TXN *txn, uint8_t *clid, uint64_t fh, cldino_t inum)
+{
+	DBC *cur;
+	DB *db_locks = cld_srv.cldb.locks;
+	int rc;
+	DBT key, val;
+	cldino_t inum_le = cldino_to_le(inum);
+	struct raw_lock *lock;
+	bool looped = false;
+
+	rc = db_locks->cursor(db_locks, txn, &cur, 0);
+	if (rc) {
+		db_locks->err(db_locks, rc, "db_locks->cursor");
+		return rc;
+	}
+
+	memset(&key, 0, sizeof(key));
+
+	key.data = &inum_le;
+	key.size = sizeof(inum_le);
+
+	while (1) {
+		rc = cur->get(cur, &key, &val, looped ? DB_NEXT_DUP : DB_SET);
+		if (rc) {
+			if (rc == DB_NOTFOUND)
+				break;
+
+			db_locks->err(db_locks, rc, "db_locks->cursor get");
+			goto out;
+		}
+
+		lock = val.data;
+		if (!memcmp(lock->clid, clid, sizeof(lock->clid)) &&
+		    (fh == GUINT64_FROM_LE(lock->fh))) {
+			rc = cur->del(cur, 0);
+			if (rc) {
+				db_locks->err(db_locks, rc, "cursor del");
+				goto out;
+			}
+
+			break;
+		}
+	}
+
+out:
+	cur->close(cur);
+	return rc;
+}
+
+static int cldb_lock_find(DB_TXN *txn, uint8_t *clid, uint64_t fh, cldino_t inum,
+		   bool want_shared)
+{
+	DBC *cur;
+	DB *db_locks = cld_srv.cldb.locks;
+	int rc;
+	DBT key, val;
+	cldino_t inum_le = cldino_to_le(inum);
+	struct raw_lock *lock;
+	bool looped = false;
+	uint32_t lflags;
+
+	rc = db_locks->cursor(db_locks, txn, &cur, 0);
+	if (rc) {
+		db_locks->err(db_locks, rc, "db_locks->cursor");
+		return rc;
+	}
+
+	memset(&key, 0, sizeof(key));
+
+	key.data = &inum_le;
+	key.size = sizeof(inum_le);
+
+	while (1) {
+		rc = cur->get(cur, &key, &val, looped ? DB_NEXT_DUP : DB_SET);
+		if (rc) {
+			if (rc == DB_NOTFOUND)
+				break;
+
+			db_locks->err(db_locks, rc, "db_locks->cursor get");
+			goto out;
+		}
+
+		looped = true;
+
+		lock = val.data;
+		lflags = GUINT32_FROM_LE(lock->flags);
+		
+		if (!want_shared ||
+		    (want_shared && (!(lflags & CLFL_SHARED))))
+			break;
+	}
+
+out:
+	cur->close(cur);
+	return rc;
+}
+
+int cldb_lock_add(DB_TXN *txn, uint8_t *clid, uint64_t fh,
+		  cldino_t inum, bool shared)
+{
+	int rc;
+	struct raw_lock lock;
+	cldino_t inum_le = cldino_to_le(inum);
+	DBT key, val;
+	DB *db_locks = cld_srv.cldb.locks;
+
+	rc = cldb_lock_find(txn, clid, fh, inum, shared);
+	if (rc && (rc != DB_NOTFOUND))
+		return rc;
+	if (rc == 0)
+		return DB_KEYEXIST;
+
+	memcpy(lock.clid, clid, sizeof(lock.clid));
+	lock.fh = GUINT64_TO_LE(fh);
+	lock.flags = GUINT32_TO_LE(shared ? CLFL_SHARED : 0);
+
+	memset(&key, 0, sizeof(key));
+	memset(&val, 0, sizeof(val));
+
+	key.data = &inum_le;
+	key.size = sizeof(inum_le);
+
+	val.data = &lock;
+	val.size = sizeof(lock);
+
+	rc = db_locks->put(db_locks, txn, &key, &val, 0);
+	if (rc)
+		db_locks->err(db_locks, rc, "lock_add db4 put");
+	
 	return rc;
 }
 

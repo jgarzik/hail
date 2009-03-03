@@ -102,6 +102,10 @@ extern bool msg_close(struct server_socket *, DB_TXN *,
 		 const struct client *, struct session *, uint8_t *, size_t);
 extern bool msg_del(struct server_socket *, DB_TXN *,
 		 const struct client *, struct session *, uint8_t *, size_t);
+extern bool msg_unlock(struct server_socket *, DB_TXN *,
+		 const struct client *, struct session *, uint8_t *, size_t);
+extern bool msg_trylock(struct server_socket *, DB_TXN *,
+		 const struct client *, struct session *, uint8_t *, size_t);
 extern bool msg_get(struct server_socket *, DB_TXN *,
 		 const struct client *, struct session *, uint8_t *, size_t,
 		 bool);

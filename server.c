@@ -153,6 +153,10 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 		return msg_close(sock, txn, cli, sess, raw_msg, msg_len);
 	case cmo_del:
 		return msg_del(sock, txn, cli, sess, raw_msg, msg_len);
+	case cmo_unlock:
+		return msg_unlock(sock, txn, cli, sess, raw_msg, msg_len);
+	case cmo_trylock:
+		return msg_trylock(sock, txn, cli, sess, raw_msg, msg_len);
 	default:
 		return false;
 	}

@@ -967,3 +967,91 @@ err_out:
 	free(parent_data);
 	return false;
 }
+
+bool msg_unlock(struct server_socket *sock, DB_TXN *txn,
+		const struct client *cli, struct session *sess,
+		uint8_t *raw_msg, size_t msg_len)
+{
+	struct cld_msg_unlock *msg = (struct cld_msg_unlock *) raw_msg;
+	uint64_t fh;
+	struct raw_handle *h = NULL;
+	cldino_t inum;
+	int rc;
+	enum cle_err_codes resp_rc = CLE_OK;
+
+	/* make sure input data as large as expected */
+	if (msg_len < sizeof(*msg))
+		return false;
+
+	fh = GUINT64_FROM_LE(msg->fh);
+
+	rc = cldb_handle_get(txn, sess->clid, fh, &h, 0);
+	if (rc) {
+		resp_rc = CLE_FH_INVAL;
+		goto err_out;
+	}
+
+	inum = cldino_from_le(h->inum);
+
+	rc = cldb_lock_del(txn, sess->clid, fh, inum);
+	if (rc) {
+		resp_rc = CLE_LOCK_INVAL;
+		goto err_out;
+	}
+
+	resp_ok(sock, cli, (struct cld_msg_hdr *) msg);
+	free(h);
+	return true;
+
+err_out:
+	resp_err(sock, cli, (struct cld_msg_hdr *) msg, resp_rc);
+	free(h);
+	return false;
+}
+
+bool msg_trylock(struct server_socket *sock, DB_TXN *txn,
+		const struct client *cli, struct session *sess,
+		uint8_t *raw_msg, size_t msg_len)
+{
+	struct cld_msg_lock *msg = (struct cld_msg_lock *) raw_msg;
+	uint64_t fh;
+	struct raw_handle *h = NULL;
+	cldino_t inum;
+	int rc;
+	enum cle_err_codes resp_rc = CLE_OK;
+	uint32_t lock_flags;
+
+	/* make sure input data as large as expected */
+	if (msg_len < sizeof(*msg))
+		return false;
+
+	fh = GUINT64_FROM_LE(msg->fh);
+	lock_flags = GUINT32_FROM_LE(msg->flags);
+
+	rc = cldb_handle_get(txn, sess->clid, fh, &h, 0);
+	if (rc) {
+		resp_rc = CLE_FH_INVAL;
+		goto err_out;
+	}
+
+	inum = cldino_from_le(h->inum);
+
+	rc = cldb_lock_add(txn, sess->clid, fh, inum, lock_flags & CLF_SHARED);
+	if (rc) {
+		if (rc == DB_KEYEXIST)
+			resp_rc = CLE_LOCK_CONFLICT;
+		else
+			resp_rc = CLE_DB_ERR;
+		goto err_out;
+	}
+
+	resp_ok(sock, cli, (struct cld_msg_hdr *) msg);
+	free(h);
+	return true;
+
+err_out:
+	resp_err(sock, cli, (struct cld_msg_hdr *) msg, resp_rc);
+	free(h);
+	return false;
+}
+

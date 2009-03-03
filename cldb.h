@@ -36,6 +36,10 @@ enum inode_flags {
 	CIFL_DIR		= (1 << 0),	/* is a directory */
 };
 
+enum lock_flags {
+	CLFL_SHARED		= (1 << 0),	/* a shared (read) lock */
+};
+
 struct raw_session {
 	uint8_t			clid[8];	/* client id */
 	char			addr[64];	/* IP address */
@@ -69,6 +73,12 @@ struct raw_inode {
 	/* inode name */
 };
 
+struct raw_lock {
+	uint8_t			clid[8];	/* client id */
+	uint64_t		fh;		/* handle id */
+	uint32_t		flags;		/* lock flags: CLFL_xxxx */
+};
+
 struct cldb {
 	char		*home;			/* database home dir */
 	char		*key;			/* database AES key */
@@ -84,6 +94,8 @@ struct cldb {
 
 	DB		*handles;		/* open file handles */
 	DB		*handle_idx;		/* handles (by inode) */
+
+	DB		*locks;			/* held locks */
 };
 
 
@@ -120,6 +132,10 @@ extern int cldb_handle_put(DB_TXN *txn, struct raw_handle *h, int put_flags);
 extern int cldb_handle_del(DB_TXN *txn, uint8_t *clid, uint64_t fh);
 extern int cldb_handle_get(DB_TXN *txn, uint8_t *clid, uint64_t fh,
 		    struct raw_handle **h_out, int flags);
+
+extern int cldb_lock_del(DB_TXN *txn, uint8_t *clid, uint64_t fh, cldino_t inum);
+extern int cldb_lock_add(DB_TXN *txn, uint8_t *clid, uint64_t fh,
+			cldino_t inum, bool shared);
 
 static inline cldino_t cldino_to_le(cldino_t inum)
 {

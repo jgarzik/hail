@@ -39,6 +39,8 @@ enum cld_msg_ops {
 	cmo_put			= 6,		/* put data */
 	cmo_close		= 7,		/* close file */
 	cmo_del			= 8,		/* delete file */
+	cmo_unlock		= 9,		/* unlock */
+	cmo_trylock		= 10,		/* trylock */
 };
 
 enum cle_err_codes {
@@ -52,6 +54,8 @@ enum cle_err_codes {
 	CLE_OOM			= 7,		/* server out of memory */
 	CLE_FH_INVAL		= 8,		/* file handle invalid */
 	CLE_DATA_INVAL		= 9,		/* invalid data pkt */
+	CLE_LOCK_INVAL		= 10,		/* invalid lock */
+	CLE_LOCK_CONFLICT	= 11,		/* conflicting lock held */
 };
 
 enum cld_open_modes {
@@ -67,6 +71,10 @@ enum cld_events {
 	CE_MASTER_FAILOVER	= (1 << 1),	/* master failover */
 	CE_INVAL_FH		= (1 << 2),	/* invalid FH */
 	CE_LOCKED		= (1 << 3),	/* lock acquired */
+};
+
+enum cld_lock_flags {
+	CLF_SHARED		= (1 << 0),	/* a shared (read) lock */
 };
 
 struct cld_msg_hdr {
@@ -154,6 +162,19 @@ struct cld_msg_del {
 
 	uint16_t		name_len;	/* length of file name */
 	/* inode name */
+};
+
+struct cld_msg_unlock {
+	struct cld_msg_hdr	hdr;
+
+	uint64_t		fh;		/* open file handle */
+};
+
+struct cld_msg_lock {
+	struct cld_msg_hdr	hdr;
+
+	uint64_t		fh;		/* open file handle */
+	uint32_t		flags;		/* CLF_xxx */
 };
 
 #endif /* __CLD_MSG_H__ */
