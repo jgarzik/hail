@@ -23,7 +23,7 @@
 #include <stdbool.h>
 #include <db.h>
 
-typedef uint32_t cldino_t;
+typedef uint64_t cldino_t;
 
 struct session;
 
@@ -53,10 +53,9 @@ struct raw_handle_key {
 struct raw_handle {
 	uint8_t			clid[8];	/* client id */
 	uint64_t		fh;		/* handle id */
-	uint32_t		ino_len;	/* inode name len */
+	cldino_t		inum;		/* inode number */
 	uint32_t		mode;		/* open mode */
 	uint32_t		events;		/* event mask */
-	/* inode name */
 };
 
 struct raw_inode {
@@ -107,15 +106,24 @@ extern struct raw_inode *cldb_inode_new(DB_TXN *txn, char *name, size_t name_len
 				 uint32_t flags);
 extern size_t raw_ino_size(const struct raw_inode *ino);
 
-extern int cldb_data_get(DB_TXN *txn, char *name, size_t name_len,
+extern int cldb_data_put(DB_TXN *txn, cldino_t inum,
+		  void *data, size_t data_len, int flags);
+extern int cldb_data_get(DB_TXN *txn, cldino_t inum,
 		  void **data_out, size_t *data_len,
 		  bool notfound_err, bool rmw);
-extern int cldb_data_put(DB_TXN *txn, char *name, size_t name_len,
-		  void *data, size_t data_len, int put_flags);
 
-extern struct raw_handle *cldb_handle_new(struct session *sess,
-				   const char *name, size_t name_len,
+extern struct raw_handle *cldb_handle_new(struct session *sess, cldino_t inum,
 				   uint32_t mode, uint32_t events);
 extern int cldb_handle_put(DB_TXN *txn, struct raw_handle *h, int put_flags);
+
+static inline cldino_t cldino_to_le(cldino_t inum)
+{
+	return GUINT64_TO_LE(inum);
+}
+
+static inline cldino_t cldino_from_le(cldino_t inum)
+{
+	return GUINT64_FROM_LE(inum);
+}
 
 #endif /* __CLDB_H__ */

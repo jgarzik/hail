@@ -64,19 +64,11 @@ static int handle_idx_key(DB *secondary, const DBT *pkey, const DBT *pdata,
 			  DBT *key_out)
 {
 	const struct raw_handle *handle = pdata->data;
-	size_t ino_len = pdata->size - sizeof(*handle);
-	const void *p;
-
-	if (ino_len != GUINT32_FROM_LE(handle->ino_len))
-		return -1;
 
 	memset(key_out, 0, sizeof(*key_out));
 
-	p = pdata->data;
-	p += sizeof(*handle);
-
-	key_out->data = (void *) p;
-	key_out->size = ino_len;
+	key_out->data = (void *) &handle->inum;
+	key_out->size = sizeof(handle->inum);
 
 	return 0;
 }
@@ -353,7 +345,7 @@ int cldb_inode_get(DB_TXN *txn, cldino_t inum,
 	int rc;
 	DBT key, val;
 	bool err = false;
-	cldino_t inum_le = GUINT32_TO_LE(inum);
+	cldino_t inum_le = cldino_to_le(inum);
 
 	if (inode_out)
 		*inode_out = NULL;
@@ -477,7 +469,7 @@ struct raw_inode *cldb_inode_new(DB_TXN *txn, char *name, size_t name_len,
 	if (!ino)
 		return NULL;
 	
-	ino->inum = GUINT32_TO_LE(new_inum);
+	ino->inum = cldino_to_le(new_inum);
 	ino->ino_len = GUINT32_TO_LE(name_len);
 	ino->time_create = 
 	ino->time_modify = GUINT64_TO_LE(current_time);
@@ -489,7 +481,7 @@ struct raw_inode *cldb_inode_new(DB_TXN *txn, char *name, size_t name_len,
 	return ino;
 }
 
-int cldb_data_get(DB_TXN *txn, char *name, size_t name_len,
+int cldb_data_get(DB_TXN *txn, cldino_t inum,
 		  void **data_out, size_t *data_len,
 		  bool notfound_err, bool rmw)
 {
@@ -498,14 +490,15 @@ int cldb_data_get(DB_TXN *txn, char *name, size_t name_len,
 	int rc;
 	DBT key, val;
 	bool err = false;
+	cldino_t inum_le = cldino_to_le(inum);
 
 	*data_out = NULL;
 
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
 
-	key.data = name;
-	key.size = name_len;
+	key.data = &inum_le;
+	key.size = sizeof(inum_le);
 
 	val.flags = DB_DBT_MALLOC;
 
@@ -523,39 +516,39 @@ int cldb_data_get(DB_TXN *txn, char *name, size_t name_len,
 	return rc;
 }
 
-int cldb_data_put(DB_TXN *txn, char *name, size_t name_len,
-		  void *data, size_t data_len, int put_flags)
+int cldb_data_put(DB_TXN *txn, cldino_t inum,
+		  void *data, size_t data_len, int flags)
 {
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	DB *db_data = cld_srv.cldb.data;
 	int rc;
 	DBT key, val;
+	cldino_t inum_le = cldino_to_le(inum);
 
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
 
-	key.data = name;
-	key.size = name_len;
+	key.data = &inum_le;
+	key.size = sizeof(inum_le);
 
 	val.data = data;
 	val.size = data_len;
 
-	rc = db_data->put(db_data, txn, &key, &val, put_flags);
+	rc = db_data->put(db_data, txn, &key, &val, flags);
 	if (rc)
 		dbenv->err(dbenv, rc, "db_data->put");
 
 	return rc;
 }
 
-struct raw_handle *cldb_handle_new(struct session *sess,
-				   const char *name, size_t name_len,
+struct raw_handle *cldb_handle_new(struct session *sess, cldino_t inum,
 				   uint32_t mode, uint32_t events)
 {
 	struct raw_handle *h;
 	uint64_t fh;
 	void *mem;
 
-	mem = calloc(1, sizeof(*h) + name_len + ALIGN8(name_len));
+	mem = calloc(1, sizeof(*h));
 	if (!mem)
 		return NULL;
 
@@ -565,24 +558,11 @@ struct raw_handle *cldb_handle_new(struct session *sess,
 
 	memcpy(h->clid, sess->clid, sizeof(h->clid));
 	h->fh = GUINT64_TO_LE(fh);
-	h->ino_len = GUINT32_TO_LE(name_len);
+	h->inum = cldino_to_le(inum);
 	h->mode = GUINT32_TO_LE(mode);
 	h->events = GUINT32_TO_LE(events);
 
-	memcpy(mem + sizeof(*h), name, name_len);
-
 	return h;
-}
-
-static size_t raw_handle_size(const struct raw_handle *h)
-{
-	size_t sz = sizeof(struct raw_handle);
-	uint32_t tmp;
-
-	tmp = GUINT32_FROM_LE(h->ino_len);
-	sz += tmp + ALIGN8(tmp);
-
-	return sz;
 }
 
 int cldb_handle_put(DB_TXN *txn, struct raw_handle *h, int put_flags)
@@ -599,7 +579,7 @@ int cldb_handle_put(DB_TXN *txn, struct raw_handle *h, int put_flags)
 	key.size = sizeof(struct raw_handle_key);
 
 	val.data = h;
-	val.size = raw_handle_size(h);
+	val.size = sizeof(*h);
 
 	rc = db_handle->put(db_handle, txn, &key, &val, put_flags);
 	if (rc)

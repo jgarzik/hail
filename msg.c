@@ -206,6 +206,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 	size_t parent_len;
 	uint32_t msg_mode, msg_events;
 	uint64_t fh;
+	cldino_t inum;
 
 	/* make sure input data as large as expected */
 	if (msg_len < sizeof(*msg))
@@ -257,7 +258,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 		}
 
 		/* read parent inode data, if any */
-		rc = cldb_data_get(txn, pinfo.dir, pinfo.dir_len,
+		rc = cldb_data_get(txn, cldino_from_le(parent->inum),
 				   &parent_data, &parent_len, true, true);
 		if (rc) {
 			resp_err(sock, cli, (struct cld_msg_hdr *) msg,
@@ -275,7 +276,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 		}
 
 		/* write parent inode's updated directory data */
-		rc = cldb_data_put(txn, pinfo.dir, pinfo.dir_len,
+		rc = cldb_data_put(txn, cldino_from_le(parent->inum),
 				   parent_data, parent_len, 0);
 		if (rc) {
 			resp_err(sock, cli, (struct cld_msg_hdr *) msg,
@@ -297,8 +298,10 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 		}
 	}
 
+	inum = cldino_from_le(inode->inum);
+
 	/* alloc & init new handle; updates session's next_fh */
-	h = cldb_handle_new(sess, name, name_len, msg_mode, msg_events);
+	h = cldb_handle_new(sess, inum, msg_mode, msg_events);
 	if (!h) {
 		syslog(LOG_CRIT, "out of memory");
 		resp_err(sock, cli, (struct cld_msg_hdr *) msg, CLE_OOM);
