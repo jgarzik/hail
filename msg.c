@@ -285,6 +285,8 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 
 		parent->time_modify = GUINT64_TO_LE(current_time);
 		parent->size = GUINT32_TO_LE(parent_len);
+		parent->version = GUINT32_TO_LE(
+			GUINT32_FROM_LE(parent->version) + 1);
 
 		/* write parent inode */
 		rc = cldb_inode_put(txn, parent, 0);
