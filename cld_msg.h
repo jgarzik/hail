@@ -33,6 +33,9 @@ enum cld_msg_ops {
 	cmo_nop			= 0,		/* no op */
 	cmo_new_cli		= 1,		/* new client */
 	cmo_open		= 2,		/* open file */
+	cmo_get_meta		= 3,		/* get metadata */
+	cmo_get			= 4,		/* get metadata + data */
+	cmo_data		= 5,		/* data message */
 };
 
 enum cle_err_codes {
@@ -44,6 +47,7 @@ enum cle_err_codes {
 	CLE_INODE_INVAL		= 5,		/* inode doesn't exist */
 	CLE_NAME_INVAL		= 6,		/* inode name invalid */
 	CLE_OOM			= 7,		/* server out of memory */
+	CLE_FH_INVAL		= 8,		/* file handle invalid */
 };
 
 enum cld_open_modes {
@@ -91,6 +95,36 @@ struct cld_msg_resp_open {
 
 	uint32_t		code;		/* error code, CLE_xxx */
 	uint64_t		fh;		/* handle opened */
+};
+
+struct cld_msg_get {
+	struct cld_msg_hdr	hdr;
+
+	uint64_t		fh;		/* open file handle */
+};
+
+struct cld_msg_get_resp {
+	struct cld_msg_hdr	hdr;
+
+	/* should mirror struct raw_inode, except that inum's type
+	 * should always be uint64_t, regardless of server's
+	 * cldino_t definition
+	 */
+	uint64_t		inum;		/* unique inode number */
+	uint32_t		ino_len;	/* inode name len */
+	uint32_t		size;		/* data size */
+	uint64_t		version;	/* inode version */
+	uint64_t		time_create;
+	uint64_t		time_modify;
+	uint32_t		flags;		/* inode flags; CIFL_xxx */
+	/* inode name */
+};
+
+struct cld_msg_data_resp {
+	struct cld_msg_hdr	hdr;
+
+	uint32_t		seg;		/* segment number */
+	uint32_t		seg_len;	/* segment length */
 };
 
 #endif /* __CLD_MSG_H__ */

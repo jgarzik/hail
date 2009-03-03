@@ -75,18 +75,18 @@ struct server cld_srv = {
 	.port			= CLD_DEF_PORT,
 };
 
-static void udp_tx(struct server_socket *sock, const struct client *cli,
-		   const void *data, size_t data_len)
+void udp_tx(struct server_socket *sock, const struct client *cli,
+	    const void *data, size_t data_len)
 {
 	ssize_t src;
 
 	src = sendto(sock->fd, data, data_len, 0, 
 		     (struct sockaddr *) &cli->addr, cli->addr_len);
-	if (src < 0)
+	if (src < 0 && errno != EAGAIN)
 		syslogerr("sendto");
 }
 
-static void resp_copy(struct cld_msg_hdr *dest, const struct cld_msg_hdr *src)
+void resp_copy(struct cld_msg_hdr *dest, const struct cld_msg_hdr *src)
 {
 	memcpy(dest, src, sizeof(*dest));
 	dest->n_data = 0;
@@ -143,6 +143,10 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 		return msg_new_cli(sock, txn, cli, raw_msg, msg_len);
 	case cmo_open:
 		return msg_open(sock, txn, cli, sess, raw_msg, msg_len);
+	case cmo_get:
+		return msg_get(sock, txn, cli, sess, raw_msg, msg_len, false);
+	case cmo_get_meta:
+		return msg_get(sock, txn, cli, sess, raw_msg, msg_len, true);
 	default:
 		return false;
 	}

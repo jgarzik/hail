@@ -26,6 +26,10 @@
 #include <syslog.h>
 #include "cld.h"
 
+enum {
+	CLD_MAX_UDP_SEG		= 1024,
+};
+
 struct pathname_info {
 	char		*dir;
 	size_t		dir_len;
@@ -191,10 +195,116 @@ static bool inode_append(struct raw_inode **ino, struct raw_handle *h)
 	return true;
 }
 
+bool msg_get(struct server_socket *sock, DB_TXN *txn,
+	     const struct client *cli, struct session *sess,
+	     uint8_t *raw_msg, size_t msg_len, bool metadata_only)
+{
+	struct cld_msg_get *msg = (struct cld_msg_get *) raw_msg;
+	struct cld_msg_get_resp *resp;
+	size_t resp_len;
+	uint64_t fh;
+	struct raw_handle *h = NULL;
+	struct raw_inode *inode = NULL;
+	enum cle_err_codes resp_rc = CLE_OK;
+	cldino_t inum;
+	uint32_t name_len;
+	uint32_t data_size;
+	void *data_mem = NULL;
+	size_t data_mem_len = 0;
+	int rc;
+
+	/* make sure input data as large as expected */
+	if (msg_len < sizeof(*msg))
+		return false;
+
+	fh = GUINT64_FROM_LE(msg->fh);
+
+	rc = cldb_handle_get(txn, sess->clid, fh, &h, 0);
+	if (rc) {
+		resp_rc = CLE_FH_INVAL;
+		goto err_out;
+	}
+
+	inum = cldino_from_le(h->inum);
+
+	rc = cldb_inode_get(txn, inum, &inode, false, 0);
+	if (rc) {
+		resp_rc = CLE_INODE_INVAL;
+		goto err_out;
+	}
+
+	name_len = GUINT32_FROM_LE(inode->ino_len);
+	data_size = GUINT32_FROM_LE(inode->size);
+
+	resp_len = sizeof(*resp) + name_len;
+	resp = alloca(resp_len);
+
+	resp_copy(&resp->hdr, &msg->hdr);
+	resp->inum = GUINT64_TO_LE(inum);
+	memcpy(&resp->ino_len, &inode->ino_len,
+	       (sizeof(struct raw_inode) - sizeof(inode->inum)) + name_len);
+
+	udp_tx(sock, cli, &resp, sizeof(resp));
+
+	if (!metadata_only) {
+		int i, seg_len;
+		void *p;
+		char dbuf[CLD_MAX_UDP_SEG];
+		struct cld_msg_data_resp *dr =
+			(struct cld_msg_data_resp *) &dbuf;
+
+		rc = cldb_data_get(txn, inum, &data_mem, &data_mem_len,
+				   true, false);
+		if (rc) {
+			resp_rc = CLE_DB_ERR;
+			goto err_out;
+		}
+
+		resp_copy(&dr->hdr, &msg->hdr);
+		dr->hdr.op = cmo_data;
+		i = 0;
+		p = data_mem;
+
+		while (data_mem_len > 0) {
+			seg_len = MIN(CLD_MAX_UDP_SEG, data_mem_len);
+
+			seg_len -= sizeof(*dr);
+
+			dr->seg = GUINT32_TO_LE(i);
+			dr->seg_len = GUINT32_TO_LE(seg_len);
+			memcpy(dbuf + sizeof(*dr), p, seg_len);
+
+			i++;
+			p += seg_len;
+			data_mem_len -= seg_len;
+
+			udp_tx(sock, cli, dr, seg_len + sizeof(*dr));
+		}
+
+		/* send terminating packet */
+		dr->seg = GUINT32_TO_LE(i);
+		dr->seg_len = 0;
+		udp_tx(sock, cli, dr, sizeof(*dr));
+	}
+
+	free(h);
+	free(inode);
+	free(data_mem);
+	return true;
+
+err_out:
+	resp_err(sock, cli, (struct cld_msg_hdr *) msg, resp_rc);
+	free(h);
+	free(inode);
+	free(data_mem);
+	return false;
+}
+
 bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 	      struct session *sess, uint8_t *raw_msg, size_t msg_len)
 {
 	struct cld_msg_open *msg = (struct cld_msg_open *) raw_msg;
+	struct cld_msg_resp_open resp;
 	char *name;
 	struct raw_session *raw_sess = NULL;
 	struct raw_inode *inode = NULL, *parent = NULL;
@@ -207,6 +317,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 	uint32_t msg_mode, msg_events;
 	uint64_t fh;
 	cldino_t inum;
+	enum cle_err_codes resp_rc = CLE_OK;
 
 	/* make sure input data as large as expected */
 	if (msg_len < sizeof(*msg))
@@ -224,8 +335,8 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 	create = msg_mode & COM_CREATE;
 
 	if (!valid_inode_name(name, name_len) || (create && name_len < 2)) {
-		resp_err(sock, cli, (struct cld_msg_hdr *) msg, CLE_NAME_INVAL);
-		return false;
+		resp_rc = CLE_NAME_INVAL;
+		goto err_out;
 	}
 
 	pathname_parse(name, name_len, &pinfo);
@@ -233,8 +344,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 	/* read inode from db, if it exists */
 	rc = cldb_inode_get_byname(txn, name, name_len, &inode, true, true);
 	if (rc && ((rc != DB_NOTFOUND) || (!create))) {
-		resp_err(sock, cli, (struct cld_msg_hdr *) msg,
-			(rc == DB_NOTFOUND) ? CLE_INODE_INVAL : CLE_DB_ERR);
+		resp_rc = (rc == DB_NOTFOUND) ? CLE_INODE_INVAL : CLE_DB_ERR;
 		goto err_out;
 	}
 
@@ -243,8 +353,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 		inode = cldb_inode_new(txn, pinfo.base, pinfo.base_len, 0);
 		if (!inode) {
 			syslog(LOG_CRIT, "out of memory");
-			resp_err(sock, cli, (struct cld_msg_hdr *) msg,
-			    CLE_OOM);
+			resp_rc = CLE_OOM;
 			goto err_out;
 		}
 
@@ -252,8 +361,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 		rc = cldb_inode_get_byname(txn, pinfo.dir, pinfo.dir_len,
 				    &parent, true, true);
 		if (rc) {
-			resp_err(sock, cli, (struct cld_msg_hdr *) msg,
-				 CLE_DB_ERR);
+			resp_rc = CLE_DB_ERR;
 			goto err_out;
 		}
 
@@ -261,8 +369,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 		rc = cldb_data_get(txn, cldino_from_le(parent->inum),
 				   &parent_data, &parent_len, true, true);
 		if (rc) {
-			resp_err(sock, cli, (struct cld_msg_hdr *) msg,
-				 CLE_DB_ERR);
+			resp_rc = CLE_DB_ERR;
 			goto err_out;
 		}
 
@@ -270,8 +377,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 		if (!dirdata_append(&parent_data, &parent_len,
 				    pinfo.base, pinfo.base_len)) {
 			syslog(LOG_CRIT, "out of memory");
-			resp_err(sock, cli, (struct cld_msg_hdr *) msg,
-			    CLE_OOM);
+			resp_rc = CLE_OOM;
 			goto err_out;
 		}
 
@@ -279,8 +385,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 		rc = cldb_data_put(txn, cldino_from_le(parent->inum),
 				   parent_data, parent_len, 0);
 		if (rc) {
-			resp_err(sock, cli, (struct cld_msg_hdr *) msg,
-				 CLE_DB_ERR);
+			resp_rc = CLE_DB_ERR;
 			goto err_out;
 		}
 
@@ -292,8 +397,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 		/* write parent inode */
 		rc = cldb_inode_put(txn, parent, 0);
 		if (rc) {
-			resp_err(sock, cli, (struct cld_msg_hdr *) msg,
-				 CLE_DB_ERR);
+			resp_rc = CLE_DB_ERR;
 			goto err_out;
 		}
 	}
@@ -304,7 +408,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 	h = cldb_handle_new(sess, inum, msg_mode, msg_events);
 	if (!h) {
 		syslog(LOG_CRIT, "out of memory");
-		resp_err(sock, cli, (struct cld_msg_hdr *) msg, CLE_OOM);
+		resp_rc = CLE_OOM;
 		goto err_out;
 	}
 
@@ -313,7 +417,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 	/* write newly created file handle */
 	rc = cldb_handle_put(txn, h, 0);
 	if (rc) {
-		resp_err(sock, cli, (struct cld_msg_hdr *) msg, CLE_DB_ERR);
+		resp_rc = CLE_DB_ERR;
 		goto err_out;
 	}
 
@@ -324,7 +428,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 	/* add handle to session, and to inode */
 	if (!raw_sess || !inode_append(&inode, h)) {
 		syslog(LOG_CRIT, "out of memory");
-		resp_err(sock, cli, (struct cld_msg_hdr *) msg, CLE_OOM);
+		resp_rc = CLE_OOM;
 		goto err_out;
 	}
 
@@ -333,14 +437,14 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 	/* write inode */
 	rc = cldb_inode_put(txn, inode, 0);
 	if (rc) {
-		resp_err(sock, cli, (struct cld_msg_hdr *) msg, CLE_DB_ERR);
+		resp_rc = CLE_DB_ERR;
 		goto err_out;
 	}
 
 	/* write session */
 	rc = cldb_session_put(txn, raw_sess, 0);
 	if (rc) {
-		resp_err(sock, cli, (struct cld_msg_hdr *) msg, CLE_DB_ERR);
+		resp_rc = CLE_DB_ERR;
 		goto err_out;
 	}
 
@@ -348,9 +452,16 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 	free(parent);
 	free(inode);
 	free(raw_sess);
+
+	resp_copy(&resp.hdr, &msg->hdr);
+	resp.code = GUINT32_TO_LE(CLE_OK);
+	resp.fh = GUINT64_TO_LE(fh);
+	udp_tx(sock, cli, &resp, sizeof(resp));
+
 	return true;
 
 err_out:
+	resp_err(sock, cli, (struct cld_msg_hdr *) msg, resp_rc);
 	free(parent_data);
 	free(parent);
 	free(inode);

@@ -298,7 +298,7 @@ int cldb_session_get(DB_TXN *txn, uint8_t *clid, struct raw_session **sess_out,
 		err = true;
 	}
 
-	if (!err)
+	if (!err && (rc == 0))
 		*sess_out = val.data;
 	
 	return rc;
@@ -563,6 +563,40 @@ struct raw_handle *cldb_handle_new(struct session *sess, cldino_t inum,
 	h->events = GUINT32_TO_LE(events);
 
 	return h;
+}
+
+int cldb_handle_get(DB_TXN *txn, uint8_t *clid, uint64_t fh,
+		    struct raw_handle **h_out, int flags)
+{
+	DB_ENV *dbenv = cld_srv.cldb.env;
+	DB *db_handle = cld_srv.cldb.handles;
+	int rc;
+	DBT key, val;
+	struct raw_handle_key hkey;
+
+	if (h_out)
+		*h_out = NULL;
+
+	memcpy(&hkey.clid, &clid, CLD_ID_SZ);
+	hkey.fh = GUINT64_TO_LE(fh);
+
+	memset(&key, 0, sizeof(key));
+	memset(&val, 0, sizeof(val));
+
+	key.data = &hkey;
+	key.size = sizeof(hkey);
+
+	if (h_out)
+		val.flags = DB_DBT_MALLOC;
+
+	rc = db_handle->get(db_handle, txn, &key, &val, flags);
+	if (rc)
+		dbenv->err(dbenv, rc, "db_handle->put");
+
+	if ((rc == 0) && h_out)
+		*h_out = val.data;
+
+	return rc;
 }
 
 int cldb_handle_put(DB_TXN *txn, struct raw_handle *h, int put_flags)
