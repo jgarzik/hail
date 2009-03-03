@@ -191,7 +191,7 @@ static bool inode_append(struct raw_inode **ino, struct raw_handle *h)
 	return true;
 }
 
-bool msg_open(struct server_socket *sock, DB_TXN *txn, struct client *cli,
+bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 	      struct session *sess, uint8_t *raw_msg, size_t msg_len)
 {
 	struct cld_msg_open *msg = (struct cld_msg_open *) raw_msg;
@@ -363,7 +363,7 @@ static void session_timeout(int fd, short events, void *userdata)
 }
 
 bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
-		 struct client *cli, uint8_t *raw_msg, size_t msg_len)
+		 const struct client *cli, uint8_t *raw_msg, size_t msg_len)
 {
 	struct cld_msg_hdr *msg = (struct cld_msg_hdr *) raw_msg;
 	DB *db = cld_srv.cldb.sessions;
