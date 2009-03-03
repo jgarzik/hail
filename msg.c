@@ -230,7 +230,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 	pathname_parse(name, name_len, &pinfo);
 
 	/* read inode from db, if it exists */
-	rc = cldb_inode_get(txn, name, name_len, &inode, true, true);
+	rc = cldb_inode_get_byname(txn, name, name_len, &inode, true, true);
 	if (rc && ((rc != DB_NOTFOUND) || (!create))) {
 		resp_err(sock, cli, (struct cld_msg_hdr *) msg,
 			(rc == DB_NOTFOUND) ? CLE_INODE_INVAL : CLE_DB_ERR);
@@ -239,7 +239,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 
 	if (create) {
 		/* create new in-memory inode */
-		inode = cldb_inode_new(pinfo.base, pinfo.base_len, 0);
+		inode = cldb_inode_new(txn, pinfo.base, pinfo.base_len, 0);
 		if (!inode) {
 			syslog(LOG_CRIT, "out of memory");
 			resp_err(sock, cli, (struct cld_msg_hdr *) msg,
@@ -248,7 +248,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 		}
 
 		/* read parent, to which we will add new child inode */
-		rc = cldb_inode_get(txn, pinfo.dir, pinfo.dir_len,
+		rc = cldb_inode_get_byname(txn, pinfo.dir, pinfo.dir_len,
 				    &parent, true, true);
 		if (rc) {
 			resp_err(sock, cli, (struct cld_msg_hdr *) msg,
@@ -287,8 +287,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 		parent->size = GUINT32_TO_LE(parent_len);
 
 		/* write parent inode */
-		rc = cldb_inode_put(txn, pinfo.dir, pinfo.dir_len,
-				    parent, 0);
+		rc = cldb_inode_put(txn, parent, 0);
 		if (rc) {
 			resp_err(sock, cli, (struct cld_msg_hdr *) msg,
 				 CLE_DB_ERR);
@@ -327,7 +326,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 	inode->time_modify = GUINT64_TO_LE(current_time);
 
 	/* write inode */
-	rc = cldb_inode_put(txn, name, name_len, inode, 0);
+	rc = cldb_inode_put(txn, inode, 0);
 	if (rc) {
 		resp_err(sock, cli, (struct cld_msg_hdr *) msg, CLE_DB_ERR);
 		goto err_out;

@@ -23,7 +23,14 @@
 #include <stdbool.h>
 #include <db.h>
 
+typedef uint32_t cldino_t;
+
 struct session;
+
+enum {
+	INO_ROOT		= 10,
+	INO_RESERVED_LAST	= 50,
+};
 
 enum inode_flags {
 	CIFL_DIR		= (1 << 0),	/* is a directory */
@@ -53,8 +60,10 @@ struct raw_handle {
 };
 
 struct raw_inode {
+	cldino_t		inum;		/* unique inode number */
 	uint32_t		ino_len;	/* inode name len */
 	uint32_t		size;		/* data size */
+	uint64_t		version;	/* inode version */
 	uint64_t		time_create;
 	uint64_t		time_modify;
 	uint32_t		flags;		/* inode flags; CIFL_xxx */
@@ -66,9 +75,14 @@ struct cldb {
 	char		*key;			/* database AES key */
 
 	DB_ENV		*env;			/* db4 env ptr */
+
 	DB		*sessions;		/* client sessions */
+
 	DB		*inodes;		/* inode metadata */
+	DB		*inode_names;		/* inode index, by name */
+
 	DB		*data;			/* inode data */
+
 	DB		*handles;		/* open file handles */
 	DB		*handle_idx;		/* handles (by inode) */
 };
@@ -82,11 +96,15 @@ extern int cldb_session_get(DB_TXN *txn, uint8_t *clid, struct raw_session **ses
 		     bool notfound_err, bool rmw);
 extern int cldb_session_put(DB_TXN *txn, struct raw_session *sess, int put_flags);
 
-extern int cldb_inode_get(DB_TXN *txn, char *name, size_t name_len,
-		   struct raw_inode **inode_out, bool notfound_err, bool rmw);
-extern int cldb_inode_put(DB_TXN *txn, char *name, size_t name_len,
-		   struct raw_inode *inode, int put_flags);
-extern struct raw_inode *cldb_inode_new(char *name, size_t name_len, uint32_t flags);
+extern int cldb_inode_get(DB_TXN *txn, cldino_t inum,
+		   struct raw_inode **inode_out, bool notfound_err,
+		   int flags);
+extern int cldb_inode_put(DB_TXN *txn, struct raw_inode *inode, int put_flags);
+extern int cldb_inode_get_byname(DB_TXN *txn, char *name, size_t name_len,
+		   struct raw_inode **inode_out, bool notfound_err,
+		   int flags);
+extern struct raw_inode *cldb_inode_new(DB_TXN *txn, char *name, size_t name_len,
+				 uint32_t flags);
 extern size_t raw_ino_size(const struct raw_inode *ino);
 
 extern int cldb_data_get(DB_TXN *txn, char *name, size_t name_len,

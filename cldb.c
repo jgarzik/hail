@@ -28,6 +28,7 @@
 enum {
 	CLDB_PGSZ_SESSIONS		= 4096,
 	CLDB_PGSZ_INODES		= 4096,
+	CLDB_PGSZ_INODE_NAMES		= 4096,
 	CLDB_PGSZ_DATA			= 4096,
 	CLDB_PGSZ_HANDLES		= 4096,
 	CLDB_PGSZ_HANDLE_IDX		= 4096,
@@ -36,6 +37,27 @@ enum {
 static void db4syslog(const DB_ENV *dbenv, const char *errpfx, const char *msg)
 {
 	syslog(LOG_WARNING, "%s: %s", errpfx, msg);
+}
+
+static int inode_name_key(DB *secondary, const DBT *pkey, const DBT *pdata,
+			  DBT *key_out)
+{
+	const struct raw_inode *inode = pdata->data;
+	size_t ino_len = pdata->size - sizeof(*inode);
+	const void *p;
+
+	if (ino_len != GUINT32_FROM_LE(inode->ino_len))
+		return -1;
+
+	memset(key_out, 0, sizeof(*key_out));
+
+	p = pdata->data;
+	p += sizeof(*inode);
+
+	key_out->data = (void *) p;
+	key_out->size = ino_len;
+
+	return 0;
 }
 
 static int handle_idx_key(DB *secondary, const DBT *pkey, const DBT *pdata,
@@ -185,33 +207,52 @@ int cldb_open(struct cldb *cldb, unsigned int env_flags, unsigned int flags,
 	if (rc)
 		goto err_out_sess;
 
+	rc = open_db(dbenv, &cldb->inode_names, "inode_names",
+		     CLDB_PGSZ_INODE_NAMES, DB_BTREE, flags, NULL);
+	if (rc)
+		goto err_out_ino;
+
+	rc = cldb->inodes->associate(cldb->inodes, NULL,
+				     cldb->inode_names, inode_name_key,
+				     DB_CREATE);
+	if (rc) {
+		cldb->inodes->err(cldb->inodes, rc, "inodes->associate");
+		goto err_out_ino;
+	}
+
 	rc = open_db(dbenv, &cldb->data, "data", CLDB_PGSZ_DATA,
 		     DB_HASH, flags, NULL);
 	if (rc)
-		goto err_out_ino;
+		goto err_out_ino_name;
 
 	rc = open_db(dbenv, &cldb->handles, "handles", CLDB_PGSZ_HANDLES,
 		     DB_BTREE, flags, NULL);
 	if (rc)
-		goto err_out_ino;
+		goto err_out_data;
 
 	rc = open_db(dbenv, &cldb->handle_idx, "handle_idx",
 		     CLDB_PGSZ_HANDLE_IDX, DB_BTREE, flags | DB_DUP, NULL);
 	if (rc)
-		goto err_out_ino;
+		goto err_out_handles;
 
 	rc = cldb->handles->associate(cldb->handles, NULL,
 				      cldb->handle_idx, handle_idx_key,
 				      DB_CREATE);
 	if (rc) {
 		cldb->handles->err(cldb->handles, rc, "handles->associate");
-		goto err_out_handles;
+		goto err_out_handle_idx;
 	}
 
 	return 0;
 
+err_out_handle_idx:
+	cldb->handle_idx->close(cldb->handle_idx, 0);
 err_out_handles:
 	cldb->handles->close(cldb->handles, 0);
+err_out_data:
+	cldb->data->close(cldb->data, 0);
+err_out_ino_name:
+	cldb->inode_names->close(cldb->inode_names, 0);
 err_out_ino:
 	cldb->inodes->close(cldb->inodes, 0);
 err_out_sess:
@@ -225,17 +266,19 @@ void cldb_close(struct cldb *cldb)
 {
 	cldb->handle_idx->close(cldb->handle_idx, 0);
 	cldb->handles->close(cldb->handles, 0);
-	cldb->sessions->close(cldb->sessions, 0);
-	cldb->inodes->close(cldb->inodes, 0);
 	cldb->data->close(cldb->data, 0);
+	cldb->inode_names->close(cldb->inodes, 0);
+	cldb->inodes->close(cldb->inodes, 0);
+	cldb->sessions->close(cldb->sessions, 0);
 	cldb->env->close(cldb->env, 0);
 
-	cldb->env = NULL;
-	cldb->sessions = NULL;
-	cldb->inodes = NULL;
-	cldb->data = NULL;
-	cldb->handles = NULL;
 	cldb->handle_idx = NULL;
+	cldb->handles = NULL;
+	cldb->data = NULL;
+	cldb->inode_names = NULL;
+	cldb->inodes = NULL;
+	cldb->sessions = NULL;
+	cldb->env = NULL;
 }
 
 int cldb_session_get(DB_TXN *txn, uint8_t *clid, struct raw_session **sess_out,
@@ -301,16 +344,53 @@ int cldb_session_put(DB_TXN *txn, struct raw_session *sess, int put_flags)
 	return rc;
 }
 
-int cldb_inode_get(DB_TXN *txn, char *name, size_t name_len,
-		   struct raw_inode **inode_out, bool notfound_err, bool rmw)
+int cldb_inode_get(DB_TXN *txn, cldino_t inum,
+		   struct raw_inode **inode_out, bool notfound_err,
+		   int flags)
 {
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	DB *db_inode = cld_srv.cldb.inodes;
 	int rc;
 	DBT key, val;
 	bool err = false;
+	cldino_t inum_le = GUINT32_TO_LE(inum);
 
-	*inode_out = NULL;
+	if (inode_out)
+		*inode_out = NULL;
+
+	memset(&key, 0, sizeof(key));
+	memset(&val, 0, sizeof(val));
+
+	key.data = &inum_le;
+	key.size = sizeof(inum_le);
+
+	if (inode_out)
+		val.flags = DB_DBT_MALLOC;
+
+	rc = db_inode->get(db_inode, txn, &key, &val, flags);
+	if (rc && ((rc != DB_NOTFOUND) || notfound_err)) {
+		dbenv->err(dbenv, rc, "db_inode->get");
+		err = true;
+	}
+
+	if (!err && (rc == 0) && inode_out)
+		*inode_out = val.data;
+	
+	return rc;
+}
+
+int cldb_inode_get_byname(DB_TXN *txn, char *name, size_t name_len,
+		   struct raw_inode **inode_out, bool notfound_err,
+		   int flags)
+{
+	DB_ENV *dbenv = cld_srv.cldb.env;
+	DB *db_inode_names = cld_srv.cldb.inode_names;
+	int rc;
+	DBT key, val;
+	bool err = false;
+
+	if (inode_out)
+		*inode_out = NULL;
 
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
@@ -318,15 +398,16 @@ int cldb_inode_get(DB_TXN *txn, char *name, size_t name_len,
 	key.data = name;
 	key.size = name_len;
 
-	val.flags = DB_DBT_MALLOC;
+	if (inode_out)
+		val.flags = DB_DBT_MALLOC;
 
-	rc = db_inode->get(db_inode, txn, &key, &val, rmw ? DB_RMW : 0);
+	rc = db_inode_names->get(db_inode_names, txn, &key, &val, flags);
 	if (rc && ((rc != DB_NOTFOUND) || notfound_err)) {
-		dbenv->err(dbenv, rc, "db_inode->get");
+		dbenv->err(dbenv, rc, "db_inode_names->get");
 		err = true;
 	}
 
-	if (!err)
+	if (!err && (rc == 0) && inode_out)
 		*inode_out = val.data;
 	
 	return rc;
@@ -343,8 +424,7 @@ size_t raw_ino_size(const struct raw_inode *ino)
 	return sz;
 }
 
-int cldb_inode_put(DB_TXN *txn, char *name, size_t name_len,
-		   struct raw_inode *inode, int put_flags)
+int cldb_inode_put(DB_TXN *txn, struct raw_inode *inode, int put_flags)
 {
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	DB *db_inode = cld_srv.cldb.inodes;
@@ -354,8 +434,8 @@ int cldb_inode_put(DB_TXN *txn, char *name, size_t name_len,
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
 
-	key.data = name;
-	key.size = name_len;
+	key.data = &inode->inum;
+	key.size = sizeof(inode->inum);
 
 	val.data = inode;
 	val.size = raw_ino_size(inode);
@@ -367,15 +447,37 @@ int cldb_inode_put(DB_TXN *txn, char *name, size_t name_len,
 	return rc;
 }
 
-struct raw_inode *cldb_inode_new(char *name, size_t name_len, uint32_t flags)
+struct raw_inode *cldb_inode_new(DB_TXN *txn, char *name, size_t name_len,
+				 uint32_t flags)
 {
 	struct raw_inode *ino;
 	void *mem;
+	int rc, limit = 100000;
+	bool found = false;
+	cldino_t new_inum = 0;
+
+	while (limit-- > 0) {
+		new_inum = (cldino_t) rand();
+
+		if (new_inum <= INO_RESERVED_LAST)
+			continue;
+
+		rc = cldb_inode_get(txn, new_inum, NULL, false, 0);
+		if (rc) {
+			if (rc == DB_NOTFOUND)
+				found = true;
+			break;
+		}
+	}
+
+	if (!found)
+		return NULL;
 
 	ino = calloc(1, sizeof(*ino) + name_len + ALIGN8(name_len));
 	if (!ino)
 		return NULL;
 	
+	ino->inum = GUINT32_TO_LE(new_inum);
 	ino->ino_len = GUINT32_TO_LE(name_len);
 	ino->time_create = 
 	ino->time_modify = GUINT64_TO_LE(current_time);
