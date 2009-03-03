@@ -33,7 +33,7 @@ struct pathname_info {
 	size_t		base_len;
 };
 
-static void session_timeout(struct timer *timer);
+static void session_timeout(int fd, short events, void *userdata);
 
 static bool valid_inode_name(const char *name, size_t name_len)
 {
@@ -124,8 +124,7 @@ static struct session *session_new(void)
 
 	sess->handles = g_array_new(FALSE, FALSE, sizeof(uint64_t));
 
-	sess->timer.cb = session_timeout;
-	sess->timer.cb_data = sess;
+	evtimer_set(&sess->timer, session_timeout, sess);
 
 	return sess;
 }
@@ -170,7 +169,9 @@ static bool inode_append(struct raw_inode **ino, struct raw_handle *h)
 {
 	size_t new_len, orig_len;
 	void *mem, *p;
+#if 0
 	uint32_t n_handles;
+#endif
 
 	orig_len	= raw_ino_size(*ino);
 	new_len		= orig_len + sizeof(struct raw_handle_key);
@@ -182,8 +183,10 @@ static bool inode_append(struct raw_inode **ino, struct raw_handle *h)
 	p = mem + orig_len;
 	memcpy(p, h, sizeof(struct raw_handle_key));
 
+#if 0
 	n_handles = GUINT32_FROM_LE((*ino)->n_handles);
 	(*ino)->n_handles = GUINT32_TO_LE(n_handles + 1);
+#endif
 
 	return true;
 }
@@ -351,9 +354,12 @@ err_out:
 	return false;
 }
 
-static void session_timeout(struct timer *timer)
+static void session_timeout(int fd, short events, void *userdata)
 {
+	struct session *sess = userdata;
+
 	/* FIXME */
+	(void) sess;
 }
 
 bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
@@ -365,6 +371,7 @@ bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
 	struct session *sess;
 	DBT key, val;
 	int rc;
+	struct timeval tv;
 
 	sess = session_new();
 	if (!sess) {
@@ -390,18 +397,24 @@ bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
 	val.size = sizeof(raw_sess);
 
 	rc = db->put(db, txn, &key, &val, DB_NOOVERWRITE);
-	if (rc) {
-		resp_err(sock, cli, msg, CLE_DB_ERR);
-		free(sess);
-		return false;
-	}
+	if (rc)
+		goto err_out;
 
 	g_hash_table_insert(cld_srv.sessions, sess->clid, sess);
 
-	sess->timer.timeout = current_time + CLD_CLI_TIMEOUT;
-	timer_add(&sess->timer);
+	tv.tv_sec = CLD_CLI_TIMEOUT;
+	tv.tv_usec = 0;
+	if (evtimer_add(&sess->timer, &tv) < 0) {
+		syslog(LOG_WARNING, "evtimer_add session_new failed");
+		goto err_out;
+	}
 
 	resp_ok(sock, cli, msg);
 	return true;
+
+err_out:
+	resp_err(sock, cli, msg, CLE_DB_ERR);
+	free(sess);
+	return false;
 }
 

@@ -38,9 +38,6 @@
 const char *argp_program_version = PACKAGE_VERSION;
 
 enum {
-	CLD_EPOLL_INIT_SIZE	= 200,		/* passed to epoll_create(2) */
-	CLD_EPOLL_MAX_EVT	= 100,		/* max events per poll */
-
 	CLD_RAW_MSG_SZ		= 4096,
 };
 
@@ -151,8 +148,9 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn, struct client *cli,
 	return true;
 }
 
-static void udp_event(unsigned int events, struct server_socket *sock)
+static void udp_srv_event(int fd, short events, void *userdata)
 {
+	struct server_socket *sock = userdata;
 	struct client cli;
 	char host[64];
 	ssize_t rrc;
@@ -289,15 +287,12 @@ static int net_open(void)
 		}
 
 		sock->fd = fd;
-		sock->poll.poll_type = spt_udp;
-		sock->poll.u.sock = sock;
-		sock->evt.events = EPOLLIN;
-		sock->evt.data.ptr = &sock->poll;
 
-		rc = epoll_ctl(cld_srv.epoll_fd, EPOLL_CTL_ADD, fd,
-			       &sock->evt);
-		if (rc < 0) {
-			syslogerr("tcp socket epoll_ctl");
+		event_set(&sock->ev, fd, EV_READ | EV_PERSIST,
+			  udp_srv_event, sock);
+
+		if (event_add(&sock->ev, NULL) < 0) {
+			syslog(LOG_WARNING, "tcp socket event_add");
 			rc = -errno;
 			goto err_out;
 		}
@@ -316,74 +311,28 @@ err_addr:
 	return rc;
 }
 
-static void handle_event(unsigned int events, void *event_data)
-{
-	struct server_poll *sp = event_data;
-
-	cld_srv.stats.event++;
-
-	switch (sp->poll_type) {
-	case spt_udp:
-		udp_event(events, sp->u.sock);
-		break;
-	}
-}
-
 static void term_signal(int signal)
 {
 	server_running = false;
+	event_loopbreak();
 }
 
 static void stats_signal(int signal)
 {
 	dump_stats = true;
+	event_loopbreak();
 }
 
 #define X(stat) \
 	syslog(LOG_INFO, "STAT %s %lu", #stat, cld_srv.stats.stat)
 
-static void log_stats(void)
+static void stats_dump(void)
 {
 	X(poll);
 	X(event);
-	X(max_evt);
 }
 
 #undef X
-
-static void main_loop(void)
-{
-	struct epoll_event evt[CLD_EPOLL_MAX_EVT];
-	int rc, i;
-
-	while (server_running) {
-		rc = epoll_wait(cld_srv.epoll_fd, evt, CLD_EPOLL_MAX_EVT,
-				timer_next());
-		if (rc < 0) {
-			if (errno == EINTR)
-				continue;
-
-			syslogerr("epoll_wait");
-			return;
-		}
-
-		if (rc == CLD_EPOLL_MAX_EVT)
-			cld_srv.stats.max_evt++;
-		cld_srv.stats.poll++;
-
-		current_time = time(NULL);
-
-		for (i = 0; i < rc; i++)
-			handle_event(evt[i].events, evt[i].data.ptr);
-
-		timers_run();
-
-		if (dump_stats) {
-			log_stats();
-			dump_stats = false;
-		}
-	}
-}
 
 static error_t parse_opt (int key, char *arg, struct argp_state *state)
 {
@@ -477,6 +426,8 @@ int main (int argc, char *argv[])
 	signal(SIGTERM, term_signal);
 	signal(SIGUSR1, stats_signal);
 
+	event_init();
+
 	cldb_init();
 
 	cld_srv.sessions = g_hash_table_new(sess_hash, sess_equal);
@@ -484,21 +435,21 @@ int main (int argc, char *argv[])
 	if (!cld_srv.sessions || !cld_srv.timers)
 		goto err_out_pid;
 
-	/* create master epoll fd */
-	cld_srv.epoll_fd = epoll_create(CLD_EPOLL_INIT_SIZE);
-	if (cld_srv.epoll_fd < 0) {
-		syslogerr("epoll_create");
-		goto err_out_pid;
-	}
-
 	/* set up server networking */
 	rc = net_open();
 	if (rc)
-		goto err_out_epoll;
+		goto err_out_pid;
 
 	syslog(LOG_INFO, "initialized");
 
-	main_loop();
+	while (server_running) {
+		event_dispatch();
+
+		if (dump_stats) {
+			dump_stats = false;
+			stats_dump();
+		}
+	}
 
 	syslog(LOG_INFO, "shutting down");
 
@@ -506,8 +457,6 @@ int main (int argc, char *argv[])
 
 	rc = 0;
 
-err_out_epoll:
-	close(cld_srv.epoll_fd);
 err_out_pid:
 	unlink(cld_srv.pid_file);
 err_out:

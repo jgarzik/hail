@@ -20,15 +20,14 @@
  */
 
 
-#include <sys/epoll.h>
 #include <netinet/in.h>
+#include <event.h>
 #include <glib.h>
 #include "cldb.h"
 #include "cld_msg.h"
 
 struct client;
 struct server_socket;
-struct timer;
 
 #define ALIGN8(n) ((8 - ((n) & 7)) & 7)
 
@@ -39,30 +38,10 @@ enum {
 	SFL_FOREGROUND		= (1 << 0),	/* run in foreground */
 };
 
-enum server_poll_type {
-	spt_udp,				/* UDP socket */
-};
-
-struct server_poll {
-	enum server_poll_type	poll_type;	/* spt_xxx above */
-	union {
-		struct server_socket	*sock;
-	} u;
-};
-
 struct client {
 	struct sockaddr_in6	addr;		/* inet address */
 	socklen_t		addr_len;	/* inet address len */
 	char			addr_host[64];	/* ASCII version of inet addr */
-};
-
-typedef void (*timer_cb_t)(struct timer *);
-
-struct timer {
-	time_t			timeout;
-	bool			fired;
-	timer_cb_t		cb;
-	void			*cb_data;
 };
 
 struct session {
@@ -75,19 +54,17 @@ struct session {
 	uint64_t		last_contact;
 	uint64_t		next_fh;
 	GArray			*handles;
-	struct timer		timer;
+	struct event		timer;
 };
 
 struct server_stats {
 	unsigned long		poll;		/* number polls */
 	unsigned long		event;		/* events dispatched */
-	unsigned long		max_evt;	/* epoll events max'd out */
 };
 
 struct server_socket {
 	int			fd;
-	struct server_poll	poll;
-	struct epoll_event	evt;
+	struct event		ev;
 };
 
 struct server {
@@ -97,8 +74,6 @@ struct server {
 	char			*pid_file;	/* PID file */
 
 	char			*port;		/* bind port */
-
-	int			epoll_fd;	/* epoll descriptor */
 
 	struct cldb		cldb;		/* database info */
 
@@ -133,8 +108,5 @@ extern void resp_ok(struct server_socket *sock, struct client *cli,
 extern int write_pid_file(const char *pid_fn);
 extern void syslogerr(const char *prefix);
 extern int fsetflags(const char *prefix, int fd, int or_flags);
-extern void timer_add(struct timer *timer);
-extern int timer_next(void);
-extern void timers_run(void);
 
 #endif /* __CLD_H__ */
