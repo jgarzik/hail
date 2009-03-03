@@ -69,6 +69,75 @@ static void pathname_parse(char *path, size_t path_len,
 	pinfo->base_len = path_len - ofs;
 }
 
+static int dirent_find(const void *data, size_t data_len,
+		       const char *name, size_t name_len,
+		       int *ofs_out, size_t *ent_len_out)
+{
+	const void *p = data;
+	size_t tmp_len = data_len;
+	size_t str_len, rec_len, pad, total_len;
+	const uint16_t *tmp16;
+	long ofs;
+
+	while (tmp_len > 0) {
+		if (tmp_len < 2)
+			return -2;
+
+		tmp16		= p;
+		str_len		= GUINT16_FROM_LE(*tmp16);
+		rec_len		= str_len + 2;
+		pad		= ALIGN8(rec_len);
+		total_len	= rec_len + pad;
+
+		p += 2;
+		tmp_len -= 2;
+
+		if (total_len > tmp_len)
+			return -2;
+
+		if ((name_len == str_len) &&
+		    !memcmp(p, name, name_len))
+			break;
+
+		p += total_len;
+		tmp_len -= total_len;
+	}
+
+	if (!tmp_len)
+		return -1;
+
+	ofs = (p - data) - 2;
+
+	if (ofs_out)
+		*ofs_out = (int) ofs;
+	if (ent_len_out)
+		*ent_len_out = total_len;
+
+	return 0;
+}
+
+static bool dirdata_delete(void *data, size_t *data_len_io,
+			   const char *name, size_t name_len)
+{
+	int rc, ofs = -1;
+	size_t ent_len = 0, new_len;
+	size_t data_len = *data_len_io;
+
+	rc = dirent_find(data, data_len, name, name_len, &ofs, &ent_len);
+	if (rc)
+		return false;
+
+	new_len = data_len - ent_len;
+
+	if ((ofs + ent_len) < data_len)
+		memmove(data + ofs,
+			data + ofs + ent_len,
+			data_len - (ofs + ent_len));
+
+	*data_len_io = new_len;
+	return true;
+}
+
 static bool dirdata_append(void **data, size_t *data_len,
 			   const char *name, size_t name_len)
 {
@@ -803,3 +872,98 @@ err_out:
 	return false;
 }
 
+bool msg_del(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
+	     struct session *sess, uint8_t *raw_msg, size_t msg_len)
+{
+	struct cld_msg_del *msg = (struct cld_msg_del *) raw_msg;
+	enum cle_err_codes resp_rc = CLE_OK;
+	int rc, name_len;
+	char *name;
+	struct pathname_info pinfo;
+	struct raw_inode *parent = NULL;
+	void *parent_data = NULL;
+	size_t parent_len;
+
+	/* make sure input data as large as expected */
+	if (msg_len < sizeof(*msg))
+		return false;
+
+	name_len = GUINT16_FROM_LE(msg->name_len);
+
+	if (msg_len < (sizeof(*msg) + name_len))
+		return false;
+
+	name = (char *) raw_msg + sizeof(*msg);
+
+	if (!valid_inode_name(name, name_len) || (name_len < 2)) {
+		resp_rc = CLE_NAME_INVAL;
+		goto err_out;
+	}
+
+	pathname_parse(name, name_len, &pinfo);
+
+	/* read parent, to which we will add new child inode */
+	rc = cldb_inode_get_byname(txn, pinfo.dir, pinfo.dir_len,
+			    &parent, true, true);
+	if (rc) {
+		resp_rc = CLE_DB_ERR;
+		goto err_out;
+	}
+
+	/* read parent inode data */
+	rc = cldb_data_get(txn, cldino_from_le(parent->inum),
+			   &parent_data, &parent_len, true, true);
+	if (rc) {
+		resp_rc = CLE_DB_ERR;
+		goto err_out;
+	}
+
+	/* delete inode */
+	rc = cldb_inode_del_byname(txn, name, name_len, true);
+	if (rc) {
+		if (rc == DB_NOTFOUND)
+			resp_rc = CLE_INODE_INVAL;
+		else
+			resp_rc = CLE_DB_ERR;
+		goto err_out;
+	}
+
+	/* remove record from inode's directory data */
+	if (!dirdata_delete(&parent_data, &parent_len,
+			    pinfo.base, pinfo.base_len)) {
+		syslog(LOG_WARNING, "dirent del failed");
+		resp_rc = CLE_DB_ERR;
+		goto err_out;
+	}
+
+	/* write parent inode's updated directory data */
+	rc = cldb_data_put(txn, cldino_from_le(parent->inum),
+			   parent_data, parent_len, 0);
+	if (rc) {
+		resp_rc = CLE_DB_ERR;
+		goto err_out;
+	}
+
+	parent->time_modify = GUINT64_TO_LE(current_time);
+	parent->size = GUINT32_TO_LE(parent_len);
+	parent->version = GUINT32_TO_LE(
+		GUINT32_FROM_LE(parent->version) + 1);
+
+	/* write parent inode */
+	rc = cldb_inode_put(txn, parent, 0);
+	if (rc) {
+		resp_rc = CLE_DB_ERR;
+		goto err_out;
+	}
+
+	resp_ok(sock, cli, (struct cld_msg_hdr *) msg);
+	free(parent);
+	free(parent_data);
+	return true;
+
+err_out:
+	resp_err(sock, cli, (struct cld_msg_hdr *) msg, resp_rc);
+	free(parent);
+	free(parent_data);
+	return false;
+}

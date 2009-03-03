@@ -38,6 +38,7 @@ enum cld_msg_ops {
 	cmo_data		= 5,		/* data message */
 	cmo_put			= 6,		/* put data */
 	cmo_close		= 7,		/* close file */
+	cmo_del			= 8,		/* delete file */
 };
 
 enum cle_err_codes {
@@ -146,6 +147,13 @@ struct cld_msg_close {
 	struct cld_msg_hdr	hdr;
 
 	uint64_t		fh;		/* open file handle */
+};
+
+struct cld_msg_del {
+	struct cld_msg_hdr	hdr;
+
+	uint16_t		name_len;	/* length of file name */
+	/* inode name */
 };
 
 #endif /* __CLD_MSG_H__ */

@@ -102,6 +102,8 @@ extern int cldb_inode_put(DB_TXN *txn, struct raw_inode *inode, int put_flags);
 extern int cldb_inode_get_byname(DB_TXN *txn, char *name, size_t name_len,
 		   struct raw_inode **inode_out, bool notfound_err,
 		   int flags);
+extern int cldb_inode_del_byname(DB_TXN *txn, char *name, size_t name_len,
+			  bool notfound_err);
 extern struct raw_inode *cldb_inode_new(DB_TXN *txn, char *name, size_t name_len,
 				 uint32_t flags);
 extern size_t raw_ino_size(const struct raw_inode *ino);
