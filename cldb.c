@@ -26,10 +26,11 @@
 #include "cld.h"
 
 enum {
-	CLDB_PGSZ_SESSIONS		= 1024,
-	CLDB_PGSZ_INODES		= 1024,
-	CLDB_PGSZ_DATA			= 1024,
-	CLDB_PGSZ_HANDLES		= 1024,
+	CLDB_PGSZ_SESSIONS		= 4096,
+	CLDB_PGSZ_INODES		= 4096,
+	CLDB_PGSZ_DATA			= 4096,
+	CLDB_PGSZ_HANDLES		= 4096,
+	CLDB_PGSZ_HANDLE_IDX		= 4096,
 };
 
 static void db4syslog(const DB_ENV *dbenv, const char *errpfx, const char *msg)
@@ -37,8 +38,30 @@ static void db4syslog(const DB_ENV *dbenv, const char *errpfx, const char *msg)
 	syslog(LOG_WARNING, "%s: %s", errpfx, msg);
 }
 
+static int handle_idx_key(DB *secondary, const DBT *pkey, const DBT *pdata,
+			  DBT *key_out)
+{
+	const struct raw_handle *handle = pdata->data;
+	size_t ino_len = pdata->size - sizeof(*handle);
+	const void *p;
+
+	if (ino_len != GUINT32_FROM_LE(handle->ino_len))
+		return -1;
+
+	memset(key_out, 0, sizeof(*key_out));
+
+	p = pdata->data;
+	p += sizeof(*handle);
+
+	key_out->data = (void *) p;
+	key_out->size = ino_len;
+
+	return 0;
+}
+
 static int open_db(DB_ENV *env, DB **db_out, const char *name,
-		   unsigned int page_size, unsigned int flags)
+		   unsigned int page_size, DBTYPE dbtype, unsigned int flags,
+		   int (*bt_compare)(DB *db, const DBT *dbt1, const DBT *dbt2))
 {
 	int rc;
 	DB *db;
@@ -66,7 +89,16 @@ static int open_db(DB_ENV *env, DB **db_out, const char *name,
 		goto err_out;
 	}
 
-	rc = db->open(db, NULL, name, NULL, DB_HASH,
+	if (bt_compare) {
+		rc = db->set_bt_compare(db, bt_compare);
+		if (rc) {
+			db->err(db, rc, "db->set_bt_compare");
+			rc = -EIO;
+			goto err_out;
+		}
+	}
+
+	rc = db->open(db, NULL, name, NULL, dbtype,
 		      DB_AUTO_COMMIT | flags, S_IRUSR | S_IWUSR);
 	if (rc) {
 		db->err(db, rc, "db->open");
@@ -143,24 +175,43 @@ int cldb_open(struct cldb *cldb, unsigned int env_flags, unsigned int flags,
 	 * Open databases
 	 */
 
-	rc = open_db(dbenv, &cldb->sessions, "sessions", CLDB_PGSZ_SESSIONS, flags);
+	rc = open_db(dbenv, &cldb->sessions, "sessions", CLDB_PGSZ_SESSIONS,
+		     DB_HASH, flags, NULL);
 	if (rc)
 		goto err_out;
 
-	rc = open_db(dbenv, &cldb->inodes, "inodes", CLDB_PGSZ_INODES, flags);
+	rc = open_db(dbenv, &cldb->inodes, "inodes", CLDB_PGSZ_INODES,
+		     DB_HASH, flags, NULL);
 	if (rc)
 		goto err_out_sess;
 
-	rc = open_db(dbenv, &cldb->data, "data", CLDB_PGSZ_DATA, flags);
+	rc = open_db(dbenv, &cldb->data, "data", CLDB_PGSZ_DATA,
+		     DB_HASH, flags, NULL);
 	if (rc)
 		goto err_out_ino;
 
-	rc = open_db(dbenv, &cldb->handles, "handles", CLDB_PGSZ_HANDLES,flags);
+	rc = open_db(dbenv, &cldb->handles, "handles", CLDB_PGSZ_HANDLES,
+		     DB_BTREE, flags, NULL);
 	if (rc)
 		goto err_out_ino;
+
+	rc = open_db(dbenv, &cldb->handle_idx, "handle_idx",
+		     CLDB_PGSZ_HANDLE_IDX, DB_BTREE, flags | DB_DUP, NULL);
+	if (rc)
+		goto err_out_ino;
+
+	rc = cldb->handles->associate(cldb->handles, NULL,
+				      cldb->handle_idx, handle_idx_key,
+				      DB_CREATE);
+	if (rc) {
+		cldb->handles->err(cldb->handles, rc, "handles->associate");
+		goto err_out_handles;
+	}
 
 	return 0;
 
+err_out_handles:
+	cldb->handles->close(cldb->handles, 0);
 err_out_ino:
 	cldb->inodes->close(cldb->inodes, 0);
 err_out_sess:
@@ -172,6 +223,8 @@ err_out:
 
 void cldb_close(struct cldb *cldb)
 {
+	cldb->handle_idx->close(cldb->handle_idx, 0);
+	cldb->handles->close(cldb->handles, 0);
 	cldb->sessions->close(cldb->sessions, 0);
 	cldb->inodes->close(cldb->inodes, 0);
 	cldb->data->close(cldb->data, 0);
@@ -181,6 +234,8 @@ void cldb_close(struct cldb *cldb)
 	cldb->sessions = NULL;
 	cldb->inodes = NULL;
 	cldb->data = NULL;
+	cldb->handles = NULL;
+	cldb->handle_idx = NULL;
 }
 
 int cldb_session_get(DB_TXN *txn, uint8_t *clid, struct raw_session **sess_out,
@@ -283,9 +338,7 @@ size_t raw_ino_size(const struct raw_inode *ino)
 	uint32_t tmp;
 
 	tmp = GUINT32_FROM_LE(ino->ino_len);
-	sz += tmp + ALIGN8(tmp);
-
-	sz += GUINT32_FROM_LE(ino->n_handles) * sizeof(struct raw_handle_key);
+	sz += tmp;
 
 	return sz;
 }

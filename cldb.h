@@ -58,9 +58,7 @@ struct raw_inode {
 	uint64_t		time_create;
 	uint64_t		time_modify;
 	uint32_t		flags;		/* inode flags; CIFL_xxx */
-	uint32_t		n_handles;
 	/* inode name */
-	/* list of raw_inode_key */
 };
 
 struct cldb {
@@ -72,6 +70,7 @@ struct cldb {
 	DB		*inodes;		/* inode metadata */
 	DB		*data;			/* inode data */
 	DB		*handles;		/* open file handles */
+	DB		*handle_idx;		/* handles (by inode) */
 };
 
 
