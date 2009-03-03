@@ -533,3 +533,273 @@ err_out:
 	return false;
 }
 
+bool msg_put(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
+	     struct session *sess, uint8_t *raw_msg, size_t msg_len)
+{
+	struct cld_msg_put *msg = (struct cld_msg_put *) raw_msg;
+	uint64_t fh;
+	struct raw_handle *h = NULL;
+	struct raw_inode *inode = NULL;
+	enum cle_err_codes resp_rc = CLE_OK;
+	void *mem;
+	int rc;
+	cldino_t inum;
+
+	/* make sure input data as large as expected */
+	if (msg_len < sizeof(*msg))
+		return false;
+
+	fh = GUINT64_FROM_LE(msg->fh);
+
+	rc = cldb_handle_get(txn, sess->clid, fh, &h, 0);
+	if (rc) {
+		resp_rc = CLE_FH_INVAL;
+		goto err_out;
+	}
+
+	inum = cldino_from_le(h->inum);
+
+	rc = cldb_inode_get(txn, inum, &inode, false, 0);
+	if (rc) {
+		resp_rc = CLE_INODE_INVAL;
+		goto err_out;
+	}
+
+	mem = malloc(msg_len);
+	if (!mem) {
+		resp_rc = CLE_OOM;
+		goto err_out;
+	}
+
+	memcpy(mem, raw_msg, msg_len);
+
+	sess->put_q = g_list_append(sess->put_q, mem);
+
+	free(h);
+	free(inode);
+	resp_ok(sock, cli, &msg->hdr);
+	return true;
+
+err_out:
+	resp_err(sock, cli, (struct cld_msg_hdr *) msg, resp_rc);
+	free(h);
+	free(inode);
+	return false;
+}
+
+static bool try_commit_data(struct server_socket *sock, DB_TXN *txn,
+			struct session *sess, const struct client *cli,
+			uint8_t *msgid, GList *pmsg_ent)
+{
+	struct cld_msg_put *pmsg = pmsg_ent->data;
+	struct cld_msg_data *dmsg;
+	GList *tmp, *tmp1;
+	uint32_t data_size, tmp_size, tmp_seg;
+	int last_seg, nseg, rc, i;
+	struct raw_handle *h = NULL;
+	struct raw_inode *inode = NULL;
+	cldino_t inum;
+	uint64_t fh;
+	enum cle_err_codes resp_rc = CLE_OK;
+	void *mem, *p, *q;
+	struct cld_msg_data **darr;
+
+	data_size = GUINT32_FROM_LE(pmsg->data_size);
+	tmp_size = 0;
+	last_seg = 0;
+	nseg = 0;
+
+	tmp = sess->data_q;
+	while (tmp) {
+		uint32_t tmp_seg;
+
+		dmsg = tmp->data;
+		tmp = tmp->next;
+
+		if (memcmp(dmsg->hdr.msgid, msgid, 8))
+			continue;
+
+		tmp_seg = GUINT32_FROM_LE(dmsg->seg);
+		if (tmp_seg > last_seg)
+			last_seg = tmp_seg;
+
+		tmp_size += GUINT32_FROM_LE(dmsg->seg_len);
+		nseg++;
+	}
+
+	if (tmp_size < data_size)
+		return true;		/* nothing to do */
+
+	darr = alloca(nseg * sizeof(struct cld_msg_data *));
+	memset(darr, 0, nseg * sizeof(struct cld_msg_data *));
+
+	sess->put_q = g_list_delete_link(sess->put_q, pmsg_ent);
+
+	tmp = sess->data_q;
+	while (tmp) {
+		dmsg = tmp->data;
+		tmp1 = tmp;
+		tmp = tmp->next;
+
+		if (memcmp(dmsg->hdr.msgid, msgid, 8))
+			continue;
+		
+		sess->data_q = g_list_delete_link(sess->data_q, tmp1);
+
+		tmp_seg = GUINT32_FROM_LE(dmsg->seg);
+		darr[tmp_seg] = dmsg;
+	}
+	
+	fh = GUINT64_FROM_LE(pmsg->fh);
+
+	rc = cldb_handle_get(txn, sess->clid, fh, &h, 0);
+	if (rc) {
+		resp_rc = CLE_FH_INVAL;
+		goto err_out;
+	}
+
+	inum = cldino_from_le(h->inum);
+
+	rc = cldb_inode_get(txn, inum, &inode, false, DB_RMW);
+	if (rc) {
+		resp_rc = CLE_INODE_INVAL;
+		goto err_out;
+	}
+
+	p = mem = malloc(data_size);
+	if (!mem) {
+		resp_rc = CLE_OOM;
+		goto err_out;
+	}
+
+	for (i = 0; i <= last_seg; i++) {
+		dmsg = darr[i];
+		q = dmsg;
+
+		tmp_size = GUINT32_FROM_LE(dmsg->seg_len);
+		memcpy(p, q + sizeof(*dmsg), tmp_size);
+		p += tmp_size;
+
+		free(dmsg);
+	}
+
+	rc = cldb_data_put(txn, inum, mem, data_size, 0);
+	if (rc) {
+		resp_rc = CLE_DB_ERR;
+		goto err_out;
+	}
+
+	inode->size = GUINT32_TO_LE(data_size);
+	inode->version = GUINT32_TO_LE(
+		GUINT32_FROM_LE(inode->version) + 1);
+	inode->time_modify = GUINT64_TO_LE(current_time);
+
+	rc = cldb_inode_put(txn, inode, 0);
+	if (rc) {
+		resp_rc = CLE_DB_ERR;
+		goto err_out;
+	}
+
+	resp_ok(sock, cli, (struct cld_msg_hdr *) pmsg);
+	free(pmsg);
+	free(h);
+	free(inode);
+	return true;
+
+err_out:
+	resp_err(sock, cli, (struct cld_msg_hdr *) pmsg, resp_rc);
+	free(pmsg);
+	free(h);
+	free(inode);
+	return false;
+}
+
+bool msg_data(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
+	      struct session *sess, uint8_t *raw_msg, size_t msg_len)
+{
+	struct cld_msg_data *msg = (struct cld_msg_data *) raw_msg;
+	GList *tmp;
+	void *mem = NULL;
+	enum cle_err_codes resp_rc = CLE_OK;
+	uint32_t seg_len;
+
+	/* make sure input data as large as expected */
+	if (msg_len < sizeof(*msg))
+		return false;
+
+	seg_len = GUINT32_FROM_LE(msg->seg_len);
+
+	if (msg_len < (sizeof(*msg) + seg_len))
+		return false;
+
+	/* search for PUT message with same msgid; that is how we
+	 * associate DATA messages with the initial PUT msg
+	 */
+	tmp = sess->put_q;
+	while (tmp) {
+		struct cld_msg_put *pmsg;
+
+		pmsg = tmp->data;
+		if (!memcmp(pmsg->hdr.msgid, msg->hdr.msgid,
+			    sizeof(msg->hdr.msgid)))
+			break;
+
+		tmp = tmp->next;
+	}
+
+	if (!tmp) {
+		resp_rc = CLE_DATA_INVAL;
+		goto err_out;
+	}
+
+	mem = malloc(msg_len);
+	if (!mem) {
+		resp_rc = CLE_OOM;
+		goto err_out;
+	}
+
+	memcpy(mem, raw_msg, msg_len);
+
+	sess->data_q = g_list_append(sess->data_q, mem);
+
+	udp_tx(sock, cli, msg, sizeof(*msg));
+
+	return try_commit_data(sock, txn, sess, cli, msg->hdr.msgid, tmp);
+
+err_out:
+	resp_err(sock, cli, (struct cld_msg_hdr *) msg, resp_rc);
+	return false;
+}
+
+bool msg_close(struct server_socket *sock, DB_TXN *txn,
+	       const struct client *cli, struct session *sess,
+	       uint8_t *raw_msg, size_t msg_len)
+{
+	struct cld_msg_close *msg = (struct cld_msg_close *) raw_msg;
+	uint64_t fh;
+	int rc;
+	enum cle_err_codes resp_rc = CLE_OK;
+
+	/* make sure input data as large as expected */
+	if (msg_len < sizeof(*msg))
+		return false;
+
+	fh = GUINT64_FROM_LE(msg->fh);
+
+	rc = cldb_handle_del(txn, sess->clid, fh);
+	if (rc) {
+		if (rc == DB_NOTFOUND)
+			resp_rc = CLE_FH_INVAL;
+		else
+			resp_rc = CLE_DB_ERR;
+		goto err_out;
+	}
+
+	resp_ok(sock, cli, (struct cld_msg_hdr *) msg);
+	return true;
+
+err_out:
+	resp_err(sock, cli, (struct cld_msg_hdr *) msg, resp_rc);
+	return false;
+}
+

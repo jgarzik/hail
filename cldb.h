@@ -115,6 +115,7 @@ extern int cldb_data_get(DB_TXN *txn, cldino_t inum,
 extern struct raw_handle *cldb_handle_new(struct session *sess, cldino_t inum,
 				   uint32_t mode, uint32_t events);
 extern int cldb_handle_put(DB_TXN *txn, struct raw_handle *h, int put_flags);
+extern int cldb_handle_del(DB_TXN *txn, uint8_t *clid, uint64_t fh);
 extern int cldb_handle_get(DB_TXN *txn, uint8_t *clid, uint64_t fh,
 		    struct raw_handle **h_out, int flags);
 

@@ -622,3 +622,26 @@ int cldb_handle_put(DB_TXN *txn, struct raw_handle *h, int put_flags)
 	return rc;
 }
 
+int cldb_handle_del(DB_TXN *txn, uint8_t *clid, uint64_t fh)
+{
+	DB_ENV *dbenv = cld_srv.cldb.env;
+	DB *db_handle = cld_srv.cldb.handles;
+	int rc;
+	DBT key;
+	struct raw_handle_key hkey;
+
+	memcpy(&hkey.clid, &clid, CLD_ID_SZ);
+	hkey.fh = GUINT64_TO_LE(fh);
+
+	memset(&key, 0, sizeof(key));
+
+	key.data = &hkey;
+	key.size = sizeof(hkey);
+
+	rc = db_handle->del(db_handle, txn, &key, 0);
+	if (rc)
+		dbenv->err(dbenv, rc, "db_handle->put");
+
+	return rc;
+}
+

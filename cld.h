@@ -55,6 +55,9 @@ struct session {
 	uint64_t		next_fh;
 	GArray			*handles;
 	struct event		timer;
+
+	GList			*put_q;		/* queued PUT pkts */
+	GList			*data_q;	/* queued data pkts */
 };
 
 struct server_stats {
@@ -90,6 +93,12 @@ struct server {
 extern bool msg_new_cli(struct server_socket *, DB_TXN *,
 		 const struct client *, uint8_t *, size_t);
 extern bool msg_open(struct server_socket *, DB_TXN *,
+		 const struct client *, struct session *, uint8_t *, size_t);
+extern bool msg_put(struct server_socket *, DB_TXN *,
+		 const struct client *, struct session *, uint8_t *, size_t);
+extern bool msg_data(struct server_socket *, DB_TXN *,
+		 const struct client *, struct session *, uint8_t *, size_t);
+extern bool msg_close(struct server_socket *, DB_TXN *,
 		 const struct client *, struct session *, uint8_t *, size_t);
 extern bool msg_get(struct server_socket *, DB_TXN *,
 		 const struct client *, struct session *, uint8_t *, size_t,

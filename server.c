@@ -89,8 +89,6 @@ void udp_tx(struct server_socket *sock, const struct client *cli,
 void resp_copy(struct cld_msg_hdr *dest, const struct cld_msg_hdr *src)
 {
 	memcpy(dest, src, sizeof(*dest));
-	dest->n_data = 0;
-	dest->data_len = 0;
 }
 
 void resp_err(struct server_socket *sock, const struct client *cli,
@@ -147,6 +145,12 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 		return msg_get(sock, txn, cli, sess, raw_msg, msg_len, false);
 	case cmo_get_meta:
 		return msg_get(sock, txn, cli, sess, raw_msg, msg_len, true);
+	case cmo_put:
+		return msg_put(sock, txn, cli, sess, raw_msg, msg_len);
+	case cmo_data:
+		return msg_data(sock, txn, cli, sess, raw_msg, msg_len);
+	case cmo_close:
+		return msg_close(sock, txn, cli, sess, raw_msg, msg_len);
 	default:
 		return false;
 	}

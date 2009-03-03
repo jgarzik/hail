@@ -36,6 +36,8 @@ enum cld_msg_ops {
 	cmo_get_meta		= 3,		/* get metadata */
 	cmo_get			= 4,		/* get metadata + data */
 	cmo_data		= 5,		/* data message */
+	cmo_put			= 6,		/* put data */
+	cmo_close		= 7,		/* close file */
 };
 
 enum cle_err_codes {
@@ -48,6 +50,7 @@ enum cle_err_codes {
 	CLE_NAME_INVAL		= 6,		/* inode name invalid */
 	CLE_OOM			= 7,		/* server out of memory */
 	CLE_FH_INVAL		= 8,		/* file handle invalid */
+	CLE_DATA_INVAL		= 9,		/* invalid data pkt */
 };
 
 enum cld_open_modes {
@@ -70,9 +73,7 @@ struct cld_msg_hdr {
 	uint8_t		msgid[8];		/* message id */
 	uint8_t		clid[CLD_ID_SZ];	/* client id */
 	uint8_t		op;			/* operation code */
-	uint8_t		n_data;			/* num data pkts; max 64 */
-	uint8_t		res1[2];
-	uint32_t	data_len;		/* total size of all data pkts*/
+	uint8_t		res1[7];
 };
 
 struct cld_msg_resp {
@@ -120,11 +121,31 @@ struct cld_msg_get_resp {
 	/* inode name */
 };
 
+struct cld_msg_data {
+	struct cld_msg_hdr	hdr;
+
+	uint32_t		seg;		/* segment number */
+	uint32_t		seg_len;	/* segment length */
+};
+
 struct cld_msg_data_resp {
 	struct cld_msg_hdr	hdr;
 
 	uint32_t		seg;		/* segment number */
 	uint32_t		seg_len;	/* segment length */
+};
+
+struct cld_msg_put {
+	struct cld_msg_hdr	hdr;
+
+	uint64_t		fh;		/* open file handle */
+	uint32_t		data_size;	/* total size of data */
+};
+
+struct cld_msg_close {
+	struct cld_msg_hdr	hdr;
+
+	uint64_t		fh;		/* open file handle */
 };
 
 #endif /* __CLD_MSG_H__ */
