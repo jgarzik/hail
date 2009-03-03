@@ -22,6 +22,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
@@ -389,6 +390,7 @@ int main (int argc, char *argv[])
 	setlocale(LC_ALL, "C");
 
 	current_time = time(NULL);
+	srand(current_time ^ getpid());
 
 	/*
 	 * parse command line
