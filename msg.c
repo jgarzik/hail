@@ -222,7 +222,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 
 	create = msg_mode & COM_CREATE;
 
-	if (!valid_inode_name(name, name_len) || (create && name_len == 1)) {
+	if (!valid_inode_name(name, name_len) || (create && name_len < 2)) {
 		resp_err(sock, cli, (struct cld_msg_hdr *) msg, CLE_NAME_INVAL);
 		return false;
 	}
