@@ -136,6 +136,7 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 
 	switch(msg->op) {
 	case cmo_nop:
+		resp_ok(sock, cli, msg);
 		break;
 	case cmo_new_cli:
 		return msg_new_cli(sock, txn, cli, raw_msg, msg_len);
