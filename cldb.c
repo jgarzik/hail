@@ -295,6 +295,7 @@ int cldb_session_get(DB_TXN *txn, uint8_t *clid, struct raw_session **sess_out,
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
 
+	/* key: clid */
 	key.data = clid;
 	key.size = CLD_ID_SZ;
 
@@ -331,6 +332,7 @@ int cldb_session_put(DB_TXN *txn, struct raw_session *sess, int put_flags)
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
 
+	/* key: clid */
 	key.data = sess->clid;
 	key.size = sizeof(sess->clid);
 
@@ -361,6 +363,7 @@ int cldb_inode_get(DB_TXN *txn, cldino_t inum,
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
 
+	/* key: inode number */
 	key.data = &inum_le;
 	key.size = sizeof(inum_le);
 
@@ -395,6 +398,7 @@ int cldb_inode_get_byname(DB_TXN *txn, char *name, size_t name_len,
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
 
+	/* key: inode pathname */
 	key.data = name;
 	key.size = name_len;
 
@@ -434,6 +438,7 @@ int cldb_inode_put(DB_TXN *txn, struct raw_inode *inode, int put_flags)
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
 
+	/* key: inode number */
 	key.data = &inode->inum;
 	key.size = sizeof(inode->inum);
 
@@ -457,6 +462,7 @@ int cldb_inode_del_byname(DB_TXN *txn, char *name, size_t name_len,
 
 	memset(&key, 0, sizeof(key));
 
+	/* key: inode name */
 	key.data = name;
 	key.size = name_len;
 
@@ -525,6 +531,7 @@ int cldb_data_get(DB_TXN *txn, cldino_t inum,
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
 
+	/* key: inode number */
 	key.data = &inum_le;
 	key.size = sizeof(inum_le);
 
@@ -556,6 +563,7 @@ int cldb_data_put(DB_TXN *txn, cldino_t inum,
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
 
+	/* key: inode number */
 	key.data = &inum_le;
 	key.size = sizeof(inum_le);
 
@@ -611,6 +619,7 @@ int cldb_handle_get(DB_TXN *txn, uint8_t *clid, uint64_t fh,
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
 
+	/* key: (clid, fh) */
 	key.data = &hkey;
 	key.size = sizeof(hkey);
 
@@ -637,6 +646,7 @@ int cldb_handle_put(DB_TXN *txn, struct raw_handle *h, int put_flags)
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
 
+	/* key: (clid, fh) */
 	key.data = h;
 	key.size = sizeof(struct raw_handle_key);
 
@@ -663,6 +673,7 @@ int cldb_handle_del(DB_TXN *txn, uint8_t *clid, uint64_t fh)
 
 	memset(&key, 0, sizeof(key));
 
+	/* key: (clid, fh) */
 	key.data = &hkey;
 	key.size = sizeof(hkey);
 
@@ -691,6 +702,7 @@ int cldb_lock_del(DB_TXN *txn, uint8_t *clid, uint64_t fh, cldino_t inum)
 
 	memset(&key, 0, sizeof(key));
 
+	/* key: inode number */
 	key.data = &inum_le;
 	key.size = sizeof(inum_le);
 
@@ -742,6 +754,7 @@ static int cldb_lock_find(DB_TXN *txn, uint8_t *clid, uint64_t fh, cldino_t inum
 
 	memset(&key, 0, sizeof(key));
 
+	/* key: inode number */
 	key.data = &inum_le;
 	key.size = sizeof(inum_le);
 
@@ -792,6 +805,7 @@ int cldb_lock_add(DB_TXN *txn, uint8_t *clid, uint64_t fh,
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
 
+	/* key: inode number */
 	key.data = &inum_le;
 	key.size = sizeof(inum_le);
 

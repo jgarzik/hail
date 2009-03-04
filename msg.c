@@ -238,30 +238,13 @@ static struct raw_session *session_new_raw(const struct session *sess)
 	return raw_sess;
 }
 
-static bool inode_append(struct raw_inode **ino, struct raw_handle *h)
+static int inode_touch(DB_TXN *txn, struct raw_inode *ino)
 {
-	size_t new_len, orig_len;
-	void *mem, *p;
-#if 0
-	uint32_t n_handles;
-#endif
+	ino->time_modify = GUINT64_TO_LE(current_time);
+	ino->version = GUINT32_TO_LE(GUINT32_FROM_LE(ino->version) + 1);
 
-	orig_len	= raw_ino_size(*ino);
-	new_len		= orig_len + sizeof(struct raw_handle_key);
-
-	mem = realloc(*ino, new_len);
-	if (!mem)
-		return false;
-
-	p = mem + orig_len;
-	memcpy(p, h, sizeof(struct raw_handle_key));
-
-#if 0
-	n_handles = GUINT32_FROM_LE((*ino)->n_handles);
-	(*ino)->n_handles = GUINT32_TO_LE(n_handles + 1);
-#endif
-
-	return true;
+	/* write parent inode */
+	return cldb_inode_put(txn, ino, 0);
 }
 
 bool msg_get(struct server_socket *sock, DB_TXN *txn,
@@ -286,8 +269,10 @@ bool msg_get(struct server_socket *sock, DB_TXN *txn,
 	if (msg_len < sizeof(*msg))
 		return false;
 
+	/* get filehandle from input msg */
 	fh = GUINT64_FROM_LE(msg->fh);
 
+	/* read handle from db */
 	rc = cldb_handle_get(txn, sess->clid, fh, &h, 0);
 	if (rc) {
 		resp_rc = CLE_FH_INVAL;
@@ -296,6 +281,7 @@ bool msg_get(struct server_socket *sock, DB_TXN *txn,
 
 	inum = cldino_from_le(h->inum);
 
+	/* read inode from db */
 	rc = cldb_inode_get(txn, inum, &inode, false, 0);
 	if (rc) {
 		resp_rc = CLE_INODE_INVAL;
@@ -308,6 +294,7 @@ bool msg_get(struct server_socket *sock, DB_TXN *txn,
 	resp_len = sizeof(*resp) + name_len;
 	resp = alloca(resp_len);
 
+	/* return response containing inode metadata */
 	resp_copy(&resp->hdr, &msg->hdr);
 	resp->inum = GUINT64_TO_LE(inum);
 	memcpy(&resp->ino_len, &inode->ino_len,
@@ -315,6 +302,7 @@ bool msg_get(struct server_socket *sock, DB_TXN *txn,
 
 	udp_tx(sock, cli, &resp, sizeof(resp));
 
+	/* send one or more data packets, if necessary */
 	if (!metadata_only) {
 		int i, seg_len;
 		void *p;
@@ -329,11 +317,15 @@ bool msg_get(struct server_socket *sock, DB_TXN *txn,
 			goto err_out;
 		}
 
+		/* copy the GET msg's hdr, then change op to DATA.
+		 * this guarantees all packets in stream share same msgid[]
+		 */
 		resp_copy(&dr->hdr, &msg->hdr);
 		dr->hdr.op = cmo_data;
 		i = 0;
 		p = data_mem;
 
+		/* break up data_mem into individual packets */
 		while (data_mem_len > 0) {
 			seg_len = MIN(CLD_MAX_UDP_SEG, data_mem_len);
 
@@ -350,7 +342,7 @@ bool msg_get(struct server_socket *sock, DB_TXN *txn,
 			udp_tx(sock, cli, dr, seg_len + sizeof(*dr));
 		}
 
-		/* send terminating packet */
+		/* send terminating packet (seg_len == 0) */
 		dr->seg = GUINT32_TO_LE(i);
 		dr->seg_len = 0;
 		udp_tx(sock, cli, dr, sizeof(*dr));
@@ -458,13 +450,9 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 			goto err_out;
 		}
 
-		parent->time_modify = GUINT64_TO_LE(current_time);
 		parent->size = GUINT32_TO_LE(parent_len);
-		parent->version = GUINT32_TO_LE(
-			GUINT32_FROM_LE(parent->version) + 1);
 
-		/* write parent inode */
-		rc = cldb_inode_put(txn, parent, 0);
+		rc = inode_touch(txn, parent);
 		if (rc) {
 			resp_rc = CLE_DB_ERR;
 			goto err_out;
@@ -490,23 +478,24 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 		goto err_out;
 	}
 
+	/* add handle to session */
 	g_array_append_val(sess->handles, fh);
+
+	if (create) {
+		/* write inode */
+		rc = inode_touch(txn, inode);
+
+		if (rc) {
+			resp_rc = CLE_DB_ERR;
+			goto err_out;
+		}
+	}
 
 	raw_sess = session_new_raw(sess);
 
-	/* add handle to session, and to inode */
-	if (!raw_sess || !inode_append(&inode, h)) {
+	if (!raw_sess) {
 		syslog(LOG_CRIT, "out of memory");
 		resp_rc = CLE_OOM;
-		goto err_out;
-	}
-
-	inode->time_modify = GUINT64_TO_LE(current_time);
-
-	/* write inode */
-	rc = cldb_inode_put(txn, inode, 0);
-	if (rc) {
-		resp_rc = CLE_DB_ERR;
 		goto err_out;
 	}
 
@@ -563,6 +552,7 @@ bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
 		return false;
 	}
 
+	/* build raw_session database record */
 	memcpy(&sess->clid, &msg->clid, sizeof(sess->clid));
 	memcpy(&sess->addr, &cli->addr, sizeof(sess->addr));
 	sess->addr_len = cli->addr_len;
@@ -574,18 +564,23 @@ bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
 
+	/* key: clid */
 	key.data = &raw_sess.clid;
 	key.size = sizeof(raw_sess.clid);
 
 	val.data = &raw_sess;
 	val.size = sizeof(raw_sess);
 
+	/* attempt to store session; if session already exists,
+	 * this should fail
+	 */
 	rc = db->put(db, txn, &key, &val, DB_NOOVERWRITE);
 	if (rc)
 		goto err_out;
 
 	g_hash_table_insert(cld_srv.sessions, sess->clid, sess);
 
+	/* begin session timer */
 	tv.tv_sec = CLD_CLI_TIMEOUT;
 	tv.tv_usec = 0;
 	if (evtimer_add(&sess->timer, &tv) < 0) {
@@ -620,6 +615,7 @@ bool msg_put(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 
 	fh = GUINT64_FROM_LE(msg->fh);
 
+	/* read handle from db, for validation */
 	rc = cldb_handle_get(txn, sess->clid, fh, &h, 0);
 	if (rc) {
 		resp_rc = CLE_FH_INVAL;
@@ -628,12 +624,14 @@ bool msg_put(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 
 	inum = cldino_from_le(h->inum);
 
+	/* read inode from db, for validation */
 	rc = cldb_inode_get(txn, inum, &inode, false, 0);
 	if (rc) {
 		resp_rc = CLE_INODE_INVAL;
 		goto err_out;
 	}
 
+	/* copy message */
 	mem = malloc(msg_len);
 	if (!mem) {
 		resp_rc = CLE_OOM;
@@ -642,6 +640,7 @@ bool msg_put(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 
 	memcpy(mem, raw_msg, msg_len);
 
+	/* store PUT message in PUT msg queue */
 	sess->put_q = g_list_append(sess->put_q, mem);
 
 	free(h);
@@ -678,6 +677,12 @@ static bool try_commit_data(struct server_socket *sock, DB_TXN *txn,
 	last_seg = 0;
 	nseg = 0;
 
+	/*
+	 * Pass 1: count total size of all packets in our stream;
+	 * count number of segments in stream.
+	 *
+	 * FIXME: dup pkts (retries) not eliminated!!!
+	 */
 	tmp = sess->data_q;
 	while (tmp) {
 		uint32_t tmp_seg;
@@ -685,6 +690,7 @@ static bool try_commit_data(struct server_socket *sock, DB_TXN *txn,
 		dmsg = tmp->data;
 		tmp = tmp->next;
 
+		/* non-matching msgid[] implies not-our-stream */
 		if (memcmp(dmsg->hdr.msgid, msgid, 8))
 			continue;
 
@@ -696,23 +702,30 @@ static bool try_commit_data(struct server_socket *sock, DB_TXN *txn,
 		nseg++;
 	}
 
+	/* return if data stream not yet 100% received */
 	if (tmp_size < data_size)
 		return true;		/* nothing to do */
 
+	/* create array to store pointers to each data packet */
 	darr = alloca(nseg * sizeof(struct cld_msg_data *));
 	memset(darr, 0, nseg * sizeof(struct cld_msg_data *));
 
 	sess->put_q = g_list_delete_link(sess->put_q, pmsg_ent);
 
+	/*
+	 * Pass 2: store packets in array, sorted by segment number
+	 */
 	tmp = sess->data_q;
 	while (tmp) {
 		dmsg = tmp->data;
 		tmp1 = tmp;
 		tmp = tmp->next;
 
+		/* non-matching msgid[] implies not-our-stream */
 		if (memcmp(dmsg->hdr.msgid, msgid, 8))
 			continue;
 		
+		/* remove data packet from data msg queue */
 		sess->data_q = g_list_delete_link(sess->data_q, tmp1);
 
 		tmp_seg = GUINT32_FROM_LE(dmsg->seg);
@@ -721,6 +734,7 @@ static bool try_commit_data(struct server_socket *sock, DB_TXN *txn,
 	
 	fh = GUINT64_FROM_LE(pmsg->fh);
 
+	/* read handle from db */
 	rc = cldb_handle_get(txn, sess->clid, fh, &h, 0);
 	if (rc) {
 		resp_rc = CLE_FH_INVAL;
@@ -729,18 +743,22 @@ static bool try_commit_data(struct server_socket *sock, DB_TXN *txn,
 
 	inum = cldino_from_le(h->inum);
 
+	/* read inode from db */
 	rc = cldb_inode_get(txn, inum, &inode, false, DB_RMW);
 	if (rc) {
 		resp_rc = CLE_INODE_INVAL;
 		goto err_out;
 	}
 
+	/* create contig. memory area sized to contain entire data stream */
 	p = mem = malloc(data_size);
 	if (!mem) {
 		resp_rc = CLE_OOM;
 		goto err_out;
 	}
 
+	/* loop through array, copying each data packet into contig. area */
+	/* FIXME: will segfault if a segment is missing */
 	for (i = 0; i <= last_seg; i++) {
 		dmsg = darr[i];
 		q = dmsg;
@@ -752,6 +770,7 @@ static bool try_commit_data(struct server_socket *sock, DB_TXN *txn,
 		free(dmsg);
 	}
 
+	/* store contig. data area in db */
 	rc = cldb_data_put(txn, inum, mem, data_size, 0);
 	if (rc) {
 		resp_rc = CLE_DB_ERR;
@@ -759,11 +778,9 @@ static bool try_commit_data(struct server_socket *sock, DB_TXN *txn,
 	}
 
 	inode->size = GUINT32_TO_LE(data_size);
-	inode->version = GUINT32_TO_LE(
-		GUINT32_FROM_LE(inode->version) + 1);
-	inode->time_modify = GUINT64_TO_LE(current_time);
 
-	rc = cldb_inode_put(txn, inode, 0);
+	/* update inode */
+	rc = inode_touch(txn, inode);
 	if (rc) {
 		resp_rc = CLE_DB_ERR;
 		goto err_out;
@@ -821,6 +838,7 @@ bool msg_data(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 		goto err_out;
 	}
 
+	/* copy DATA msg */
 	mem = malloc(msg_len);
 	if (!mem) {
 		resp_rc = CLE_OOM;
@@ -829,10 +847,12 @@ bool msg_data(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 
 	memcpy(mem, raw_msg, msg_len);
 
+	/* store DATA message on DATA msg queue */
 	sess->data_q = g_list_append(sess->data_q, mem);
 
 	udp_tx(sock, cli, msg, sizeof(*msg));
 
+	/* scan DATA queue for completed stream; commit to db, if found */
 	return try_commit_data(sock, txn, sess, cli, msg->hdr.msgid, tmp);
 
 err_out:
@@ -855,6 +875,7 @@ bool msg_close(struct server_socket *sock, DB_TXN *txn,
 
 	fh = GUINT64_FROM_LE(msg->fh);
 
+	/* delete handle from db */
 	rc = cldb_handle_del(txn, sess->clid, fh);
 	if (rc) {
 		if (rc == DB_NOTFOUND)
@@ -944,13 +965,10 @@ bool msg_del(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 		goto err_out;
 	}
 
-	parent->time_modify = GUINT64_TO_LE(current_time);
 	parent->size = GUINT32_TO_LE(parent_len);
-	parent->version = GUINT32_TO_LE(
-		GUINT32_FROM_LE(parent->version) + 1);
 
-	/* write parent inode */
-	rc = cldb_inode_put(txn, parent, 0);
+	/* update parent dir inode */
+	rc = inode_touch(txn, parent);
 	if (rc) {
 		resp_rc = CLE_DB_ERR;
 		goto err_out;
@@ -985,6 +1003,7 @@ bool msg_unlock(struct server_socket *sock, DB_TXN *txn,
 
 	fh = GUINT64_FROM_LE(msg->fh);
 
+	/* read handle from db */
 	rc = cldb_handle_get(txn, sess->clid, fh, &h, 0);
 	if (rc) {
 		resp_rc = CLE_FH_INVAL;
@@ -993,6 +1012,7 @@ bool msg_unlock(struct server_socket *sock, DB_TXN *txn,
 
 	inum = cldino_from_le(h->inum);
 
+	/* attempt to given lock on filehandle */
 	rc = cldb_lock_del(txn, sess->clid, fh, inum);
 	if (rc) {
 		resp_rc = CLE_LOCK_INVAL;
@@ -1028,6 +1048,7 @@ bool msg_trylock(struct server_socket *sock, DB_TXN *txn,
 	fh = GUINT64_FROM_LE(msg->fh);
 	lock_flags = GUINT32_FROM_LE(msg->flags);
 
+	/* read handle from db */
 	rc = cldb_handle_get(txn, sess->clid, fh, &h, 0);
 	if (rc) {
 		resp_rc = CLE_FH_INVAL;
@@ -1036,6 +1057,7 @@ bool msg_trylock(struct server_socket *sock, DB_TXN *txn,
 
 	inum = cldino_from_le(h->inum);
 
+	/* attempt to add lock */
 	rc = cldb_lock_add(txn, sess->clid, fh, inum, lock_flags & CLF_SHARED);
 	if (rc) {
 		if (rc == DB_KEYEXIST)
