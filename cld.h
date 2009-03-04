@@ -90,8 +90,6 @@ struct server {
 };
 
 /* msg.c */
-extern bool msg_new_cli(struct server_socket *, DB_TXN *,
-		 const struct client *, uint8_t *, size_t);
 extern bool msg_open(struct server_socket *, DB_TXN *,
 		 const struct client *, struct session *, uint8_t *, size_t);
 extern bool msg_put(struct server_socket *, DB_TXN *,
@@ -109,8 +107,13 @@ extern bool msg_trylock(struct server_socket *, DB_TXN *,
 extern bool msg_get(struct server_socket *, DB_TXN *,
 		 const struct client *, struct session *, uint8_t *, size_t,
 		 bool);
+
+/* session.c */
 extern guint sess_hash(gconstpointer v);
 extern gboolean sess_equal(gconstpointer _a, gconstpointer _b);
+extern bool msg_new_cli(struct server_socket *, DB_TXN *,
+		 const struct client *, uint8_t *, size_t);
+extern struct raw_session *session_new_raw(const struct session *sess);
 
 /* server.c */
 extern struct server cld_srv;
