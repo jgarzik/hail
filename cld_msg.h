@@ -72,8 +72,7 @@ enum cld_open_modes {
 enum cld_events {
 	CE_UPDATED		= (1 << 0),	/* contents updated */
 	CE_MASTER_FAILOVER	= (1 << 1),	/* master failover */
-	CE_INVAL_FH		= (1 << 2),	/* invalid FH */
-	CE_LOCKED		= (1 << 3),	/* lock acquired */
+	CE_LOCKED		= (1 << 2),	/* lock acquired */
 };
 
 enum cld_lock_flags {
