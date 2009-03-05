@@ -772,6 +772,9 @@ static int cldb_lock_find(DB_TXN *txn, uint8_t *sid, uint64_t fh, cldino_t inum,
 
 		lock = val.data;
 		lflags = GUINT32_FROM_LE(lock->flags);
+
+		if (lflags & CLFL_PENDING)
+			continue;
 		
 		if (!want_shared ||
 		    (want_shared && (!(lflags & CLFL_SHARED))))
@@ -784,23 +787,36 @@ out:
 }
 
 int cldb_lock_add(DB_TXN *txn, uint8_t *sid, uint64_t fh,
-		  cldino_t inum, bool shared)
+		  cldino_t inum, bool shared, bool wait, bool *acquired)
 {
 	int rc;
 	struct raw_lock lock;
 	cldino_t inum_le = cldino_to_le(inum);
 	DBT key, val;
 	DB *db_locks = cld_srv.cldb.locks;
+	bool have_conflict = false;
+	uint32_t lock_flags = 0;
+
+	if (acquired)
+		*acquired = false;
 
 	rc = cldb_lock_find(txn, sid, fh, inum, shared);
 	if (rc && (rc != DB_NOTFOUND))
 		return rc;
 	if (rc == 0)
+		have_conflict = true;
+	
+	if (!wait && have_conflict)
 		return DB_KEYEXIST;
+
+	if (shared)
+		lock_flags |= CLFL_SHARED;
+	if (wait && have_conflict)
+		lock_flags |= CLFL_PENDING;
 
 	memcpy(lock.sid, sid, sizeof(lock.sid));
 	lock.fh = GUINT64_TO_LE(fh);
-	lock.flags = GUINT32_TO_LE(shared ? CLFL_SHARED : 0);
+	lock.flags = GUINT32_TO_LE(lock_flags);
 
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
@@ -815,6 +831,9 @@ int cldb_lock_add(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 	rc = db_locks->put(db_locks, txn, &key, &val, 0);
 	if (rc)
 		db_locks->err(db_locks, rc, "lock_add db4 put");
+
+	if (acquired && !rc)
+		*acquired = true;
 	
 	return rc;
 }

@@ -894,9 +894,9 @@ err_out:
 	return false;
 }
 
-bool msg_trylock(struct server_socket *sock, DB_TXN *txn,
+bool msg_lock(struct server_socket *sock, DB_TXN *txn,
 		 struct session *sess,
-		uint8_t *raw_msg, size_t msg_len)
+		uint8_t *raw_msg, size_t msg_len, bool wait)
 {
 	struct cld_msg_lock *msg = (struct cld_msg_lock *) raw_msg;
 	uint64_t fh;
@@ -905,6 +905,7 @@ bool msg_trylock(struct server_socket *sock, DB_TXN *txn,
 	int rc;
 	enum cle_err_codes resp_rc = CLE_OK;
 	uint32_t lock_flags;
+	bool acquired = false;
 
 	/* make sure input data as large as expected */
 	if (msg_len < sizeof(*msg))
@@ -923,7 +924,8 @@ bool msg_trylock(struct server_socket *sock, DB_TXN *txn,
 	inum = cldino_from_le(h->inum);
 
 	/* attempt to add lock */
-	rc = cldb_lock_add(txn, sess->sid, fh, inum, lock_flags & CLF_SHARED);
+	rc = cldb_lock_add(txn, sess->sid, fh, inum,
+			   lock_flags & CLF_SHARED, wait, &acquired);
 	if (rc) {
 		if (rc == DB_KEYEXIST)
 			resp_rc = CLE_LOCK_CONFLICT;
@@ -932,6 +934,13 @@ bool msg_trylock(struct server_socket *sock, DB_TXN *txn,
 		goto err_out;
 	}
 
+	/* lock was added, in the waiting-to-be-acquired state */
+	if (!acquired) {
+		resp_rc = CLE_LOCK_PENDING;
+		goto err_out;
+	}
+
+	/* lock was acquired immediately */
 	resp_ok(sock, sess, (struct cld_msg_hdr *) msg);
 	free(h);
 	return true;

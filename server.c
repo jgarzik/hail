@@ -161,8 +161,10 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 		return msg_del(sock, txn, sess, raw_msg, msg_len);
 	case cmo_unlock:
 		return msg_unlock(sock, txn, sess, raw_msg, msg_len);
+	case cmo_lock:
+		return msg_lock(sock, txn, sess, raw_msg, msg_len, true);
 	case cmo_trylock:
-		return msg_trylock(sock, txn, sess, raw_msg, msg_len);
+		return msg_lock(sock, txn, sess, raw_msg, msg_len, false);
 	case cmo_ack:
 		return msg_ack(sock, txn, sess, raw_msg, msg_len);
 	default:

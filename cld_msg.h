@@ -39,9 +39,10 @@ enum cld_msg_ops {
 	cmo_put			= 6,		/* put data */
 	cmo_close		= 7,		/* close file */
 	cmo_del			= 8,		/* delete file */
-	cmo_unlock		= 9,		/* unlock */
-	cmo_trylock		= 10,		/* trylock */
-	cmo_ack			= 11,		/* client ack of msgid rx'd */
+	cmo_lock		= 9,		/* lock */
+	cmo_unlock		= 10,		/* unlock */
+	cmo_trylock		= 11,		/* trylock */
+	cmo_ack			= 12,		/* client ack of msgid rx'd */
 };
 
 enum cle_err_codes {
@@ -57,6 +58,7 @@ enum cle_err_codes {
 	CLE_DATA_INVAL		= 9,		/* invalid data pkt */
 	CLE_LOCK_INVAL		= 10,		/* invalid lock */
 	CLE_LOCK_CONFLICT	= 11,		/* conflicting lock held */
+	CLE_LOCK_PENDING	= 12,		/* lock waiting to be acq. */
 };
 
 enum cld_open_modes {

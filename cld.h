@@ -115,8 +115,8 @@ extern bool msg_del(struct server_socket *, DB_TXN *,
 		 struct session *, uint8_t *, size_t);
 extern bool msg_unlock(struct server_socket *, DB_TXN *,
 		 struct session *, uint8_t *, size_t);
-extern bool msg_trylock(struct server_socket *, DB_TXN *,
-		 struct session *, uint8_t *, size_t);
+extern bool msg_lock(struct server_socket *, DB_TXN *,
+		 struct session *, uint8_t *, size_t, bool);
 extern bool msg_ack(struct server_socket *, DB_TXN *,
 		 struct session *, uint8_t *, size_t);
 extern bool msg_get(struct server_socket *, DB_TXN *,

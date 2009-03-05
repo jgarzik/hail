@@ -38,6 +38,7 @@ enum inode_flags {
 
 enum lock_flags {
 	CLFL_SHARED		= (1 << 0),	/* a shared (read) lock */
+	CLFL_PENDING		= (1 << 1),	/* lock waiting to be acq. */
 };
 
 struct raw_session {
@@ -135,7 +136,7 @@ extern int cldb_handle_get(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 
 extern int cldb_lock_del(DB_TXN *txn, uint8_t *sid, uint64_t fh, cldino_t inum);
 extern int cldb_lock_add(DB_TXN *txn, uint8_t *sid, uint64_t fh,
-			cldino_t inum, bool shared);
+			cldino_t inum, bool shared, bool wait, bool *acq);
 
 static inline cldino_t cldino_to_le(cldino_t inum)
 {
