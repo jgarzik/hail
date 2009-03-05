@@ -41,7 +41,7 @@ enum lock_flags {
 };
 
 struct raw_session {
-	uint8_t			clid[8];	/* client id */
+	uint8_t			sid[8];		/* client id */
 	char			addr[64];	/* IP address */
 	uint64_t		last_contact;	/* time of last contact */
 	uint64_t		next_fh;	/* next fh */
@@ -50,12 +50,12 @@ struct raw_session {
 };
 
 struct raw_handle_key {
-	uint8_t			clid[8];	/* client id */
+	uint8_t			sid[8];		/* client id */
 	uint64_t		fh;		/* handle id */
 };
 
 struct raw_handle {
-	uint8_t			clid[8];	/* client id */
+	uint8_t			sid[8];		/* client id */
 	uint64_t		fh;		/* handle id */
 	cldino_t		inum;		/* inode number */
 	uint32_t		mode;		/* open mode */
@@ -74,7 +74,7 @@ struct raw_inode {
 };
 
 struct raw_lock {
-	uint8_t			clid[8];	/* client id */
+	uint8_t			sid[8];		/* client id */
 	uint64_t		fh;		/* handle id */
 	uint32_t		flags;		/* lock flags: CLFL_xxxx */
 };
@@ -103,7 +103,7 @@ extern int cldb_open(struct cldb *cldb, unsigned int env_flags,
 	unsigned int flags, const char *errpfx, bool do_syslog);
 extern void cldb_close(struct cldb *cldb);
 
-extern int cldb_session_get(DB_TXN *txn, uint8_t *clid, struct raw_session **sess,
+extern int cldb_session_get(DB_TXN *txn, uint8_t *sid, struct raw_session **sess,
 		     bool notfound_err, bool rmw);
 extern int cldb_session_put(DB_TXN *txn, struct raw_session *sess, int put_flags);
 
@@ -129,12 +129,12 @@ extern int cldb_data_get(DB_TXN *txn, cldino_t inum,
 extern struct raw_handle *cldb_handle_new(struct session *sess, cldino_t inum,
 				   uint32_t mode, uint32_t events);
 extern int cldb_handle_put(DB_TXN *txn, struct raw_handle *h, int put_flags);
-extern int cldb_handle_del(DB_TXN *txn, uint8_t *clid, uint64_t fh);
-extern int cldb_handle_get(DB_TXN *txn, uint8_t *clid, uint64_t fh,
+extern int cldb_handle_del(DB_TXN *txn, uint8_t *sid, uint64_t fh);
+extern int cldb_handle_get(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 		    struct raw_handle **h_out, int flags);
 
-extern int cldb_lock_del(DB_TXN *txn, uint8_t *clid, uint64_t fh, cldino_t inum);
-extern int cldb_lock_add(DB_TXN *txn, uint8_t *clid, uint64_t fh,
+extern int cldb_lock_del(DB_TXN *txn, uint8_t *sid, uint64_t fh, cldino_t inum);
+extern int cldb_lock_add(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 			cldino_t inum, bool shared);
 
 static inline cldino_t cldino_to_le(cldino_t inum)

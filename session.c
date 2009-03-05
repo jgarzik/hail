@@ -29,7 +29,7 @@
 guint sess_hash(gconstpointer v)
 {
 	const struct session *sess = v;
-	const uint64_t *tmp = (const uint64_t *) sess->clid;
+	const uint64_t *tmp = (const uint64_t *) sess->sid;
 
 	return (guint) *tmp;
 }
@@ -39,7 +39,7 @@ gboolean sess_equal(gconstpointer _a, gconstpointer _b)
 	const struct session *a = _a;
 	const struct session *b = _b;
 
-	return (memcmp(a->clid, b->clid, CLD_CLID_SZ) == 0);
+	return (memcmp(a->sid, b->sid, CLD_CLID_SZ) == 0);
 }
 
 static void session_timeout(int fd, short events, void *userdata)
@@ -60,7 +60,7 @@ static void session_timeout(int fd, short events, void *userdata)
 			return;	/* timer added; do not time out session */
 	}
 
-	tmp64 = (uint64_t *) &sess->clid;
+	tmp64 = (uint64_t *) &sess->sid;
 	syslog(LOG_INFO, "session timeout, addr %s id %016llX",
 		sess->ipaddr,
 		(unsigned long long) GUINT64_FROM_LE(*tmp64));
@@ -138,7 +138,7 @@ bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
 	}
 
 	/* build raw_session database record */
-	memcpy(&sess->clid, &msg->clid, sizeof(sess->clid));
+	memcpy(&sess->sid, &msg->sid, sizeof(sess->sid));
 	memcpy(&sess->addr, &cli->addr, sizeof(sess->addr));
 	sess->addr_len = cli->addr_len;
 	strncpy(sess->ipaddr, cli->addr_host, sizeof(sess->ipaddr));
@@ -149,9 +149,9 @@ bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
 
-	/* key: clid */
-	key.data = &raw_sess.clid;
-	key.size = sizeof(raw_sess.clid);
+	/* key: sid */
+	key.data = &raw_sess.sid;
+	key.size = sizeof(raw_sess.sid);
 
 	val.data = &raw_sess;
 	val.size = sizeof(raw_sess);
@@ -163,7 +163,7 @@ bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
 	if (rc)
 		goto err_out;
 
-	g_hash_table_insert(cld_srv.sessions, sess->clid, sess);
+	g_hash_table_insert(cld_srv.sessions, sess->sid, sess);
 
 	/* begin session timer */
 	tv.tv_sec = CLD_SESS_TIMEOUT;

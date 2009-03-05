@@ -281,7 +281,7 @@ void cldb_close(struct cldb *cldb)
 	cldb->env = NULL;
 }
 
-int cldb_session_get(DB_TXN *txn, uint8_t *clid, struct raw_session **sess_out,
+int cldb_session_get(DB_TXN *txn, uint8_t *sid, struct raw_session **sess_out,
 		     bool notfound_err, bool rmw)
 {
 	DB_ENV *dbenv = cld_srv.cldb.env;
@@ -295,8 +295,8 @@ int cldb_session_get(DB_TXN *txn, uint8_t *clid, struct raw_session **sess_out,
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
 
-	/* key: clid */
-	key.data = clid;
+	/* key: sid */
+	key.data = sid;
 	key.size = CLD_ID_SZ;
 
 	val.flags = DB_DBT_MALLOC;
@@ -332,9 +332,9 @@ int cldb_session_put(DB_TXN *txn, struct raw_session *sess, int put_flags)
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
 
-	/* key: clid */
-	key.data = sess->clid;
-	key.size = sizeof(sess->clid);
+	/* key: sid */
+	key.data = sess->sid;
+	key.size = sizeof(sess->sid);
 
 	val.data = sess;
 	val.size = raw_session_size(sess);
@@ -592,7 +592,7 @@ struct raw_handle *cldb_handle_new(struct session *sess, cldino_t inum,
 	fh = sess->next_fh;
 	sess->next_fh++;
 
-	memcpy(h->clid, sess->clid, sizeof(h->clid));
+	memcpy(h->sid, sess->sid, sizeof(h->sid));
 	h->fh = GUINT64_TO_LE(fh);
 	h->inum = cldino_to_le(inum);
 	h->mode = GUINT32_TO_LE(mode);
@@ -601,7 +601,7 @@ struct raw_handle *cldb_handle_new(struct session *sess, cldino_t inum,
 	return h;
 }
 
-int cldb_handle_get(DB_TXN *txn, uint8_t *clid, uint64_t fh,
+int cldb_handle_get(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 		    struct raw_handle **h_out, int flags)
 {
 	DB_ENV *dbenv = cld_srv.cldb.env;
@@ -613,13 +613,13 @@ int cldb_handle_get(DB_TXN *txn, uint8_t *clid, uint64_t fh,
 	if (h_out)
 		*h_out = NULL;
 
-	memcpy(&hkey.clid, &clid, CLD_ID_SZ);
+	memcpy(&hkey.sid, &sid, CLD_ID_SZ);
 	hkey.fh = GUINT64_TO_LE(fh);
 
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
 
-	/* key: (clid, fh) */
+	/* key: (sid, fh) */
 	key.data = &hkey;
 	key.size = sizeof(hkey);
 
@@ -646,7 +646,7 @@ int cldb_handle_put(DB_TXN *txn, struct raw_handle *h, int put_flags)
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
 
-	/* key: (clid, fh) */
+	/* key: (sid, fh) */
 	key.data = h;
 	key.size = sizeof(struct raw_handle_key);
 
@@ -660,7 +660,7 @@ int cldb_handle_put(DB_TXN *txn, struct raw_handle *h, int put_flags)
 	return rc;
 }
 
-int cldb_handle_del(DB_TXN *txn, uint8_t *clid, uint64_t fh)
+int cldb_handle_del(DB_TXN *txn, uint8_t *sid, uint64_t fh)
 {
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	DB *db_handle = cld_srv.cldb.handles;
@@ -668,12 +668,12 @@ int cldb_handle_del(DB_TXN *txn, uint8_t *clid, uint64_t fh)
 	DBT key;
 	struct raw_handle_key hkey;
 
-	memcpy(&hkey.clid, &clid, CLD_ID_SZ);
+	memcpy(&hkey.sid, &sid, CLD_ID_SZ);
 	hkey.fh = GUINT64_TO_LE(fh);
 
 	memset(&key, 0, sizeof(key));
 
-	/* key: (clid, fh) */
+	/* key: (sid, fh) */
 	key.data = &hkey;
 	key.size = sizeof(hkey);
 
@@ -684,7 +684,7 @@ int cldb_handle_del(DB_TXN *txn, uint8_t *clid, uint64_t fh)
 	return rc;
 }
 
-int cldb_lock_del(DB_TXN *txn, uint8_t *clid, uint64_t fh, cldino_t inum)
+int cldb_lock_del(DB_TXN *txn, uint8_t *sid, uint64_t fh, cldino_t inum)
 {
 	DBC *cur;
 	DB *db_locks = cld_srv.cldb.locks;
@@ -717,7 +717,7 @@ int cldb_lock_del(DB_TXN *txn, uint8_t *clid, uint64_t fh, cldino_t inum)
 		}
 
 		lock = val.data;
-		if (!memcmp(lock->clid, clid, sizeof(lock->clid)) &&
+		if (!memcmp(lock->sid, sid, sizeof(lock->sid)) &&
 		    (fh == GUINT64_FROM_LE(lock->fh))) {
 			rc = cur->del(cur, 0);
 			if (rc) {
@@ -734,7 +734,7 @@ out:
 	return rc;
 }
 
-static int cldb_lock_find(DB_TXN *txn, uint8_t *clid, uint64_t fh, cldino_t inum,
+static int cldb_lock_find(DB_TXN *txn, uint8_t *sid, uint64_t fh, cldino_t inum,
 		   bool want_shared)
 {
 	DBC *cur;
@@ -783,7 +783,7 @@ out:
 	return rc;
 }
 
-int cldb_lock_add(DB_TXN *txn, uint8_t *clid, uint64_t fh,
+int cldb_lock_add(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 		  cldino_t inum, bool shared)
 {
 	int rc;
@@ -792,13 +792,13 @@ int cldb_lock_add(DB_TXN *txn, uint8_t *clid, uint64_t fh,
 	DBT key, val;
 	DB *db_locks = cld_srv.cldb.locks;
 
-	rc = cldb_lock_find(txn, clid, fh, inum, shared);
+	rc = cldb_lock_find(txn, sid, fh, inum, shared);
 	if (rc && (rc != DB_NOTFOUND))
 		return rc;
 	if (rc == 0)
 		return DB_KEYEXIST;
 
-	memcpy(lock.clid, clid, sizeof(lock.clid));
+	memcpy(lock.sid, sid, sizeof(lock.sid));
 	lock.fh = GUINT64_TO_LE(fh);
 	lock.flags = GUINT32_TO_LE(shared ? CLFL_SHARED : 0);
 

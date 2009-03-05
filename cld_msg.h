@@ -80,7 +80,7 @@ enum cld_lock_flags {
 struct cld_msg_hdr {
 	uint8_t		magic[CLD_MAGIC_SZ];	/* magic number; constant */
 	uint8_t		msgid[8];		/* message id */
-	uint8_t		clid[CLD_ID_SZ];	/* client id */
+	uint8_t		sid[CLD_ID_SZ];		/* client id */
 	uint8_t		op;			/* operation code */
 	uint8_t		res1[7];
 };

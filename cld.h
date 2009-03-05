@@ -45,7 +45,7 @@ struct client {
 };
 
 struct session {
-	uint8_t			clid[CLD_CLID_SZ];
+	uint8_t			sid[CLD_CLID_SZ];
 
 	struct sockaddr_in6	addr;		/* inet address */
 	socklen_t		addr_len;	/* inet address len */

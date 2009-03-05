@@ -204,7 +204,7 @@ bool msg_get(struct server_socket *sock, DB_TXN *txn,
 	fh = GUINT64_FROM_LE(msg->fh);
 
 	/* read handle from db */
-	rc = cldb_handle_get(txn, sess->clid, fh, &h, 0);
+	rc = cldb_handle_get(txn, sess->sid, fh, &h, 0);
 	if (rc) {
 		resp_rc = CLE_FH_INVAL;
 		goto err_out;
@@ -477,7 +477,7 @@ bool msg_put(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 	fh = GUINT64_FROM_LE(msg->fh);
 
 	/* read handle from db, for validation */
-	rc = cldb_handle_get(txn, sess->clid, fh, &h, 0);
+	rc = cldb_handle_get(txn, sess->sid, fh, &h, 0);
 	if (rc) {
 		resp_rc = CLE_FH_INVAL;
 		goto err_out;
@@ -596,7 +596,7 @@ static bool try_commit_data(struct server_socket *sock, DB_TXN *txn,
 	fh = GUINT64_FROM_LE(pmsg->fh);
 
 	/* read handle from db */
-	rc = cldb_handle_get(txn, sess->clid, fh, &h, 0);
+	rc = cldb_handle_get(txn, sess->sid, fh, &h, 0);
 	if (rc) {
 		resp_rc = CLE_FH_INVAL;
 		goto err_out;
@@ -737,7 +737,7 @@ bool msg_close(struct server_socket *sock, DB_TXN *txn,
 	fh = GUINT64_FROM_LE(msg->fh);
 
 	/* delete handle from db */
-	rc = cldb_handle_del(txn, sess->clid, fh);
+	rc = cldb_handle_del(txn, sess->sid, fh);
 	if (rc) {
 		if (rc == DB_NOTFOUND)
 			resp_rc = CLE_FH_INVAL;
@@ -865,7 +865,7 @@ bool msg_unlock(struct server_socket *sock, DB_TXN *txn,
 	fh = GUINT64_FROM_LE(msg->fh);
 
 	/* read handle from db */
-	rc = cldb_handle_get(txn, sess->clid, fh, &h, 0);
+	rc = cldb_handle_get(txn, sess->sid, fh, &h, 0);
 	if (rc) {
 		resp_rc = CLE_FH_INVAL;
 		goto err_out;
@@ -874,7 +874,7 @@ bool msg_unlock(struct server_socket *sock, DB_TXN *txn,
 	inum = cldino_from_le(h->inum);
 
 	/* attempt to given lock on filehandle */
-	rc = cldb_lock_del(txn, sess->clid, fh, inum);
+	rc = cldb_lock_del(txn, sess->sid, fh, inum);
 	if (rc) {
 		resp_rc = CLE_LOCK_INVAL;
 		goto err_out;
@@ -910,7 +910,7 @@ bool msg_trylock(struct server_socket *sock, DB_TXN *txn,
 	lock_flags = GUINT32_FROM_LE(msg->flags);
 
 	/* read handle from db */
-	rc = cldb_handle_get(txn, sess->clid, fh, &h, 0);
+	rc = cldb_handle_get(txn, sess->sid, fh, &h, 0);
 	if (rc) {
 		resp_rc = CLE_FH_INVAL;
 		goto err_out;
@@ -919,7 +919,7 @@ bool msg_trylock(struct server_socket *sock, DB_TXN *txn,
 	inum = cldino_from_le(h->inum);
 
 	/* attempt to add lock */
-	rc = cldb_lock_add(txn, sess->clid, fh, inum, lock_flags & CLF_SHARED);
+	rc = cldb_lock_add(txn, sess->sid, fh, inum, lock_flags & CLF_SHARED);
 	if (rc) {
 		if (rc == DB_KEYEXIST)
 			resp_rc = CLE_LOCK_CONFLICT;

@@ -121,7 +121,7 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 		return false;
 
 	/* look up client session, verify it matches IP */
-	sess = g_hash_table_lookup(cld_srv.sessions, msg->clid);
+	sess = g_hash_table_lookup(cld_srv.sessions, msg->sid);
 	if (sess && sess->addr_len == cli->addr_len &&
 	    memcmp(&sess->addr, &cli->addr, sess->addr_len))
 		return false;
