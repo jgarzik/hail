@@ -241,7 +241,7 @@ bool msg_get(struct server_socket *sock, DB_TXN *txn,
 	memcpy(&resp->ino_len, &inode->ino_len,
 	       (sizeof(struct raw_inode) - sizeof(inode->inum)) + name_len);
 
-	sess_sendmsg(sess, resp, resp_len, false, false);
+	sess_sendmsg(sess, resp, resp_len, false);
 
 	/* send one or more data packets, if necessary */
 	if (!metadata_only) {
@@ -280,13 +280,13 @@ bool msg_get(struct server_socket *sock, DB_TXN *txn,
 			p += seg_len;
 			data_mem_len -= seg_len;
 
-			sess_sendmsg(sess, dr, seg_len + sizeof(*dr), true, false);
+			sess_sendmsg(sess, dr, seg_len + sizeof(*dr), true);
 		}
 
 		/* send terminating packet (seg_len == 0) */
 		dr->seg = GUINT32_TO_LE(i);
 		dr->seg_len = 0;
-		sess_sendmsg(sess, dr, sizeof(*dr), true, false);
+		sess_sendmsg(sess, dr, sizeof(*dr), true);
 	}
 
 	free(h);
@@ -467,7 +467,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn,
 	resp_copy(&resp.hdr, &msg->hdr);
 	resp.code = GUINT32_TO_LE(CLE_OK);
 	resp.fh = GUINT64_TO_LE(fh);
-	sess_sendmsg(sess, &resp, sizeof(resp), true, false);
+	sess_sendmsg(sess, &resp, sizeof(resp), true);
 
 	return true;
 
@@ -740,7 +740,7 @@ bool msg_data(struct server_socket *sock, DB_TXN *txn,
 	/* store DATA message on DATA msg queue */
 	sess->data_q = g_list_append(sess->data_q, mem);
 
-	sess_sendmsg(sess, msg, sizeof(*msg), true, false);
+	sess_sendmsg(sess, msg, sizeof(*msg), true);
 
 	/* scan DATA queue for completed stream; commit to db, if found */
 	return try_commit_data(sock, txn, sess, msg->hdr.msgid, tmp);

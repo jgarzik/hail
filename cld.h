@@ -48,7 +48,6 @@ struct client {
 struct session_outmsg {
 	void			*msg;
 	size_t			msglen;
-	bool			static_msg;	/* skip free(3) ? */
 	uint64_t		next_retry;
 };
 
@@ -131,7 +130,7 @@ extern bool msg_new_cli(struct server_socket *, DB_TXN *,
 		 const struct client *, uint8_t *, size_t);
 extern struct raw_session *session_new_raw(const struct session *sess);
 extern bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
-		  bool copy_msg, bool static_msg);
+		  bool copy_msg);
 
 /* server.c */
 extern struct server cld_srv;

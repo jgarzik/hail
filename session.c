@@ -61,7 +61,7 @@ static void session_ping(struct session *sess)
 	memcpy(&resp.sid, &sess->sid, CLD_ID_SZ);
 	resp.op = cmo_ping;
 
-	sess_sendmsg(sess, &resp, sizeof(resp), true, false);
+	sess_sendmsg(sess, &resp, sizeof(resp), true);
 
 	sess->ping_open = true;
 }
@@ -154,8 +154,7 @@ static void om_free(struct session_outmsg *om)
 	if (!om)
 		return;
 	
-	if (!om->static_msg)
-		free(om->msg);
+	free(om->msg);
 	free(om);
 }
 
@@ -198,7 +197,7 @@ static void session_retry(int fd, short events, void *userdata)
 }
 
 bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
-		  bool copy_msg, bool static_msg)
+		  bool copy_msg)
 {
 	void *msg;
 	struct session_outmsg *om;
@@ -215,15 +214,11 @@ bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
 		}
 
 		memcpy(msg, msg_, msglen);
-
-		/* copy_msg implies !static_msg */
-		static_msg = false;
 	} else
 		msg = msg_;
 
 	om->msg = msg;
 	om->msglen = msglen;
-	om->static_msg = static_msg;
 	om->next_retry = current_time + CLD_RETRY_START;
 
 	/* if out_q empty, start retry timer */

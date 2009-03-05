@@ -104,7 +104,7 @@ void resp_err(struct server_socket *sock, struct session *sess,
 	resp_copy(&resp.hdr, msg);
 	resp.code = GUINT32_TO_LE(errcode);
 
-	sess_sendmsg(sess, &resp, sizeof(resp), true, false);
+	sess_sendmsg(sess, &resp, sizeof(resp), true);
 }
 
 void resp_ok(struct server_socket *sock, struct session *sess,
