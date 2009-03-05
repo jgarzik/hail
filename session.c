@@ -45,6 +45,25 @@ gboolean sess_equal(gconstpointer _a, gconstpointer _b)
 static void session_timeout(int fd, short events, void *userdata)
 {
 	struct session *sess = userdata;
+	uint64_t sess_expire, *tmp64;
+
+	sess_expire = sess->last_contact + CLD_SESS_TIMEOUT;
+	if (sess_expire > current_time) {
+		struct timeval tv;
+
+		tv.tv_sec = sess_expire - current_time;
+		tv.tv_usec = 0;
+
+		if (evtimer_add(&sess->timer, &tv) < 0)
+			syslog(LOG_WARNING, "evtimer_add session_tmout failed");
+		else
+			return;	/* timer added; do not time out session */
+	}
+
+	tmp64 = (uint64_t *) &sess->clid;
+	syslog(LOG_INFO, "session timeout, addr %s id %016llX",
+		sess->ipaddr,
+		(unsigned long long) GUINT64_FROM_LE(*tmp64));
 
 	/* FIXME */
 	(void) sess;
@@ -147,7 +166,7 @@ bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
 	g_hash_table_insert(cld_srv.sessions, sess->clid, sess);
 
 	/* begin session timer */
-	tv.tv_sec = CLD_CLI_TIMEOUT;
+	tv.tv_sec = CLD_SESS_TIMEOUT;
 	tv.tv_usec = 0;
 	if (evtimer_add(&sess->timer, &tv) < 0) {
 		syslog(LOG_WARNING, "evtimer_add session_new failed");

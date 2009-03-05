@@ -34,7 +34,7 @@ struct server_socket;
 enum {
 	CLD_CLID_SZ		= 8,
 	CLD_IPADDR_SZ		= 64,
-	CLD_CLI_TIMEOUT		= 60,
+	CLD_SESS_TIMEOUT	= 60,
 	SFL_FOREGROUND		= (1 << 0),	/* run in foreground */
 };
 
