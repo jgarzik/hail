@@ -118,25 +118,37 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 {
 	struct cld_msg_hdr *msg = (struct cld_msg_hdr *) raw_msg;
 	struct session *sess = NULL;
+	enum cle_err_codes resp_rc = CLE_OK;
+	struct cld_msg_resp resp;
 
-	if (msg_len < sizeof(*msg))
-		return false;
-	if (memcmp(msg->magic, CLD_MAGIC, sizeof(msg->magic)))
-		return false;
+	if (msg_len < sizeof(*msg)) {
+		resp_rc = CLE_BAD_PKT;
+		goto err_out;
+	}
+	if (memcmp(msg->magic, CLD_MAGIC, sizeof(msg->magic))) {
+		resp_rc = CLE_BAD_PKT;
+		goto err_out;
+	}
 
 	/* look up client session, verify it matches IP */
 	sess = g_hash_table_lookup(cld_srv.sessions, msg->sid);
-	if (sess && sess->addr_len == cli->addr_len &&
-	    memcmp(&sess->addr, &cli->addr, sess->addr_len))
-		return false;
+	if (sess && ((sess->addr_len != cli->addr_len) ||
+	    memcmp(&sess->addr, &cli->addr, sess->addr_len))) {
+		resp_rc = CLE_CLI_INVAL;
+		goto err_out;
+	}
 
 	if (msg->op != cmo_new_cli) {
-		if (!sess)
-			return false;
+		if (!sess) {
+			resp_rc = CLE_CLI_INVAL;
+			goto err_out;
+		}
 
 		sess->last_contact = time(NULL);
-	} else if (sess)
-		return false;
+	} else if (sess) {
+		resp_rc = CLE_CLI_EXISTS;
+		goto err_out;
+	}
 
 	switch(msg->op) {
 	case cmo_nop:
@@ -171,6 +183,15 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 	}
 
 	return true;
+
+err_out:
+	/* transmit error response (once, without retries) */
+	resp_copy(&resp.hdr, msg);
+	resp.code = GUINT32_TO_LE(resp_rc);
+	udp_tx(sock, (struct sockaddr *) &cli->addr, cli->addr_len,
+	       &resp, sizeof(resp));
+
+	return false;
 }
 
 static void udp_srv_event(int fd, short events, void *userdata)
