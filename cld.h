@@ -35,6 +35,7 @@ enum {
 	CLD_CLID_SZ		= 8,
 	CLD_IPADDR_SZ		= 64,
 	CLD_SESS_TIMEOUT	= 60,
+	CLD_RETRY_START		= 2,		/* initial retry after 2sec */
 	SFL_FOREGROUND		= (1 << 0),	/* run in foreground */
 };
 
@@ -48,6 +49,7 @@ struct session_outmsg {
 	void			*msg;
 	size_t			msglen;
 	bool			static_msg;	/* skip free(3) ? */
+	uint64_t		next_retry;
 };
 
 struct session {
@@ -68,6 +70,7 @@ struct session {
 	GList			*data_q;	/* queued data pkts */
 
 	GList			*out_q;		/* outgoing pkts (to client) */
+	struct event		retry_timer;
 };
 
 struct server_stats {
@@ -113,6 +116,8 @@ extern bool msg_del(struct server_socket *, DB_TXN *,
 extern bool msg_unlock(struct server_socket *, DB_TXN *,
 		 struct session *, uint8_t *, size_t);
 extern bool msg_trylock(struct server_socket *, DB_TXN *,
+		 struct session *, uint8_t *, size_t);
+extern bool msg_ack(struct server_socket *, DB_TXN *,
 		 struct session *, uint8_t *, size_t);
 extern bool msg_get(struct server_socket *, DB_TXN *,
 		 struct session *, uint8_t *, size_t, bool);

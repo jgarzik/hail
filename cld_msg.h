@@ -41,6 +41,7 @@ enum cld_msg_ops {
 	cmo_del			= 8,		/* delete file */
 	cmo_unlock		= 9,		/* unlock */
 	cmo_trylock		= 10,		/* trylock */
+	cmo_ack			= 11,		/* client ack of msgid rx'd */
 };
 
 enum cle_err_codes {

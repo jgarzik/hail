@@ -26,6 +26,8 @@
 #include <syslog.h>
 #include "cld.h"
 
+static void session_retry(int fd, short events, void *userdata);
+
 guint sess_hash(gconstpointer v)
 {
 	const struct session *sess = v;
@@ -80,6 +82,7 @@ static struct session *session_new(void)
 	sess->handles = g_array_new(FALSE, FALSE, sizeof(uint64_t));
 
 	evtimer_set(&sess->timer, session_timeout, sess);
+	evtimer_set(&sess->retry_timer, session_retry, sess);
 
 	return sess;
 }
@@ -120,8 +123,17 @@ struct raw_session *session_new_raw(const struct session *sess)
 	return raw_sess;
 }
 
-/* FIXME: far too simple! */
-static int sess_try_output(struct session *sess)
+static void om_free(struct session_outmsg *om)
+{
+	if (!om)
+		return;
+	
+	if (!om->static_msg)
+		free(om->msg);
+	free(om);
+}
+
+static int sess_retry_output(struct session *sess)
 {
 	GList *tmp, *tmp1;
 	struct session_outmsg *om;
@@ -133,18 +145,29 @@ static int sess_try_output(struct session *sess)
 		tmp = tmp->next;
 
 		om = tmp1->data;
+
+		if (current_time < om->next_retry)
+			continue;
+
 		rc = udp_tx(sess->sock, sess, om->msg, om->msglen);
 		if (rc)
 			break;
 
-		sess->out_q = g_list_delete_link(sess->out_q, tmp1);
-
-		if (!om->static_msg)
-			free(om->msg);
-		free(om);
+		om->next_retry *= 2;
 	}
 
 	return rc;
+}
+
+static void session_retry(int fd, short events, void *userdata)
+{
+	struct session *sess = userdata;
+	struct timeval tv = { CLD_RETRY_START, 0 };
+
+	sess_retry_output(sess);
+
+	if (evtimer_add(&sess->retry_timer, &tv) < 0)
+		syslog(LOG_WARNING, "failed to re-add retry timer");
 }
 
 bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
@@ -174,10 +197,53 @@ bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
 	om->msg = msg;
 	om->msglen = msglen;
 	om->static_msg = static_msg;
+	om->next_retry = current_time + CLD_RETRY_START;
+
+	/* if out_q empty, start retry timer */
+	if (!sess->out_q) {
+		struct timeval tv = { CLD_RETRY_START, 0 };
+		if (evtimer_add(&sess->retry_timer, &tv) < 0)
+			syslog(LOG_WARNING, "retry timer start failed");
+	}
 
 	sess->out_q = g_list_append(sess->out_q, om);
 
-	sess_try_output(sess);
+	udp_tx(sess->sock, sess, msg, msglen);
+
+	return true;
+}
+
+bool msg_ack(struct server_socket *sock, DB_TXN *txn,
+	     struct session *sess, uint8_t *raw_msg, size_t msg_len)
+{
+	struct cld_msg_hdr *outmsg, *msg = (struct cld_msg_hdr *) raw_msg;
+	GList *tmp, *tmp1;
+	struct session_outmsg *om;
+
+	if (!sess->out_q)
+		return true;
+
+	/* look through output queue */
+	tmp = sess->out_q;
+	while (tmp) {
+		tmp1 = tmp;
+		tmp = tmp->next;
+
+		om = tmp1->data;
+		outmsg = om->msg;
+
+		/* if matching msgid found, we ack'd a message in out_q */
+		if (memcmp(msg->msgid, outmsg->msgid, sizeof(msg->msgid)))
+			continue;
+
+		/* remove and delete the ack'd msg */
+		sess->out_q = g_list_delete_link(sess->out_q, tmp1);
+		om_free(om);
+	}
+
+	if (!sess->out_q)
+		if (evtimer_del(&sess->retry_timer) < 0)
+			syslog(LOG_WARNING, "failed to delete retry timer");
 
 	return true;
 }
