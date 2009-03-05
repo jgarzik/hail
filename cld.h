@@ -135,8 +135,8 @@ extern bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
 extern struct server cld_srv;
 extern int debugging;
 extern time_t current_time;
-extern int udp_tx(struct server_socket *sock, const struct session *sess,
-	    const void *data, size_t data_len);
+extern int udp_tx(struct server_socket *, struct sockaddr *, socklen_t,
+	    const void *, size_t);
 extern void resp_copy(struct cld_msg_hdr *dest, const struct cld_msg_hdr *src);
 extern void resp_err(struct server_socket *, struct session *,
 		     struct cld_msg_hdr *, enum cle_err_codes);

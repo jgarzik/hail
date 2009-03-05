@@ -149,7 +149,8 @@ static int sess_retry_output(struct session *sess)
 		if (current_time < om->next_retry)
 			continue;
 
-		rc = udp_tx(sess->sock, sess, om->msg, om->msglen);
+		rc = udp_tx(sess->sock, (struct sockaddr *) &sess->addr,
+			    sess->addr_len, om->msg, om->msglen);
 		if (rc)
 			break;
 
@@ -208,7 +209,8 @@ bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
 
 	sess->out_q = g_list_append(sess->out_q, om);
 
-	udp_tx(sess->sock, sess, msg, msglen);
+	udp_tx(sess->sock, (struct sockaddr *) &sess->addr, 
+	       sess->addr_len, msg, msglen);
 
 	return true;
 }

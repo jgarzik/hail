@@ -75,13 +75,12 @@ struct server cld_srv = {
 	.port			= CLD_DEF_PORT,
 };
 
-int udp_tx(struct server_socket *sock, const struct session *sess,
-	    const void *data, size_t data_len)
+int udp_tx(struct server_socket *sock, struct sockaddr *addr,
+	   socklen_t addr_len, const void *data, size_t data_len)
 {
 	ssize_t src;
 
-	src = sendto(sock->fd, data, data_len, 0, 
-		     (struct sockaddr *) &sess->addr, sess->addr_len);
+	src = sendto(sock->fd, data, data_len, 0, addr, addr_len);
 	if (src < 0 && errno != EAGAIN)
 		syslogerr("sendto");
 
