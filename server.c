@@ -179,6 +179,8 @@ static void udp_srv_event(int fd, short events, void *userdata)
 	DB_TXN *txn;
 	const char *dberrmsg;
 
+	current_time = time(NULL);
+
 	memset(&cli, 0, sizeof(cli));
 
 	iov[0].iov_base = raw_msg;
