@@ -65,6 +65,7 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state);
 static const struct argp argp = { options, parse_opt, NULL, doc };
 
 static bool server_running = true;
+static bool am_master = true;
 static bool dump_stats;
 int debugging = 0;
 time_t current_time;
@@ -239,21 +240,31 @@ static void udp_srv_event(int fd, short events, void *userdata)
 	if (debugging)
 		syslog(LOG_DEBUG, "client %s message", host);
 
-	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
-	if (rc) {
-		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
-		return;
-	}
+	if (am_master) {
+		rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+		if (rc) {
+			dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
+			return;
+		}
 
-	if (udp_rx(sock, txn, &cli, raw_msg, rrc)) {
-		rc = txn->commit(txn, 0);
-		dberrmsg = "DB_ENV->txn_commit";
+		if (udp_rx(sock, txn, &cli, raw_msg, rrc)) {
+			rc = txn->commit(txn, 0);
+			dberrmsg = "DB_ENV->txn_commit";
+		} else {
+			rc = txn->abort(txn);
+			dberrmsg = "DB_ENV->txn_abort";
+		}
+		if (rc)
+			dbenv->err(dbenv, rc, dberrmsg);
 	} else {
-		rc = txn->abort(txn);
-		dberrmsg = "DB_ENV->txn_abort";
+		struct cld_msg_hdr resp, *msg = (struct cld_msg_hdr *) raw_msg;
+
+		/* transmit not-master error msg */
+		resp_copy(&resp, msg);
+		resp.op = cmo_not_master;
+		udp_tx(sock, (struct sockaddr *) &cli.addr, cli.addr_len,
+		       &resp, sizeof(resp));
 	}
-	if (rc)
-		dbenv->err(dbenv, rc, dberrmsg);
 }
 
 static int net_open(void)
