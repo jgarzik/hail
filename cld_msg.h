@@ -60,6 +60,7 @@ enum cle_err_codes {
 	CLE_LOCK_INVAL		= 10,		/* invalid lock */
 	CLE_LOCK_CONFLICT	= 11,		/* conflicting lock held */
 	CLE_LOCK_PENDING	= 12,		/* lock waiting to be acq. */
+	CLE_MODE_INVAL		= 13,		/* op incompat. w/ file mode */
 };
 
 enum cld_open_modes {

@@ -191,7 +191,7 @@ bool msg_get(struct server_socket *sock, DB_TXN *txn,
 	enum cle_err_codes resp_rc = CLE_OK;
 	cldino_t inum;
 	uint32_t name_len;
-	uint32_t data_size;
+	uint32_t data_size, omode;
 	void *data_mem = NULL;
 	size_t data_mem_len = 0;
 	int rc;
@@ -211,6 +211,12 @@ bool msg_get(struct server_socket *sock, DB_TXN *txn,
 	}
 
 	inum = cldino_from_le(h->inum);
+	omode = GUINT32_FROM_LE(h->mode);
+
+	if (!(omode & COM_READ)) {
+		resp_rc = CLE_MODE_INVAL;
+		goto err_out;
+	}
 
 	/* read inode from db */
 	rc = cldb_inode_get(txn, inum, &inode, false, 0);
@@ -473,6 +479,7 @@ bool msg_put(struct server_socket *sock, DB_TXN *txn,
 	void *mem;
 	int rc;
 	cldino_t inum;
+	uint32_t omode;
 
 	/* make sure input data as large as expected */
 	if (msg_len < sizeof(*msg))
@@ -488,6 +495,12 @@ bool msg_put(struct server_socket *sock, DB_TXN *txn,
 	}
 
 	inum = cldino_from_le(h->inum);
+	omode = GUINT32_FROM_LE(h->mode);
+
+	if (!(omode & COM_WRITE)) {
+		resp_rc = CLE_MODE_INVAL;
+		goto err_out;
+	}
 
 	/* read inode from db, for validation */
 	rc = cldb_inode_get(txn, inum, &inode, false, 0);
@@ -861,6 +874,7 @@ bool msg_unlock(struct server_socket *sock, DB_TXN *txn,
 	cldino_t inum;
 	int rc;
 	enum cle_err_codes resp_rc = CLE_OK;
+	uint32_t omode;
 
 	/* make sure input data as large as expected */
 	if (msg_len < sizeof(*msg))
@@ -876,6 +890,12 @@ bool msg_unlock(struct server_socket *sock, DB_TXN *txn,
 	}
 
 	inum = cldino_from_le(h->inum);
+	omode = GUINT32_FROM_LE(h->mode);
+
+	if (!(omode & COM_LOCK)) {
+		resp_rc = CLE_MODE_INVAL;
+		goto err_out;
+	}
 
 	/* attempt to given lock on filehandle */
 	rc = cldb_lock_del(txn, sess->sid, fh, inum);
@@ -904,7 +924,7 @@ bool msg_lock(struct server_socket *sock, DB_TXN *txn,
 	cldino_t inum;
 	int rc;
 	enum cle_err_codes resp_rc = CLE_OK;
-	uint32_t lock_flags;
+	uint32_t lock_flags, omode;
 	bool acquired = false;
 
 	/* make sure input data as large as expected */
@@ -922,6 +942,12 @@ bool msg_lock(struct server_socket *sock, DB_TXN *txn,
 	}
 
 	inum = cldino_from_le(h->inum);
+	omode = GUINT32_FROM_LE(h->mode);
+
+	if (!(omode & COM_LOCK)) {
+		resp_rc = CLE_MODE_INVAL;
+		goto err_out;
+	}
 
 	/* attempt to add lock */
 	rc = cldb_lock_add(txn, sess->sid, fh, inum,
