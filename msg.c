@@ -312,7 +312,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn,
 	struct raw_inode *inode = NULL, *parent = NULL;
 	struct raw_handle *h;
 	int rc, name_len;
-	bool create;
+	bool create, excl;
 	struct pathname_info pinfo;
 	void *parent_data = NULL;
 	size_t parent_len;
@@ -335,6 +335,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn,
 	name = (char *) raw_msg + sizeof(*msg);
 
 	create = msg_mode & COM_CREATE;
+	excl = msg_mode & COM_EXCL;
 
 	if (!valid_inode_name(name, name_len) || (create && name_len < 2)) {
 		resp_rc = CLE_NAME_INVAL;
@@ -345,9 +346,20 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn,
 
 	/* read inode from db, if it exists */
 	rc = cldb_inode_get_byname(txn, name, name_len, &inode, true, true);
-	if (rc && ((rc != DB_NOTFOUND) || (!create))) {
-		resp_rc = (rc == DB_NOTFOUND) ? CLE_INODE_INVAL : CLE_DB_ERR;
+	if (rc && (rc != DB_NOTFOUND)) {
+		resp_rc = CLE_DB_ERR;
 		goto err_out;
+	}
+	if (!create && (rc == DB_NOTFOUND)) {
+		resp_rc = CLE_INODE_INVAL;
+		goto err_out;
+	}
+	if (create && rc == 0) {
+		if (excl) {
+			resp_rc = CLE_INODE_EXISTS;
+			goto err_out;
+		} else
+			create = false;
 	}
 
 	if (create) {

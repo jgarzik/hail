@@ -61,6 +61,7 @@ enum cle_err_codes {
 	CLE_LOCK_CONFLICT	= 11,		/* conflicting lock held */
 	CLE_LOCK_PENDING	= 12,		/* lock waiting to be acq. */
 	CLE_MODE_INVAL		= 13,		/* op incompat. w/ file mode */
+	CLE_INODE_EXISTS	= 14,		/* inode exists */
 };
 
 enum cld_open_modes {
@@ -69,6 +70,7 @@ enum cld_open_modes {
 	COM_LOCK		= (1 << 2),	/* lock */
 	COM_ACL			= (1 << 3),	/* ACL update */
 	COM_CREATE		= (1 << 4),	/* create file, if not exist */
+	COM_EXCL		= (1 << 5),	/* fail create if file exists */
 };
 
 enum cld_events {
