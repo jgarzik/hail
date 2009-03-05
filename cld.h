@@ -71,6 +71,8 @@ struct session {
 
 	GList			*out_q;		/* outgoing pkts (to client) */
 	struct event		retry_timer;
+
+	bool			ping_open;	/* sent PING, waiting for ack */
 };
 
 struct server_stats {

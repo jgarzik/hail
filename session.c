@@ -44,6 +44,28 @@ gboolean sess_equal(gconstpointer _a, gconstpointer _b)
 	return (memcmp(a->sid, b->sid, CLD_CLID_SZ) == 0);
 }
 
+static void session_ping(struct session *sess)
+{
+	struct cld_msg_hdr resp;
+	uint64_t msgid;
+	struct timeval tv;
+
+	gettimeofday(&tv, NULL);
+
+	msgid = tv.tv_sec ^ tv.tv_usec;
+	msgid = GUINT64_TO_LE(msgid);
+
+	memset(&resp, 0, sizeof(resp));
+	memcpy(&resp.magic, CLD_MAGIC, strlen(CLD_MAGIC));
+	memcpy(&resp.msgid, &msgid, sizeof(msgid));
+	memcpy(&resp.sid, &sess->sid, CLD_ID_SZ);
+	resp.op = cmo_ping;
+
+	sess_sendmsg(sess, &resp, sizeof(resp), true, false);
+
+	sess->ping_open = true;
+}
+
 static void session_timeout(int fd, short events, void *userdata)
 {
 	struct session *sess = userdata;
@@ -53,7 +75,11 @@ static void session_timeout(int fd, short events, void *userdata)
 	if (sess_expire > current_time) {
 		struct timeval tv;
 
-		tv.tv_sec = sess_expire - current_time;
+		if (!sess->ping_open &&
+		    (sess_expire > (sess->last_contact + (CLD_SESS_TIMEOUT / 2))))
+			session_ping(sess);
+
+		tv.tv_sec = ((sess_expire - current_time) / 2) + 1;
 		tv.tv_usec = 0;
 
 		if (evtimer_add(&sess->timer, &tv) < 0)
@@ -238,6 +264,9 @@ bool msg_ack(struct server_socket *sock, DB_TXN *txn,
 		if (memcmp(msg->msgid, outmsg->msgid, sizeof(msg->msgid)))
 			continue;
 
+		if (outmsg->op == cmo_ping)
+			sess->ping_open = false;
+
 		/* remove and delete the ack'd msg */
 		sess->out_q = g_list_delete_link(sess->out_q, tmp1);
 		om_free(om);
@@ -296,7 +325,7 @@ bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
 	g_hash_table_insert(cld_srv.sessions, sess->sid, sess);
 
 	/* begin session timer */
-	tv.tv_sec = CLD_SESS_TIMEOUT;
+	tv.tv_sec = CLD_SESS_TIMEOUT / 2;
 	tv.tv_usec = 0;
 	if (evtimer_add(&sess->timer, &tv) < 0) {
 		syslog(LOG_WARNING, "evtimer_add session_new failed");

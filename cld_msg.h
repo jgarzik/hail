@@ -43,6 +43,7 @@ enum cld_msg_ops {
 	cmo_unlock		= 10,		/* unlock */
 	cmo_trylock		= 11,		/* trylock */
 	cmo_ack			= 12,		/* client ack of msgid rx'd */
+	cmo_ping		= 13,		/* server to client ping */
 };
 
 enum cle_err_codes {
