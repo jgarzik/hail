@@ -132,10 +132,9 @@ bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
 	struct timeval tv;
 
 	sess = session_new();
-	if (!sess) {
-		resp_err(sock, cli, msg, CLE_OOM);
+	if (!sess)
+		/* note, the client does not get response if we OOM here */
 		return false;
-	}
 
 	/* build raw_session database record */
 	memcpy(&sess->sid, &msg->sid, sizeof(sess->sid));
@@ -173,11 +172,11 @@ bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
 		goto err_out;
 	}
 
-	resp_ok(sock, cli, msg);
+	resp_ok(sock, sess, msg);
 	return true;
 
 err_out:
-	resp_err(sock, cli, msg, CLE_DB_ERR);
+	/* note: no response to client, in new-session error case */
 	free(sess);
 	return false;
 }

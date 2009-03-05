@@ -179,7 +179,7 @@ static int inode_touch(DB_TXN *txn, struct raw_inode *ino)
 }
 
 bool msg_get(struct server_socket *sock, DB_TXN *txn,
-	     const struct client *cli, struct session *sess,
+	     struct session *sess,
 	     uint8_t *raw_msg, size_t msg_len, bool metadata_only)
 {
 	struct cld_msg_get *msg = (struct cld_msg_get *) raw_msg;
@@ -231,7 +231,7 @@ bool msg_get(struct server_socket *sock, DB_TXN *txn,
 	memcpy(&resp->ino_len, &inode->ino_len,
 	       (sizeof(struct raw_inode) - sizeof(inode->inum)) + name_len);
 
-	udp_tx(sock, cli, &resp, sizeof(resp));
+	udp_tx(sock, sess, &resp, sizeof(resp));
 
 	/* send one or more data packets, if necessary */
 	if (!metadata_only) {
@@ -270,13 +270,13 @@ bool msg_get(struct server_socket *sock, DB_TXN *txn,
 			p += seg_len;
 			data_mem_len -= seg_len;
 
-			udp_tx(sock, cli, dr, seg_len + sizeof(*dr));
+			udp_tx(sock, sess, dr, seg_len + sizeof(*dr));
 		}
 
 		/* send terminating packet (seg_len == 0) */
 		dr->seg = GUINT32_TO_LE(i);
 		dr->seg_len = 0;
-		udp_tx(sock, cli, dr, sizeof(*dr));
+		udp_tx(sock, sess, dr, sizeof(*dr));
 	}
 
 	free(h);
@@ -285,14 +285,14 @@ bool msg_get(struct server_socket *sock, DB_TXN *txn,
 	return true;
 
 err_out:
-	resp_err(sock, cli, (struct cld_msg_hdr *) msg, resp_rc);
+	resp_err(sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
 	free(h);
 	free(inode);
 	free(data_mem);
 	return false;
 }
 
-bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
+bool msg_open(struct server_socket *sock, DB_TXN *txn,
 	      struct session *sess, uint8_t *raw_msg, size_t msg_len)
 {
 	struct cld_msg_open *msg = (struct cld_msg_open *) raw_msg;
@@ -445,12 +445,12 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 	resp_copy(&resp.hdr, &msg->hdr);
 	resp.code = GUINT32_TO_LE(CLE_OK);
 	resp.fh = GUINT64_TO_LE(fh);
-	udp_tx(sock, cli, &resp, sizeof(resp));
+	udp_tx(sock, sess, &resp, sizeof(resp));
 
 	return true;
 
 err_out:
-	resp_err(sock, cli, (struct cld_msg_hdr *) msg, resp_rc);
+	resp_err(sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
 	free(parent_data);
 	free(parent);
 	free(inode);
@@ -458,7 +458,7 @@ err_out:
 	return false;
 }
 
-bool msg_put(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
+bool msg_put(struct server_socket *sock, DB_TXN *txn,
 	     struct session *sess, uint8_t *raw_msg, size_t msg_len)
 {
 	struct cld_msg_put *msg = (struct cld_msg_put *) raw_msg;
@@ -506,18 +506,18 @@ bool msg_put(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 
 	free(h);
 	free(inode);
-	resp_ok(sock, cli, &msg->hdr);
+	resp_ok(sock, sess, &msg->hdr);
 	return true;
 
 err_out:
-	resp_err(sock, cli, (struct cld_msg_hdr *) msg, resp_rc);
+	resp_err(sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
 	free(h);
 	free(inode);
 	return false;
 }
 
 static bool try_commit_data(struct server_socket *sock, DB_TXN *txn,
-			struct session *sess, const struct client *cli,
+			struct session *sess,
 			uint8_t *msgid, GList *pmsg_ent)
 {
 	struct cld_msg_put *pmsg = pmsg_ent->data;
@@ -647,21 +647,21 @@ static bool try_commit_data(struct server_socket *sock, DB_TXN *txn,
 		goto err_out;
 	}
 
-	resp_ok(sock, cli, (struct cld_msg_hdr *) pmsg);
+	resp_ok(sock, sess, (struct cld_msg_hdr *) pmsg);
 	free(pmsg);
 	free(h);
 	free(inode);
 	return true;
 
 err_out:
-	resp_err(sock, cli, (struct cld_msg_hdr *) pmsg, resp_rc);
+	resp_err(sock, sess, (struct cld_msg_hdr *) pmsg, resp_rc);
 	free(pmsg);
 	free(h);
 	free(inode);
 	return false;
 }
 
-bool msg_data(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
+bool msg_data(struct server_socket *sock, DB_TXN *txn,
 	      struct session *sess, uint8_t *raw_msg, size_t msg_len)
 {
 	struct cld_msg_data *msg = (struct cld_msg_data *) raw_msg;
@@ -711,18 +711,18 @@ bool msg_data(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 	/* store DATA message on DATA msg queue */
 	sess->data_q = g_list_append(sess->data_q, mem);
 
-	udp_tx(sock, cli, msg, sizeof(*msg));
+	udp_tx(sock, sess, msg, sizeof(*msg));
 
 	/* scan DATA queue for completed stream; commit to db, if found */
-	return try_commit_data(sock, txn, sess, cli, msg->hdr.msgid, tmp);
+	return try_commit_data(sock, txn, sess, msg->hdr.msgid, tmp);
 
 err_out:
-	resp_err(sock, cli, (struct cld_msg_hdr *) msg, resp_rc);
+	resp_err(sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
 	return false;
 }
 
 bool msg_close(struct server_socket *sock, DB_TXN *txn,
-	       const struct client *cli, struct session *sess,
+	       struct session *sess,
 	       uint8_t *raw_msg, size_t msg_len)
 {
 	struct cld_msg_close *msg = (struct cld_msg_close *) raw_msg;
@@ -746,15 +746,15 @@ bool msg_close(struct server_socket *sock, DB_TXN *txn,
 		goto err_out;
 	}
 
-	resp_ok(sock, cli, (struct cld_msg_hdr *) msg);
+	resp_ok(sock, sess, (struct cld_msg_hdr *) msg);
 	return true;
 
 err_out:
-	resp_err(sock, cli, (struct cld_msg_hdr *) msg, resp_rc);
+	resp_err(sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
 	return false;
 }
 
-bool msg_del(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
+bool msg_del(struct server_socket *sock, DB_TXN *txn,
 	     struct session *sess, uint8_t *raw_msg, size_t msg_len)
 {
 	struct cld_msg_del *msg = (struct cld_msg_del *) raw_msg;
@@ -835,20 +835,20 @@ bool msg_del(struct server_socket *sock, DB_TXN *txn, const struct client *cli,
 		goto err_out;
 	}
 
-	resp_ok(sock, cli, (struct cld_msg_hdr *) msg);
+	resp_ok(sock, sess, (struct cld_msg_hdr *) msg);
 	free(parent);
 	free(parent_data);
 	return true;
 
 err_out:
-	resp_err(sock, cli, (struct cld_msg_hdr *) msg, resp_rc);
+	resp_err(sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
 	free(parent);
 	free(parent_data);
 	return false;
 }
 
 bool msg_unlock(struct server_socket *sock, DB_TXN *txn,
-		const struct client *cli, struct session *sess,
+		struct session *sess,
 		uint8_t *raw_msg, size_t msg_len)
 {
 	struct cld_msg_unlock *msg = (struct cld_msg_unlock *) raw_msg;
@@ -880,18 +880,18 @@ bool msg_unlock(struct server_socket *sock, DB_TXN *txn,
 		goto err_out;
 	}
 
-	resp_ok(sock, cli, (struct cld_msg_hdr *) msg);
+	resp_ok(sock, sess, (struct cld_msg_hdr *) msg);
 	free(h);
 	return true;
 
 err_out:
-	resp_err(sock, cli, (struct cld_msg_hdr *) msg, resp_rc);
+	resp_err(sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
 	free(h);
 	return false;
 }
 
 bool msg_trylock(struct server_socket *sock, DB_TXN *txn,
-		const struct client *cli, struct session *sess,
+		 struct session *sess,
 		uint8_t *raw_msg, size_t msg_len)
 {
 	struct cld_msg_lock *msg = (struct cld_msg_lock *) raw_msg;
@@ -928,12 +928,12 @@ bool msg_trylock(struct server_socket *sock, DB_TXN *txn,
 		goto err_out;
 	}
 
-	resp_ok(sock, cli, (struct cld_msg_hdr *) msg);
+	resp_ok(sock, sess, (struct cld_msg_hdr *) msg);
 	free(h);
 	return true;
 
 err_out:
-	resp_err(sock, cli, (struct cld_msg_hdr *) msg, resp_rc);
+	resp_err(sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
 	free(h);
 	return false;
 }

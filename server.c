@@ -75,13 +75,13 @@ struct server cld_srv = {
 	.port			= CLD_DEF_PORT,
 };
 
-void udp_tx(struct server_socket *sock, const struct client *cli,
+void udp_tx(struct server_socket *sock, const struct session *sess,
 	    const void *data, size_t data_len)
 {
 	ssize_t src;
 
 	src = sendto(sock->fd, data, data_len, 0, 
-		     (struct sockaddr *) &cli->addr, cli->addr_len);
+		     (struct sockaddr *) &sess->addr, sess->addr_len);
 	if (src < 0 && errno != EAGAIN)
 		syslogerr("sendto");
 }
@@ -91,7 +91,7 @@ void resp_copy(struct cld_msg_hdr *dest, const struct cld_msg_hdr *src)
 	memcpy(dest, src, sizeof(*dest));
 }
 
-void resp_err(struct server_socket *sock, const struct client *cli,
+void resp_err(struct server_socket *sock, const struct session *sess,
 		     struct cld_msg_hdr *msg, enum cle_err_codes errcode)
 {
 	struct cld_msg_resp resp;
@@ -99,13 +99,13 @@ void resp_err(struct server_socket *sock, const struct client *cli,
 	resp_copy(&resp.hdr, msg);
 	resp.code = GUINT32_TO_LE(errcode);
 
-	udp_tx(sock, cli, &resp, sizeof(resp));
+	udp_tx(sock, sess, &resp, sizeof(resp));
 }
 
-void resp_ok(struct server_socket *sock, const struct client *cli,
+void resp_ok(struct server_socket *sock, const struct session *sess,
 		    struct cld_msg_hdr *msg)
 {
-	resp_err(sock, cli, msg, CLE_OK);
+	resp_err(sock, sess, msg, CLE_OK);
 }
 
 static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
@@ -136,28 +136,28 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 
 	switch(msg->op) {
 	case cmo_nop:
-		resp_ok(sock, cli, msg);
+		resp_ok(sock, sess, msg);
 		break;
 	case cmo_new_cli:
 		return msg_new_cli(sock, txn, cli, raw_msg, msg_len);
 	case cmo_open:
-		return msg_open(sock, txn, cli, sess, raw_msg, msg_len);
+		return msg_open(sock, txn, sess, raw_msg, msg_len);
 	case cmo_get:
-		return msg_get(sock, txn, cli, sess, raw_msg, msg_len, false);
+		return msg_get(sock, txn, sess, raw_msg, msg_len, false);
 	case cmo_get_meta:
-		return msg_get(sock, txn, cli, sess, raw_msg, msg_len, true);
+		return msg_get(sock, txn, sess, raw_msg, msg_len, true);
 	case cmo_put:
-		return msg_put(sock, txn, cli, sess, raw_msg, msg_len);
+		return msg_put(sock, txn, sess, raw_msg, msg_len);
 	case cmo_data:
-		return msg_data(sock, txn, cli, sess, raw_msg, msg_len);
+		return msg_data(sock, txn, sess, raw_msg, msg_len);
 	case cmo_close:
-		return msg_close(sock, txn, cli, sess, raw_msg, msg_len);
+		return msg_close(sock, txn, sess, raw_msg, msg_len);
 	case cmo_del:
-		return msg_del(sock, txn, cli, sess, raw_msg, msg_len);
+		return msg_del(sock, txn, sess, raw_msg, msg_len);
 	case cmo_unlock:
-		return msg_unlock(sock, txn, cli, sess, raw_msg, msg_len);
+		return msg_unlock(sock, txn, sess, raw_msg, msg_len);
 	case cmo_trylock:
-		return msg_trylock(sock, txn, cli, sess, raw_msg, msg_len);
+		return msg_trylock(sock, txn, sess, raw_msg, msg_len);
 	default:
 		return false;
 	}

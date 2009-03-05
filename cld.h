@@ -91,22 +91,21 @@ struct server {
 
 /* msg.c */
 extern bool msg_open(struct server_socket *, DB_TXN *,
-		 const struct client *, struct session *, uint8_t *, size_t);
+		 struct session *, uint8_t *, size_t);
 extern bool msg_put(struct server_socket *, DB_TXN *,
-		 const struct client *, struct session *, uint8_t *, size_t);
+		 struct session *, uint8_t *, size_t);
 extern bool msg_data(struct server_socket *, DB_TXN *,
-		 const struct client *, struct session *, uint8_t *, size_t);
+		 struct session *, uint8_t *, size_t);
 extern bool msg_close(struct server_socket *, DB_TXN *,
-		 const struct client *, struct session *, uint8_t *, size_t);
+		 struct session *, uint8_t *, size_t);
 extern bool msg_del(struct server_socket *, DB_TXN *,
-		 const struct client *, struct session *, uint8_t *, size_t);
+		 struct session *, uint8_t *, size_t);
 extern bool msg_unlock(struct server_socket *, DB_TXN *,
-		 const struct client *, struct session *, uint8_t *, size_t);
+		 struct session *, uint8_t *, size_t);
 extern bool msg_trylock(struct server_socket *, DB_TXN *,
-		 const struct client *, struct session *, uint8_t *, size_t);
+		 struct session *, uint8_t *, size_t);
 extern bool msg_get(struct server_socket *, DB_TXN *,
-		 const struct client *, struct session *, uint8_t *, size_t,
-		 bool);
+		 struct session *, uint8_t *, size_t, bool);
 
 /* session.c */
 extern guint sess_hash(gconstpointer v);
@@ -119,13 +118,13 @@ extern struct raw_session *session_new_raw(const struct session *sess);
 extern struct server cld_srv;
 extern int debugging;
 extern time_t current_time;
-extern void udp_tx(struct server_socket *sock, const struct client *cli,
+extern void udp_tx(struct server_socket *sock, const struct session *sess,
 	    const void *data, size_t data_len);
 extern void resp_copy(struct cld_msg_hdr *dest, const struct cld_msg_hdr *src);
-extern void resp_err(struct server_socket *sock, const struct client *cli,
-		     struct cld_msg_hdr *msg, enum cle_err_codes errcode);
-extern void resp_ok(struct server_socket *sock, const struct client *cli,
-		    struct cld_msg_hdr *msg);
+extern void resp_err(struct server_socket *, const struct session *,
+		     struct cld_msg_hdr *, enum cle_err_codes);
+extern void resp_ok(struct server_socket *, const struct session *,
+		    struct cld_msg_hdr *);
 
 /* util.c */
 extern int write_pid_file(const char *pid_fn);
