@@ -2,13 +2,7 @@
 ## Toplevel Makefile.am
 ##
 
-INCLUDES	= @GLIB_CFLAGS@
-
-sbin_PROGRAMS	= cld
-
-cld_SOURCES	= cldb.h cld.h cld_msg.h \
-		  cldb.c msg.c server.c session.c util.c
-cld_LDADD	= @GLIB_LIBS@ @DB4_LIBS@ @EVENT_LIBS@ @ARGP_LIBS@
+SUBDIRS		= doc server
 
 EXTRA_DIST	= autogen.sh
 

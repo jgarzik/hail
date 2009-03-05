@@ -19,7 +19,7 @@ dnl Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 AC_INIT(cld, 0.1, [Jeff Garzik <jgarzik@pobox.com>])
 AC_PREREQ(2.52)
-AC_CONFIG_SRCDIR([server.c])
+AC_CONFIG_SRCDIR([server/server.c])
 AM_INIT_AUTOMAKE([gnu])
 AC_CONFIG_HEADERS([cld-config.h])
 
@@ -68,5 +68,5 @@ AC_SUBST(DB4_LIBS)
 AC_SUBST(EVENT_LIBS)
 AC_SUBST(ARGP_LIBS)
 
-AC_CONFIG_FILES([Makefile])
+AC_CONFIG_FILES([Makefile doc/Makefile server/Makefile])
 AC_OUTPUT
