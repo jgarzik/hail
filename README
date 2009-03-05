@@ -1,1 +1,9 @@
 This is a coarse locking daemon.
+
+Dependencies:
+
+	DB 4.x
+	libevent
+	argp or argp-standalone
+	GLib 2.x
+
