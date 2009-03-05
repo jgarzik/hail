@@ -223,7 +223,11 @@ bool msg_get(struct server_socket *sock, DB_TXN *txn,
 	data_size = GUINT32_FROM_LE(inode->size);
 
 	resp_len = sizeof(*resp) + name_len;
-	resp = alloca(resp_len);
+	resp = malloc(resp_len);
+	if (!resp) {
+		resp_rc = CLE_OOM;
+		goto err_out;
+	}
 
 	/* return response containing inode metadata */
 	resp_copy(&resp->hdr, &msg->hdr);
@@ -231,7 +235,7 @@ bool msg_get(struct server_socket *sock, DB_TXN *txn,
 	memcpy(&resp->ino_len, &inode->ino_len,
 	       (sizeof(struct raw_inode) - sizeof(inode->inum)) + name_len);
 
-	udp_tx(sock, sess, &resp, sizeof(resp));
+	sess_sendmsg(sess, resp, resp_len, false, false);
 
 	/* send one or more data packets, if necessary */
 	if (!metadata_only) {
@@ -270,13 +274,13 @@ bool msg_get(struct server_socket *sock, DB_TXN *txn,
 			p += seg_len;
 			data_mem_len -= seg_len;
 
-			udp_tx(sock, sess, dr, seg_len + sizeof(*dr));
+			sess_sendmsg(sess, dr, seg_len + sizeof(*dr), true, false);
 		}
 
 		/* send terminating packet (seg_len == 0) */
 		dr->seg = GUINT32_TO_LE(i);
 		dr->seg_len = 0;
-		udp_tx(sock, sess, dr, sizeof(*dr));
+		sess_sendmsg(sess, dr, sizeof(*dr), true, false);
 	}
 
 	free(h);
@@ -445,7 +449,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn,
 	resp_copy(&resp.hdr, &msg->hdr);
 	resp.code = GUINT32_TO_LE(CLE_OK);
 	resp.fh = GUINT64_TO_LE(fh);
-	udp_tx(sock, sess, &resp, sizeof(resp));
+	sess_sendmsg(sess, &resp, sizeof(resp), true, false);
 
 	return true;
 
@@ -711,7 +715,7 @@ bool msg_data(struct server_socket *sock, DB_TXN *txn,
 	/* store DATA message on DATA msg queue */
 	sess->data_q = g_list_append(sess->data_q, mem);
 
-	udp_tx(sock, sess, msg, sizeof(*msg));
+	sess_sendmsg(sess, msg, sizeof(*msg), true, false);
 
 	/* scan DATA queue for completed stream; commit to db, if found */
 	return try_commit_data(sock, txn, sess, msg->hdr.msgid, tmp);

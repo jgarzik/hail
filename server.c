@@ -75,7 +75,7 @@ struct server cld_srv = {
 	.port			= CLD_DEF_PORT,
 };
 
-void udp_tx(struct server_socket *sock, const struct session *sess,
+int udp_tx(struct server_socket *sock, const struct session *sess,
 	    const void *data, size_t data_len)
 {
 	ssize_t src;
@@ -84,6 +84,11 @@ void udp_tx(struct server_socket *sock, const struct session *sess,
 		     (struct sockaddr *) &sess->addr, sess->addr_len);
 	if (src < 0 && errno != EAGAIN)
 		syslogerr("sendto");
+
+	if (src < 0)
+		return -errno;
+	
+	return 0;
 }
 
 void resp_copy(struct cld_msg_hdr *dest, const struct cld_msg_hdr *src)
@@ -91,7 +96,7 @@ void resp_copy(struct cld_msg_hdr *dest, const struct cld_msg_hdr *src)
 	memcpy(dest, src, sizeof(*dest));
 }
 
-void resp_err(struct server_socket *sock, const struct session *sess,
+void resp_err(struct server_socket *sock, struct session *sess,
 		     struct cld_msg_hdr *msg, enum cle_err_codes errcode)
 {
 	struct cld_msg_resp resp;
@@ -99,10 +104,10 @@ void resp_err(struct server_socket *sock, const struct session *sess,
 	resp_copy(&resp.hdr, msg);
 	resp.code = GUINT32_TO_LE(errcode);
 
-	udp_tx(sock, sess, &resp, sizeof(resp));
+	sess_sendmsg(sess, &resp, sizeof(resp), true, false);
 }
 
-void resp_ok(struct server_socket *sock, const struct session *sess,
+void resp_ok(struct server_socket *sock, struct session *sess,
 		    struct cld_msg_hdr *msg)
 {
 	resp_err(sock, sess, msg, CLE_OK);

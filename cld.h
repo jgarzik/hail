@@ -44,8 +44,16 @@ struct client {
 	char			addr_host[64];	/* ASCII version of inet addr */
 };
 
+struct session_outmsg {
+	void			*msg;
+	size_t			msglen;
+	bool			static_msg;	/* skip free(3) ? */
+};
+
 struct session {
 	uint8_t			sid[CLD_CLID_SZ];
+
+	struct server_socket	*sock;
 
 	struct sockaddr_in6	addr;		/* inet address */
 	socklen_t		addr_len;	/* inet address len */
@@ -58,6 +66,8 @@ struct session {
 
 	GList			*put_q;		/* queued PUT pkts */
 	GList			*data_q;	/* queued data pkts */
+
+	GList			*out_q;		/* outgoing pkts (to client) */
 };
 
 struct server_stats {
@@ -113,17 +123,19 @@ extern gboolean sess_equal(gconstpointer _a, gconstpointer _b);
 extern bool msg_new_cli(struct server_socket *, DB_TXN *,
 		 const struct client *, uint8_t *, size_t);
 extern struct raw_session *session_new_raw(const struct session *sess);
+extern bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
+		  bool copy_msg, bool static_msg);
 
 /* server.c */
 extern struct server cld_srv;
 extern int debugging;
 extern time_t current_time;
-extern void udp_tx(struct server_socket *sock, const struct session *sess,
+extern int udp_tx(struct server_socket *sock, const struct session *sess,
 	    const void *data, size_t data_len);
 extern void resp_copy(struct cld_msg_hdr *dest, const struct cld_msg_hdr *src);
-extern void resp_err(struct server_socket *, const struct session *,
+extern void resp_err(struct server_socket *, struct session *,
 		     struct cld_msg_hdr *, enum cle_err_codes);
-extern void resp_ok(struct server_socket *, const struct session *,
+extern void resp_ok(struct server_socket *, struct session *,
 		    struct cld_msg_hdr *);
 
 /* util.c */

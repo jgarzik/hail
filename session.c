@@ -120,6 +120,68 @@ struct raw_session *session_new_raw(const struct session *sess)
 	return raw_sess;
 }
 
+/* FIXME: far too simple! */
+static int sess_try_output(struct session *sess)
+{
+	GList *tmp, *tmp1;
+	struct session_outmsg *om;
+	int rc = 0;
+
+	tmp = sess->out_q;
+	while (tmp) {
+		tmp1 = tmp;
+		tmp = tmp->next;
+
+		om = tmp1->data;
+		rc = udp_tx(sess->sock, sess, om->msg, om->msglen);
+		if (rc)
+			break;
+
+		sess->out_q = g_list_delete_link(sess->out_q, tmp1);
+
+		if (!om->static_msg)
+			free(om->msg);
+		free(om);
+	}
+
+	return rc;
+}
+
+bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
+		  bool copy_msg, bool static_msg)
+{
+	void *msg;
+	struct session_outmsg *om;
+
+	om = malloc(sizeof(*om));
+	if (!om)
+		return false;
+
+	if (copy_msg) {
+		msg = malloc(msglen);
+		if (!msg) {
+			free(om);
+			return false;
+		}
+
+		memcpy(msg, msg_, msglen);
+
+		/* copy_msg implies !static_msg */
+		static_msg = false;
+	} else
+		msg = msg_;
+
+	om->msg = msg;
+	om->msglen = msglen;
+	om->static_msg = static_msg;
+
+	sess->out_q = g_list_append(sess->out_q, om);
+
+	sess_try_output(sess);
+
+	return true;
+}
+
 bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
 		 const struct client *cli, uint8_t *raw_msg, size_t msg_len)
 {
@@ -139,6 +201,7 @@ bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
 	/* build raw_session database record */
 	memcpy(&sess->sid, &msg->sid, sizeof(sess->sid));
 	memcpy(&sess->addr, &cli->addr, sizeof(sess->addr));
+	sess->sock = sock;
 	sess->addr_len = cli->addr_len;
 	strncpy(sess->ipaddr, cli->addr_host, sizeof(sess->ipaddr));
 	sess->last_contact = current_time;
