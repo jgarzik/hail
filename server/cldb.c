@@ -266,7 +266,7 @@ void cldb_close(struct cldb *cldb)
 	cldb->handle_idx->close(cldb->handle_idx, 0);
 	cldb->handles->close(cldb->handles, 0);
 	cldb->data->close(cldb->data, 0);
-	cldb->inode_names->close(cldb->inodes, 0);
+	cldb->inode_names->close(cldb->inode_names, 0);
 	cldb->inodes->close(cldb->inodes, 0);
 	cldb->sessions->close(cldb->sessions, 0);
 	cldb->env->close(cldb->env, 0);
