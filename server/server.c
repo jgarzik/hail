@@ -329,12 +329,6 @@ static int net_open(void)
 			goto err_out;
 		}
 
-		if (listen(fd, 100) < 0) {
-			syslogerr("tcp listen");
-			rc = -errno;
-			goto err_out;
-		}
-
 		rc = fsetflags("udp server", fd, O_NONBLOCK);
 		if (rc)
 			goto err_out;
