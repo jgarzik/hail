@@ -19,6 +19,8 @@ push
 stamp-h1
 
 # app-specific
+libcldc.a
+
 cld
 cld*.tar.gz
 cld-config.h*

@@ -2,7 +2,7 @@
 ## Toplevel Makefile.am
 ##
 
-SUBDIRS		= doc server
+SUBDIRS		= doc lib include server test
 
 EXTRA_DIST	= autogen.sh
 

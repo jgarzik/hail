@@ -68,5 +68,11 @@ AC_SUBST(DB4_LIBS)
 AC_SUBST(EVENT_LIBS)
 AC_SUBST(ARGP_LIBS)
 
-AC_CONFIG_FILES([Makefile doc/Makefile server/Makefile])
+AC_CONFIG_FILES([
+	Makefile
+	doc/Makefile
+	lib/Makefile
+	include/Makefile
+	server/Makefile
+	test/Makefile])
 AC_OUTPUT

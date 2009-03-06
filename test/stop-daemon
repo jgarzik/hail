@@ -1,0 +1,23 @@
+#!/bin/sh
+
+if [ ! -f cld.pid ]
+then
+	echo no daemon pid file found.
+	exit 1
+fi
+
+kill `cat cld.pid`
+
+for ((n = 0; n < 10; n++))
+do
+	if [ ! -f cld.pid ]
+	then
+		exit 0
+	fi
+
+	sleep 1
+done
+
+echo "PID file not removed, after signal sent."
+rm -f cld.pid
+exit 1
