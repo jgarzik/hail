@@ -31,7 +31,7 @@ enum {
 
 enum cld_msg_ops {
 	cmo_nop			= 0,		/* no op */
-	cmo_new_cli		= 1,		/* new client */
+	cmo_new_sess		= 1,		/* new session */
 	cmo_open		= 2,		/* open file */
 	cmo_get_meta		= 3,		/* get metadata */
 	cmo_get			= 4,		/* get metadata + data */
@@ -49,8 +49,8 @@ enum cld_msg_ops {
 
 enum cle_err_codes {
 	CLE_OK			= 0,		/* success / no error */
-	CLE_CLI_EXISTS		= 1,		/* client exists */
-	CLE_CLI_INVAL		= 2,		/* client doesn't exist */
+	CLE_SESS_EXISTS		= 1,		/* session exists */
+	CLE_SESS_INVAL		= 2,		/* session doesn't exist */
 	CLE_DB_ERR		= 3,		/* db error */
 	CLE_BAD_PKT		= 4,		/* invalid/corrupted packet */
 	CLE_INODE_INVAL		= 5,		/* inode doesn't exist */

@@ -41,7 +41,7 @@ gboolean sess_equal(gconstpointer _a, gconstpointer _b)
 	const struct session *a = _a;
 	const struct session *b = _b;
 
-	return (memcmp(a->sid, b->sid, CLD_CLID_SZ) == 0);
+	return (memcmp(a->sid, b->sid, CLD_SID_SZ) == 0);
 }
 
 static void session_ping(struct session *sess)
@@ -119,7 +119,7 @@ static void session_encode(struct raw_session *raw, const struct session *sess)
 	int i;
 	void *p;
 
-	memcpy(raw, sess, CLD_CLID_SZ + CLD_IPADDR_SZ);
+	memcpy(raw, sess, CLD_SID_SZ + CLD_IPADDR_SZ);
 	raw->last_contact = GUINT64_TO_LE(sess->last_contact);
 	raw->next_fh = GUINT64_TO_LE(sess->next_fh);
 	raw->n_handles = GUINT32_TO_LE(sess->handles->len);
@@ -274,7 +274,7 @@ bool msg_ack(struct server_socket *sock, DB_TXN *txn,
 	return true;
 }
 
-bool msg_new_cli(struct server_socket *sock, DB_TXN *txn,
+bool msg_new_sess(struct server_socket *sock, DB_TXN *txn,
 		 const struct client *cli, uint8_t *raw_msg, size_t msg_len)
 {
 	struct cld_msg_hdr *msg = (struct cld_msg_hdr *) raw_msg;

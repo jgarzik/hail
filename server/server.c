@@ -135,19 +135,19 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 	sess = g_hash_table_lookup(cld_srv.sessions, msg->sid);
 	if (sess && ((sess->addr_len != cli->addr_len) ||
 	    memcmp(&sess->addr, &cli->addr, sess->addr_len))) {
-		resp_rc = CLE_CLI_INVAL;
+		resp_rc = CLE_SESS_INVAL;
 		goto err_out;
 	}
 
-	if (msg->op != cmo_new_cli) {
+	if (msg->op != cmo_new_sess) {
 		if (!sess) {
-			resp_rc = CLE_CLI_INVAL;
+			resp_rc = CLE_SESS_INVAL;
 			goto err_out;
 		}
 
 		sess->last_contact = time(NULL);
 	} else if (sess) {
-		resp_rc = CLE_CLI_EXISTS;
+		resp_rc = CLE_SESS_EXISTS;
 		goto err_out;
 	}
 
@@ -155,8 +155,8 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 	case cmo_nop:
 		resp_ok(sock, sess, msg);
 		break;
-	case cmo_new_cli:
-		return msg_new_cli(sock, txn, cli, raw_msg, msg_len);
+	case cmo_new_sess:
+		return msg_new_sess(sock, txn, cli, raw_msg, msg_len);
 	case cmo_open:
 		return msg_open(sock, txn, sess, raw_msg, msg_len);
 	case cmo_get:

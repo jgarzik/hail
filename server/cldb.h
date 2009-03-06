@@ -42,7 +42,7 @@ enum lock_flags {
 };
 
 struct raw_session {
-	uint8_t			sid[8];		/* client id */
+	uint8_t			sid[8];		/* session id */
 	char			addr[64];	/* IP address */
 	uint64_t		last_contact;	/* time of last contact */
 	uint64_t		next_fh;	/* next fh */
@@ -51,12 +51,12 @@ struct raw_session {
 };
 
 struct raw_handle_key {
-	uint8_t			sid[8];		/* client id */
+	uint8_t			sid[8];		/* session id */
 	uint64_t		fh;		/* handle id */
 };
 
 struct raw_handle {
-	uint8_t			sid[8];		/* client id */
+	uint8_t			sid[8];		/* session id */
 	uint64_t		fh;		/* handle id */
 	cldino_t		inum;		/* inode number */
 	uint32_t		mode;		/* open mode */
@@ -75,7 +75,7 @@ struct raw_inode {
 };
 
 struct raw_lock {
-	uint8_t			sid[8];		/* client id */
+	uint8_t			sid[8];		/* session id */
 	uint64_t		fh;		/* handle id */
 	uint32_t		flags;		/* lock flags: CLFL_xxxx */
 };

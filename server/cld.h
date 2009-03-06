@@ -32,7 +32,7 @@ struct server_socket;
 #define ALIGN8(n) ((8 - ((n) & 7)) & 7)
 
 enum {
-	CLD_CLID_SZ		= 8,
+	CLD_SID_SZ		= 8,
 	CLD_IPADDR_SZ		= 64,
 	CLD_SESS_TIMEOUT	= 60,
 	CLD_RETRY_START		= 2,		/* initial retry after 2sec */
@@ -52,7 +52,7 @@ struct session_outmsg {
 };
 
 struct session {
-	uint8_t			sid[CLD_CLID_SZ];
+	uint8_t			sid[CLD_SID_SZ];
 
 	struct server_socket	*sock;
 
@@ -126,7 +126,7 @@ extern bool msg_get(struct server_socket *, DB_TXN *,
 /* session.c */
 extern guint sess_hash(gconstpointer v);
 extern gboolean sess_equal(gconstpointer _a, gconstpointer _b);
-extern bool msg_new_cli(struct server_socket *, DB_TXN *,
+extern bool msg_new_sess(struct server_socket *, DB_TXN *,
 		 const struct client *, uint8_t *, size_t);
 extern struct raw_session *session_new_raw(const struct session *sess);
 extern bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
