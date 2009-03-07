@@ -44,6 +44,8 @@ static struct fs_obj *fs_obj_alloc(struct server_volume *vol)
 
 static bool cookie_valid(const char *cookie)
 {
+	int len = 0;
+
 	/* empty strings are not valid cookies */
 	if (!cookie || !*cookie)
 		return false;
@@ -54,12 +56,16 @@ static bool cookie_valid(const char *cookie)
 		case '0' ... '9':
 		case 'a' ... 'f':
 			cookie++;
+			len++;
 			break;
 
 		default:
 			return false;
 		}
 	}
+
+	if (len < STD_COOKIE_MIN)
+		return false;
 
 	return true;
 }

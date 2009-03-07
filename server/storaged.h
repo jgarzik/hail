@@ -24,6 +24,8 @@ enum {
 
 	CLI_REQ_BUF_SZ		= 8192,		/* buffer for req + hdrs */
 	CLI_DATA_BUF_SZ		= 8192,
+
+	STD_COOKIE_MIN		= 7,
 };
 
 enum errcode {
