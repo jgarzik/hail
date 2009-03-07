@@ -760,7 +760,7 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 		rcb = object_get(cli, user, vol, key, false);
 	else if (volume && !pslash && !strcmp(method, "GET"))
 		rcb = object_get(cli, user, vol, key, true);
-	else if (volume && pslash && !strcmp(method, "PUT")) {
+	else if (volume && !pslash && !strcmp(method, "PUT")) {
 		long content_len;
 
 		if (!content_len_str) {
@@ -770,7 +770,7 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 
 		content_len = atol(content_len_str);
 
-		rcb = object_put(cli, user, vol, content_len, expect_cont,
+		rcb = object_put(cli, user, vol, key, content_len, expect_cont,
 				 sync_data);
 	} else if (volume && !pslash && !strcmp(method, "DELETE"))
 		rcb = object_del(cli, user, vol, key);
@@ -1355,8 +1355,6 @@ int main (int argc, char *argv[])
 	error_t aprc;
 	int rc = 1;
 	GList *tmpl;
-
-	srand(time(NULL));
 
 	/* isspace() and strcasecmp() consistency requires this */
 	setlocale(LC_ALL, "C");

@@ -26,22 +26,6 @@ struct fs_obj {
 	struct database		*db;
 };
 
-static uint64_t global_counter;
-
-static uint64_t next_counter(void)
-{
-	static GStaticMutex mutex = G_STATIC_MUTEX_INIT;
-	uint64_t rv;
-
-	g_static_mutex_lock (&mutex);
-
-	rv = global_counter++;
-
-	g_static_mutex_unlock (&mutex);
-
-	return rv;
-}
-
 static struct fs_obj *fs_obj_alloc(struct server_volume *vol,
 				   struct database *db)
 {
@@ -61,38 +45,62 @@ static struct fs_obj *fs_obj_alloc(struct server_volume *vol,
 	return obj;
 }
 
+static bool cookie_valid(const char *cookie)
+{
+	/* empty strings are not valid cookies */
+	if (!cookie || !*cookie)
+		return false;
+
+	/* cookies MUST consist of 100% lowercase hex digits */
+	while (*cookie) {
+		switch (*cookie) {
+		case '0' ... '9':
+		case 'a' ... 'f':
+			cookie++;
+			break;
+
+		default:
+			return false;
+		}
+	}
+
+	return true;
+}
+
 static struct backend_obj *fs_obj_new(struct server_volume *vol,
-				      struct database *db)
+				      struct database *db,
+				      const char *cookie)
 {
 	struct fs_obj *obj;
 	char *fn = NULL;
-	uint64_t counter = 0xdeadbeef;
-	char counterstr[32];
+
+	if (!cookie_valid(cookie))
+		return NULL;
 
 	obj = fs_obj_alloc(vol, db);
 	if (!obj)
 		return NULL;
 
-	while (obj->out_fd < 0) {
-		counter = next_counter();
+	if (asprintf(&fn, "%s/%s", vol->path, cookie) < 0) {
+		syslog(LOG_ERR, "OOM in object_put");
+		goto err_out;
+	}
 
-		free(fn);
-
-		sprintf(counterstr, "%016llX", (unsigned long long) counter);
-
-		if (asprintf(&fn, "%s/%s", vol->path, counterstr) < 0) {
-			syslog(LOG_ERR, "OOM in object_put");
-			free(obj);
-			return NULL;
-		}
-
-		obj->out_fd = open(fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
+	obj->out_fd = open(fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
+	if (obj->out_fd < 0) {
+		if (errno != EEXIST)
+			syslogerr(fn);
+		goto err_out;
 	}
 
 	obj->out_fn = fn;
-	strcpy(obj->bo.cookie, counterstr);
+	strcpy(obj->bo.cookie, cookie);
 
 	return &obj->bo;
+
+err_out:
+	free(obj);
+	return NULL;
 }
 
 static struct backend_obj *fs_obj_open(struct server_volume *vol,
@@ -104,6 +112,9 @@ static struct backend_obj *fs_obj_open(struct server_volume *vol,
 	sqlite3_stmt *stmt;
 	struct stat st;
 	int rc;
+
+	if (!cookie_valid(cookie))
+		return NULL;
 
 	*err_code = InternalError;
 
@@ -386,9 +397,5 @@ static struct backend_info fs_info = {
 
 int be_fs_init(void)
 {
-	uint64_t r1 = rand();
-	uint64_t r2 = rand();
-	global_counter = (r1 << 32) | (r2 & 0xffffffff);
-
 	return register_storage(&fs_info);
 }

@@ -12,7 +12,7 @@ static void test(bool encrypt)
 	struct st_client *stc;
 	bool rcb;
 	char val[] = "my first value";
-	char key[64] = "";
+	char key[64] = "deadbeef";
 	size_t len = 0;
 	void *mem;
 
@@ -21,7 +21,7 @@ static void test(bool encrypt)
 	OK(stc);
 
 	/* store object */
-	rcb = stc_put_inline(stc, "testvol", val, strlen(val), key);
+	rcb = stc_put_inline(stc, "testvol", key, val, strlen(val));
 	OK(rcb);
 
 	/* make sure object appears in list of volume keys */

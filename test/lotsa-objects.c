@@ -26,7 +26,8 @@ static void test(int n_objects, bool encrypt)
 
 	/* store object */
 	for (i = 0; i < n_objects; i++) {
-		rcb = stc_put_inline(stc, "testvol", val, strlen(val), key);
+		sprintf(key, "%x", i);
+		rcb = stc_put_inline(stc, "testvol", key, val, strlen(val));
 		OK(rcb);
 
 		keys = g_list_prepend(keys, strdup(key));

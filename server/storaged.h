@@ -159,7 +159,8 @@ struct backend_info {
 	const char		*name;
 
 	struct backend_obj	* (*obj_new) (struct server_volume *,
-					      struct database *);
+					      struct database *,
+					      const char *);
 	struct backend_obj	* (*obj_open) (struct server_volume *,
 					       struct database *,
 					       const char *,
@@ -232,7 +233,7 @@ extern bool service_list(struct client *cli, const char *user);
 extern bool object_del(struct client *cli, const char *user,
 			struct server_volume *volume, const char *key);
 extern bool object_put(struct client *cli, const char *user,
-			struct server_volume *volume,
+			struct server_volume *volume, const char *key,
 		long content_len, bool expect_cont, bool sync_data);
 extern bool object_get(struct client *cli, const char *user,
 			struct server_volume *volume,

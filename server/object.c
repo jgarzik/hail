@@ -187,7 +187,7 @@ bool cli_evt_http_data_in(struct client *cli, unsigned int events)
 }
 
 bool object_put(struct client *cli, const char *user,
-		struct server_volume *vol,
+		struct server_volume *vol, const char *key,
 		long content_len, bool expect_cont, bool sync_data)
 {
 	long avail;
@@ -198,7 +198,7 @@ bool object_put(struct client *cli, const char *user,
 	if (!user)
 		return cli_err(cli, AccessDenied);
  
-	cli->out_bo = vol->be->obj_new(vol, cli->db);
+	cli->out_bo = vol->be->obj_new(vol, cli->db, key);
 	if (!cli->out_bo)
 		return cli_err(cli, InternalError);
 

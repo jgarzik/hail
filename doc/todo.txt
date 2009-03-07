@@ -4,6 +4,8 @@ general:
 	- global thread pool, shared across volumes
 	- optional private thread pool for a single volume
 	- hook into a username/password database
+	- invalid cookie (not 100% hex digits) should return
+	  a better error than InternalError
 
 storage backends:
 	- support for "one big file" (or blk device) storage backend

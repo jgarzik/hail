@@ -11,20 +11,18 @@ independent object namespace.  Two objects stored on separate volumes
 may have the same [volume-] unique identifier, and have same or
 different contents.
 
-An object is simply an anonymous blob of any length.  When you PUT
-(upload) an object, you receive in return two items:
+An object is simply an anonymous blob of any length, indexed by a string of
+any length of lowercase hex digits (0-9, a-f).
 
-	* an identifier, guaranteed to be unique within that volume
-
-	* a hash value (currently SHA-1), that may be used for optional
-	  end-to-end integrity checking, or in If-Match and If-None-Match
-	  headers.
+When you PUT (upload) an object, you receive in return a hash value
+(currently SHA-1), that may be used for optional end-to-end integrity
+checking, or in If-Match and If-None-Match headers.
 
 From this basic service interface
 
-	PUT $URL/$VOLUME/
+	PUT $URL/$VOLUME/$COOKIE
 		<- (len, data)
-		-> (cookie, sha-1 hash)
+		-> (sha-1 hash)
 
 	GET $URL/$VOLUME/$COOKIE
 		-> (sha-1 hash, len, data)

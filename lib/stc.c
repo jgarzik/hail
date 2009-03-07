@@ -25,8 +25,6 @@ static int _strcmp(const unsigned char *a, const char *b)
 
 void stc_free(struct st_client *stc)
 {
-	if (stc->volkey_re)
-		pcre_free(stc->volkey_re);
 	if (stc->curl)
 		curl_easy_cleanup(stc->curl);
 	free(stc->host);
@@ -43,8 +41,6 @@ struct st_client *stc_new(const char *service_host, int port,
 			  bool encrypt)
 {
 	struct st_client *stc;
-	const char *errptr = NULL;
-	int erroffset = -1;
 
 	stc = calloc(1, sizeof(struct st_client));
 	if (!stc)
@@ -69,11 +65,6 @@ struct st_client *stc_new(const char *service_host, int port,
 	stc->curl = curl_easy_init();
 	if (!stc->curl)
 		goto err_out;
-
-	stc->volkey_re = pcre_compile("^X-Volume-Key:\\s*([a-fA-F0-9]+)",
-			  PCRE_CASELESS | PCRE_MULTILINE,
-			  &errptr, &erroffset, NULL);
-	g_assert(stc->volkey_re != NULL);
 
 	return stc;
 
@@ -172,18 +163,18 @@ void *stc_get_inline(struct st_client *stc, const char *volume, const char *key,
 }
 
 bool stc_put(struct st_client *stc, const char *volume,
+	     const char *key,
 	     size_t (*read_cb)(void *, size_t, size_t, void *),
-	     uint64_t len, void *user_data, char *key_out)
+	     uint64_t len, void *user_data)
 {
 	struct http_req req;
 	char datestr[80], timestr[64], hmac[64], auth[128], host[80];
 	char url[80], *orig_path, *stmp;
 	struct curl_slist *headers = NULL;
-	int rc, data_len;
+	int rc;
 	GByteArray *all_data;
-	int captured[16];
 
-	if (asprintf(&stmp, "/%s", volume) < 0)
+	if (asprintf(&stmp, "/%s/%s", volume, key) < 0)
 		return false;
 
 	all_data = g_byte_array_new();
@@ -236,19 +227,6 @@ bool stc_put(struct st_client *stc, const char *volume,
 	if (rc)
 		goto err_out;
 
-	rc = pcre_exec(stc->volkey_re, NULL,
-		       (char *) all_data->data, all_data->len,
-		       0, 0, captured, 16);
-	if (rc < 0)
-		goto err_out;
-
-	data_len = captured[3] - captured[2];
-	if (data_len >= 64)
-		goto err_out;
-
-	memcpy(key_out, all_data->data + captured[2], data_len);
-	key_out[data_len] = 0;
-
 	g_byte_array_free(all_data, TRUE);
 	return true;
 
@@ -279,11 +257,12 @@ static size_t read_inline_cb(void *ptr, size_t size, size_t nmemb,
 }
 
 bool stc_put_inline(struct st_client *stc, const char *volume,
-	     void *data, uint64_t len, char *key_out)
+	     const char *key,
+	     void *data, uint64_t len)
 {
 	struct stc_put_info spi = { data, len };
 
-	return stc_put(stc, volume, read_inline_cb, len, &spi, key_out);
+	return stc_put(stc, volume, key, read_inline_cb, len, &spi);
 }
 
 bool stc_del(struct st_client *stc, const char *volume, const char *key)

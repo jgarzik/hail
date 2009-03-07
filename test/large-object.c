@@ -36,7 +36,7 @@ static void test(bool encrypt)
 	struct st_keylist *klist;
 	struct st_client *stc;
 	bool rcb;
-	char key[64] = "";
+	char key[64] = "deadbeef";
 	size_t len = 0;
 	void *mem, *p;
 	char data[BUFSZ];
@@ -49,7 +49,7 @@ static void test(bool encrypt)
 	OK(stc);
 
 	/* store object */
-	rcb = stc_put(stc, "testvol", read_cb, N_BUFS * BUFSZ, data, key);
+	rcb = stc_put(stc, "testvol", key, read_cb, N_BUFS * BUFSZ, data);
 	OK(rcb);
 
 	/* make sure object appears in list of volume keys */
