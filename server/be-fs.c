@@ -80,8 +80,7 @@ static bool cookie_valid(const char *cookie)
 	return true;
 }
 
-static struct backend_obj *fs_obj_new(struct server_volume *vol,
-				      const char *cookie)
+struct backend_obj *fs_obj_new(struct server_volume *vol, const char *cookie)
 {
 	struct fs_obj *obj;
 	char *fn = NULL;
@@ -133,7 +132,7 @@ err_out:
 	return NULL;
 }
 
-static struct backend_obj *fs_obj_open(struct server_volume *vol,
+struct backend_obj *fs_obj_open(struct server_volume *vol,
 				       const char *cookie,
 				       enum errcode *err_code)
 {
@@ -199,7 +198,7 @@ err_out:
 	return NULL;
 }
 
-static void fs_obj_free(struct backend_obj *bo)
+void fs_obj_free(struct backend_obj *bo)
 {
 	struct fs_obj *obj;
 
@@ -225,7 +224,7 @@ static void fs_obj_free(struct backend_obj *bo)
 	free(obj);
 }
 
-static ssize_t fs_obj_read(struct backend_obj *bo, void *ptr, size_t len)
+ssize_t fs_obj_read(struct backend_obj *bo, void *ptr, size_t len)
 {
 	struct fs_obj *obj = bo->private;
 	ssize_t rc;
@@ -238,8 +237,7 @@ static ssize_t fs_obj_read(struct backend_obj *bo, void *ptr, size_t len)
 	return rc;
 }
 
-static ssize_t fs_obj_write(struct backend_obj *bo, const void *ptr,
-			    size_t len)
+ssize_t fs_obj_write(struct backend_obj *bo, const void *ptr, size_t len)
 {
 	struct fs_obj *obj = bo->private;
 	ssize_t rc;
@@ -252,7 +250,7 @@ static ssize_t fs_obj_write(struct backend_obj *bo, const void *ptr,
 	return rc;
 }
 
-static bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
+bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 				const char *hashstr, bool sync_data)
 {
 	struct fs_obj *obj = bo->private;
@@ -298,7 +296,7 @@ static bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 	return true;
 }
 
-static bool fs_obj_delete(struct server_volume *vol,
+bool fs_obj_delete(struct server_volume *vol,
 			  const char *cookie, enum errcode *err_code)
 {
 	char *fn = NULL;
@@ -329,7 +327,7 @@ err_out:
 	return false;
 }
 
-static GList *fs_list_objs(struct server_volume *vol)
+GList *fs_list_objs(struct server_volume *vol)
 {
 	GList *res = NULL;
 	struct dirent *de;
@@ -386,19 +384,3 @@ static GList *fs_list_objs(struct server_volume *vol)
 	return res;
 }
 
-static struct backend_info fs_info = {
-	.name			= BE_NAME,
-	.obj_new		= fs_obj_new,
-	.obj_open		= fs_obj_open,
-	.obj_read		= fs_obj_read,
-	.obj_write		= fs_obj_write,
-	.obj_write_commit	= fs_obj_write_commit,
-	.obj_delete		= fs_obj_delete,
-	.obj_free		= fs_obj_free,
-	.list_objs		= fs_list_objs,
-};
-
-int be_fs_init(void)
-{
-	return register_storage(&fs_info);
-}

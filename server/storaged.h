@@ -154,28 +154,6 @@ struct backend_obj {
 	char			hashstr[50];
 };
 
-struct backend_info {
-	const char		*name;
-
-	struct backend_obj	* (*obj_new) (struct server_volume *,
-					      const char *);
-	struct backend_obj	* (*obj_open) (struct server_volume *,
-					       const char *,
-					       enum errcode *);
-	ssize_t			(*obj_read)(struct backend_obj *,
-					    void *, size_t);
-	ssize_t			(*obj_write)(struct backend_obj *,
-					     const void *, size_t);
-	bool			(*obj_write_commit)(struct backend_obj *,
-						    const char *, const char *,
-						    bool);
-	bool			(*obj_delete)(struct server_volume *,
-					      const char *,
-					      enum errcode *);
-	void			(*obj_free)(struct backend_obj *);
-	GList			* (*list_objs)(struct server_volume *);
-};
-
 struct listen_cfg {
 	char			*node;
 	char			*port;
@@ -192,7 +170,6 @@ struct server_stats {
 struct server_volume {
 	char			*name;		/* DNS-friendly short name */
 	char			*path;		/* pathname for this volume */
-	struct backend_info	*be;
 };
 
 struct server_socket {
@@ -219,6 +196,18 @@ struct server {
 
 /* be-fs.c */
 extern char *fs_obj_pathname(struct server_volume *vol, const char *cookie);
+extern struct backend_obj *fs_obj_new(struct server_volume *vol, const char *cookie);
+extern struct backend_obj *fs_obj_open(struct server_volume *vol,
+				       const char *cookie,
+				       enum errcode *err_code);
+extern ssize_t fs_obj_write(struct backend_obj *bo, const void *ptr, size_t len);
+extern ssize_t fs_obj_read(struct backend_obj *bo, void *ptr, size_t len);
+extern void fs_obj_free(struct backend_obj *bo);
+extern bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
+				const char *hashstr, bool sync_data);
+extern bool fs_obj_delete(struct server_volume *vol,
+			  const char *cookie, enum errcode *err_code);
+extern GList *fs_list_objs(struct server_volume *vol);
 
 /* volume.c */
 extern bool volume_list(struct client *cli, const char *user, struct server_volume *volume);
@@ -272,9 +261,5 @@ extern bool cli_cb_free(struct client *cli, struct client_write *wr,
 extern bool cli_write_start(struct client *cli);
 extern int cli_req_avail(struct client *cli);
 extern int cli_poll_mod(struct client *cli);
-
-/* storage.c */
-extern int register_storage(struct backend_info *be);
-extern void unregister_storage(struct backend_info *be);
 
 #endif /* __STORAGED_H__ */

@@ -24,7 +24,7 @@ bool object_del(struct client *cli, const char *user,
 	if (!user)
 		return cli_err(cli, AccessDenied);
 
-	rcb = vol->be->obj_delete(vol, basename, &err);
+	rcb = fs_obj_delete(vol, basename, &err);
 	if (!rcb)
 		return cli_err(cli, err);
 
@@ -55,7 +55,7 @@ void cli_out_end(struct client *cli)
 
 	if (cli->out_bo) {
 		g_assert(cli->out_vol != NULL);
-		cli->out_vol->be->obj_free(cli->out_bo);
+		fs_obj_free(cli->out_bo);
 		cli->out_bo = NULL;
 	}
 
@@ -80,8 +80,8 @@ static bool object_put_end(struct client *cli)
 	SHA1_Final(md, &cli->out_hash);
 	shastr(md, hashstr);
 
-	rcb = cli->out_vol->be->obj_write_commit(cli->out_bo, cli->out_user,
-						 hashstr, cli->out_sync);
+	rcb = fs_obj_write_commit(cli->out_bo, cli->out_user,
+				  hashstr, cli->out_sync);
 	if (!rcb)
 		goto err_out;
 
@@ -167,7 +167,7 @@ bool cli_evt_http_data_in(struct client *cli, unsigned int events)
 	}
 
 	while (avail > 0) {
-		bytes = cli->out_vol->be->obj_write(cli->out_bo, p, avail);
+		bytes = fs_obj_write(cli->out_bo, p, avail);
 		if (bytes < 0) {
 			cli_out_end(cli);
 			return cli_err(cli, InternalError);
@@ -198,7 +198,7 @@ bool object_put(struct client *cli, const char *user,
 	if (!user)
 		return cli_err(cli, AccessDenied);
  
-	cli->out_bo = vol->be->obj_new(vol, key);
+	cli->out_bo = fs_obj_new(vol, key);
 	if (!cli->out_bo)
 		return cli_err(cli, InternalError);
 
@@ -227,8 +227,7 @@ bool object_put(struct client *cli, const char *user,
 		ssize_t bytes;
 
 		while (avail > 0) {
-			bytes = vol->be->obj_write(cli->out_bo,
-						   cli->req_ptr, avail);
+			bytes = fs_obj_write(cli->out_bo, cli->req_ptr, avail);
 			if (bytes < 0) {
 				cli_out_end(cli);
 				syslog(LOG_ERR, "write(2) error in object_put: %s",
@@ -259,7 +258,7 @@ void cli_in_end(struct client *cli)
 
 	if (cli->in_obj) {
 		g_assert(cli->in_vol != NULL);
-		cli->in_vol->be->obj_free(cli->in_obj);
+		fs_obj_free(cli->in_obj);
 		cli->in_obj = NULL;
 	}
 }
@@ -281,8 +280,8 @@ static bool object_get_more(struct client *cli, struct client_write *wr,
 	if (!done)
 		goto err_out_buf;
 
-	bytes = cli->in_vol->be->obj_read(cli->in_obj, buf,
-					  MIN(cli->in_len, CLI_DATA_BUF_SZ));
+	bytes = fs_obj_read(cli->in_obj, buf,
+			  MIN(cli->in_len, CLI_DATA_BUF_SZ));
 	if (bytes < 0)
 		goto err_out;
 	if (bytes == 0 && cli->in_len != 0)
@@ -326,7 +325,7 @@ bool object_get(struct client *cli, const char *user,
 		goto err_out;
 	}
 
-	obj = vol->be->obj_open(vol, basename, &err);
+	obj = fs_obj_open(vol, basename, &err);
 	if (!obj)
 		goto err_out;
 
@@ -406,8 +405,8 @@ bool object_get(struct client *cli, const char *user,
 	cli->in_vol = vol;
 	cli->in_obj = obj;
 
-	bytes = vol->be->obj_read(cli->in_obj, cli->netbuf,
-				  MIN(cli->in_len, CLI_DATA_BUF_SZ));
+	bytes = fs_obj_read(cli->in_obj, cli->netbuf,
+			  MIN(cli->in_len, CLI_DATA_BUF_SZ));
 	if (bytes < 0)
 		goto err_out_obj;
 	if (bytes == 0 && cli->in_len != 0)

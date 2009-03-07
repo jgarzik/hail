@@ -1335,19 +1335,6 @@ static void compile_patterns(void)
 	}
 }
 
-static void register_backends(void)
-{
-	extern int be_fs_init(void);
-
-	int rc;
-
-	rc = be_fs_init();
-	if (rc) {
-		syslog(LOG_ERR, "'fs' backend init failed");
-		exit(1);
-	}
-}
-
 int main (int argc, char *argv[])
 {
 	error_t aprc;
@@ -1380,8 +1367,6 @@ int main (int argc, char *argv[])
 	SSL_library_init();
 
 	compile_patterns();
-
-	register_backends();
 
 	/* init SSL */
 	SSL_load_error_strings();
