@@ -45,11 +45,43 @@ static struct fs_obj *fs_obj_alloc(struct server_volume *vol)
 char *fs_obj_pathname(struct server_volume *vol, const char *cookie)
 {
 	char *s = NULL;
+	char prefix[5] = "";
+	struct stat st;
+	size_t slen;
 
-	if (asprintf(&s, "%s/%s", vol->path, cookie) < 0)
+	/* cookies are guaranteed elsewhere to be at least 7 chars */
+	memcpy(prefix, cookie, 4);
+
+	slen = strlen(vol->path) + strlen(prefix) + strlen(cookie) + 3;
+	s = malloc(slen);
+	if (!s)
 		return NULL;
+
+	sprintf(s, "%s/%s", vol->path, prefix);
+
+	/* create subdir on the fly, if not already exists */
+	if (stat(s, &st) < 0) {
+		if (errno == ENOENT) {
+			if (mkdir(s, 0777) < 0) {
+				syslogerr(s);
+				goto err_out;
+			}
+		} else {
+			syslogerr(s);
+			goto err_out;
+		}
+	} else if (!S_ISDIR(st.st_mode)) {
+		syslog(LOG_WARNING, "%s: not a dir, fs_obj_pathname go boom", s);
+		goto err_out;
+	}
+
+	sprintf(s, "%s/%s/%s", vol->path, prefix, cookie);
 	
 	return s;
+
+err_out:
+	free(s);
+	return NULL;
 }
 
 static bool cookie_valid(const char *cookie)
@@ -330,56 +362,76 @@ err_out:
 GList *fs_list_objs(struct server_volume *vol)
 {
 	GList *res = NULL;
-	struct dirent *de;
-	DIR *d;
+	struct dirent *de, *root_de;
+	DIR *d, *root;
+	char *sub;
 
-	d = opendir(vol->path);
-	if (!d) {
+	sub = alloca(strlen(vol->path) + 1 + 4 + 1);
+
+	root = opendir(vol->path);
+	if (!root) {
 		syslogerr(vol->path);
 		return NULL;
 	}
 
-	/* iterate through each returned SQL data row */
-	while ((de = readdir(d)) != NULL) {
-		int fd;
-		char *fn;
-		ssize_t rrc;
-		struct be_fs_obj_hdr hdr;
+	/* iterate through each dir */
+	while ((root_de = readdir(root)) != NULL) {
 
-		if (de->d_name[0] == '.')
+		if (root_de->d_name[0] == '.')
+			continue;
+		if (strlen(root_de->d_name) != 4)
 			continue;
 
-		fn = fs_obj_pathname(vol, de->d_name);
-		if (!fn)
-			break;
-
-		fd = open(fn, O_RDONLY);
-		if (fd < 0) {
-			syslogerr(fn);
-			free(fn);
+		sprintf(sub, "%s/%s", vol->path, root_de->d_name);
+		d = opendir(sub);
+		if (!d) {
+			syslogerr(sub);
 			break;
 		}
 
-		rrc = read(fd, &hdr, sizeof(hdr));
-		if (rrc != sizeof(hdr)) {
-			if (rrc < 0)
+		while ((de = readdir(d)) != NULL) {
+			int fd;
+			char *fn;
+			ssize_t rrc;
+			struct be_fs_obj_hdr hdr;
+
+			if (de->d_name[0] == '.')
+				continue;
+
+			fn = fs_obj_pathname(vol, de->d_name);
+			if (!fn)
+				break;
+
+			fd = open(fn, O_RDONLY);
+			if (fd < 0) {
 				syslogerr(fn);
-			else
-				syslog(LOG_ERR, "%s hdr read failed", fn);
+				free(fn);
+				break;
+			}
+
+			rrc = read(fd, &hdr, sizeof(hdr));
+			if (rrc != sizeof(hdr)) {
+				if (rrc < 0)
+					syslogerr(fn);
+				else
+					syslog(LOG_ERR, "%s hdr read failed", fn);
+				free(fn);
+				break;
+			}
+
+			if (close(fd) < 0)
+				syslogerr(fn);
+
 			free(fn);
-			break;
+
+			res = g_list_append(res, strdup(de->d_name));
+			res = g_list_append(res, strdup(hdr.checksum));
 		}
 
-		if (close(fd) < 0)
-			syslogerr(fn);
-
-		free(fn);
-
-		res = g_list_append(res, strdup(de->d_name));
-		res = g_list_append(res, strdup(hdr.checksum));
+		closedir(d);
 	}
 
-	closedir(d);
+	closedir(root);
 
 	return res;
 }
