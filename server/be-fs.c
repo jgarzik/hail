@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <fcntl.h>
+#include <dirent.h>
 #include <string.h>
 #include <errno.h>
 #include <syslog.h>
@@ -22,12 +23,9 @@ struct fs_obj {
 
 	int			in_fd;
 	char			*in_fn;
-
-	struct database		*db;
 };
 
-static struct fs_obj *fs_obj_alloc(struct server_volume *vol,
-				   struct database *db)
+static struct fs_obj *fs_obj_alloc(struct server_volume *vol)
 {
 	struct fs_obj *obj;
 
@@ -40,7 +38,6 @@ static struct fs_obj *fs_obj_alloc(struct server_volume *vol,
 
 	obj->out_fd = -1;
 	obj->in_fd = -1;
-	obj->db = db;
 
 	return obj;
 }
@@ -68,19 +65,23 @@ static bool cookie_valid(const char *cookie)
 }
 
 static struct backend_obj *fs_obj_new(struct server_volume *vol,
-				      struct database *db,
 				      const char *cookie)
 {
 	struct fs_obj *obj;
 	char *fn = NULL;
+	struct be_fs_obj_hdr hdr;
+	ssize_t wrc;
+
+	memset(&hdr, 0, sizeof(hdr));
 
 	if (!cookie_valid(cookie))
 		return NULL;
 
-	obj = fs_obj_alloc(vol, db);
+	obj = fs_obj_alloc(vol);
 	if (!obj)
 		return NULL;
 
+	/* build local fs pathname, volume path + cookie */
 	if (asprintf(&fn, "%s/%s", vol->path, cookie) < 0) {
 		syslog(LOG_ERR, "OOM in object_put");
 		goto err_out;
@@ -90,6 +91,18 @@ static struct backend_obj *fs_obj_new(struct server_volume *vol,
 	if (obj->out_fd < 0) {
 		if (errno != EEXIST)
 			syslogerr(fn);
+		goto err_out;
+	}
+
+	/* write object header */
+	wrc = write(obj->out_fd, &hdr, sizeof(hdr));
+	if (wrc != sizeof(hdr)) {
+		if (wrc < 0)
+			syslog(LOG_ERR, "obj hdr write(%s) failed: %s",
+				fn, strerror(errno));
+		else
+			syslog(LOG_ERR, "obj hdr write(%s) failed for %s",
+				fn, "unknown raisins!!!");
 		goto err_out;
 	}
 
@@ -104,39 +117,24 @@ err_out:
 }
 
 static struct backend_obj *fs_obj_open(struct server_volume *vol,
-				       struct database *db,
 				       const char *cookie,
 				       enum errcode *err_code)
 {
 	struct fs_obj *obj;
-	sqlite3_stmt *stmt;
 	struct stat st;
-	int rc;
+	struct be_fs_obj_hdr hdr;
+	ssize_t rrc;
 
 	if (!cookie_valid(cookie))
 		return NULL;
 
 	*err_code = InternalError;
 
-	obj = fs_obj_alloc(vol, db);
+	obj = fs_obj_alloc(vol);
 	if (!obj)
 		return NULL;
 
-	stmt = obj->db->prep_stmts[st_object];
-	sqlite3_bind_text(stmt, 1, vol->name, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 2, cookie, -1, SQLITE_STATIC);
-
-	rc = sqlite3_step(stmt);
-	if (rc != SQLITE_ROW) {
-		*err_code = NoSuchKey;
-		sqlite3_reset(stmt);
-		goto err_out;
-	}
-
-	strcpy(obj->bo.hashstr, (const char *) sqlite3_column_text(stmt, 1));
-
-	sqlite3_reset(stmt);
-
+	/* build local fs pathname, volume path + cookie */
 	if (asprintf(&obj->in_fn, "%s/%s", vol->path, cookie) < 0)
 		goto err_out;
 
@@ -144,6 +142,8 @@ static struct backend_obj *fs_obj_open(struct server_volume *vol,
 	if (obj->in_fd < 0) {
 		syslog(LOG_ERR, "open obj(%s) failed: %s",
 		       obj->in_fn, strerror(errno));
+		if (errno == ENOENT)
+			*err_code = NoSuchKey;
 		goto err_out_fn;
 	}
 
@@ -153,7 +153,21 @@ static struct backend_obj *fs_obj_open(struct server_volume *vol,
 		goto err_out_fd;
 	}
 
-	obj->bo.size = st.st_size;
+	/* read object header */
+	rrc = read(obj->in_fd, &hdr, sizeof(hdr));
+	if (rrc != sizeof(hdr)) {
+		if (rrc < 0)
+			syslog(LOG_ERR, "read hdr obj(%s) failed: %s",
+				obj->in_fn, strerror(errno));
+		else
+			syslog(LOG_ERR, "invalid object header for %s",
+				obj->in_fn);
+		goto err_out_fd;
+	}
+
+	strncpy(obj->bo.hashstr, hdr.checksum, sizeof(obj->bo.hashstr));
+	obj->bo.hashstr[sizeof(obj->bo.hashstr) - 1] = 0;
+	obj->bo.size = st.st_size - sizeof(hdr);
 	obj->bo.mtime = st.st_mtime;
 
 	return &obj->bo;
@@ -224,9 +238,33 @@ static bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 				const char *hashstr, bool sync_data)
 {
 	struct fs_obj *obj = bo->private;
-	sqlite3_stmt *stmt;
-	int rc;
+	struct be_fs_obj_hdr hdr;
+	ssize_t wrc;
 
+	memset(&hdr, 0, sizeof(hdr));
+	strncpy(hdr.checksum, hashstr, sizeof(hdr.checksum));
+	strncpy(hdr.owner, user, sizeof(hdr.owner));
+
+	/* go back to beginning of file */
+	if (lseek(obj->out_fd, 0, SEEK_SET) < 0) {
+		syslog(LOG_ERR, "lseek(%s) failed: %s",
+		       obj->out_fn, strerror(errno));
+		return false;
+	}
+
+	/* write final object header */
+	wrc = write(obj->out_fd, &hdr, sizeof(hdr));
+	if (wrc != sizeof(hdr)) {
+		if (wrc < 0)
+			syslog(LOG_ERR, "obj hdr write(%s) failed: %s",
+				obj->out_fn, strerror(errno));
+		else
+			syslog(LOG_ERR, "obj hdr write(%s) failed for %s",
+				obj->out_fn, "unknown raisins!!!");
+		return false;
+	}
+
+	/* sync data to disk, if requested */
 	if (sync_data && fsync(obj->out_fd) < 0) {
 		syslog(LOG_ERR, "fsync(%s) failed: %s",
 		       obj->out_fn, strerror(errno));
@@ -236,149 +274,92 @@ static bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 	close(obj->out_fd);
 	obj->out_fd = -1;
 
-	/* begin trans */
-	if (!sql_begin(obj->db)) {
-		syslog(LOG_ERR, "SQL BEGIN failed in put-end");
-		return false;
-	}
-
-	/* insert object */
-	stmt = obj->db->prep_stmts[st_add_obj];
-	sqlite3_bind_text(stmt, 1, obj->bo.vol->name, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 2, hashstr, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 3, obj->bo.cookie, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 4, user, -1, SQLITE_STATIC);
-
-	rc = sqlite3_step(stmt);
-	sqlite3_reset(stmt);
-
-	if (rc != SQLITE_DONE) {
-		syslog(LOG_ERR, "SQL INSERT(obj) failed");
-		goto err_out_rb;
-	}
-
-	/* commit */
-	if (!sql_commit(obj->db)) {
-		syslog(LOG_ERR, "SQL COMMIT");
-		return false;
-	}
-
 	free(obj->out_fn);
 	obj->out_fn = NULL;
 
 	return true;
-
-err_out_rb:
-	sql_rollback(obj->db);
-	return false;
 }
 
-static bool __object_del(struct database *db, const char *volume, const char *fn)
-{
-	int rc;
-	sqlite3_stmt *stmt;
-
-	/* delete object metadata */
-	stmt = db->prep_stmts[st_del_obj];
-	sqlite3_bind_text(stmt, 1, volume, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 2, fn, -1, SQLITE_STATIC);
-
-	rc = sqlite3_step(stmt);
-	sqlite3_reset(stmt);
-
-	if (rc != SQLITE_DONE) {
-		syslog(LOG_ERR, "SQL st_del_obj failed: %d", rc);
-		return false;
-	}
-
-	return true;
-}
-
-static bool fs_obj_delete(struct server_volume *vol, struct database *db,
+static bool fs_obj_delete(struct server_volume *vol,
 			  const char *cookie, enum errcode *err_code)
 {
-	sqlite3_stmt *stmt;
 	char *fn;
-	int rc;
 
 	*err_code = InternalError;
 
-	/* begin trans */
-	if (!sql_begin(db)) {
-		syslog(LOG_ERR, "SQL BEGIN failed in obj-del");
-		return false;
-	}
+	/* FIXME: check owner */
 
-	/* read existing object info, if any */
-	stmt = db->prep_stmts[st_object];
-	sqlite3_bind_text(stmt, 1, vol->name, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 2, cookie, -1, SQLITE_STATIC);
-
-	rc = sqlite3_step(stmt);
-	if (rc != SQLITE_ROW) {
-		sqlite3_reset(stmt);
-		*err_code = NoSuchKey;
-		goto err_out;
-	}
-
-	sqlite3_reset(stmt);
-
-	if (!__object_del(db, vol->name, cookie))
-		goto err_out;
-
-	if (!sql_commit(db)) {
-		syslog(LOG_ERR, "SQL COMMIT failed in obj-del");
-		return false;
-	}
-
-	/* build data filename */
+	/* build local fs pathname, volume path + cookie */
 	fn = alloca(strlen(vol->path) + strlen(cookie) + 2);
 	sprintf(fn, "%s/%s", vol->path, cookie);
 
-	if (unlink(fn) < 0)
-		syslog(LOG_ERR, "DANGLING DATA ERROR: "
-		       "object data(%s) unlink failed: %s",
-		       fn, strerror(errno));
+	if (unlink(fn) < 0) {
+		if (errno == ENOENT)
+			*err_code = NoSuchKey;
+		else
+			syslog(LOG_ERR, "object data(%s) unlink failed: %s",
+			       fn, strerror(errno));
+		goto err_out;
+	}
 
 	return true;
 
 err_out:
-	sql_rollback(db);
 	return false;
 }
 
-static GList *fs_list_objs(struct server_volume *vol, struct database *db)
+static GList *fs_list_objs(struct server_volume *vol)
 {
-	char *zsql = "select name, hash from objects where volume = ?";
-	sqlite3_stmt *select;
 	GList *res = NULL;
-	const char *dummy;
-	int rc;
+	struct dirent *de;
+	DIR *d;
 
-	/* build SQL SELECT statement */
-	rc = sqlite3_prepare_v2(db->sqldb, zsql, -1, &select, &dummy);
-	if (rc != SQLITE_OK)
+	d = opendir(vol->path);
+	if (!d) {
+		syslogerr(vol->path);
 		return NULL;
-
-	/* exec SQL query */
-	sqlite3_bind_text(select, 1, vol->name, -1, SQLITE_STATIC);
-
-	/* iterate through each returned SQL data row */
-	while (1) {
-		const char *name, *hash;
-
-		rc = sqlite3_step(select);
-		if (rc != SQLITE_ROW)
-			break;
-
-		name = (const char *) sqlite3_column_text(select, 0);
-		hash = (const char *) sqlite3_column_text(select, 1);
-
-		res = g_list_append(res, strdup(name));
-		res = g_list_append(res, strdup(hash));
 	}
 
-	sqlite3_finalize(select);
+	/* iterate through each returned SQL data row */
+	while ((de = readdir(d)) != NULL) {
+		int fd;
+		char *fn;
+		ssize_t rrc;
+		struct be_fs_obj_hdr hdr;
+
+		if (de->d_name[0] == '.')
+			continue;
+
+		if (asprintf(&fn, "%s/%s", vol->path, de->d_name) < 0)
+			break;
+
+		fd = open(fn, O_RDONLY);
+		if (fd < 0) {
+			syslogerr(fn);
+			free(fn);
+			break;
+		}
+
+		rrc = read(fd, &hdr, sizeof(hdr));
+		if (rrc != sizeof(hdr)) {
+			if (rrc < 0)
+				syslogerr(fn);
+			else
+				syslog(LOG_ERR, "%s hdr read failed", fn);
+			free(fn);
+			break;
+		}
+
+		if (close(fd) < 0)
+			syslogerr(fn);
+
+		free(fn);
+
+		res = g_list_append(res, strdup(de->d_name));
+		res = g_list_append(res, strdup(hdr.checksum));
+	}
+
+	closedir(d);
 
 	return res;
 }

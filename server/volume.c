@@ -120,7 +120,7 @@ bool volume_list(struct client *cli, const char *user,
 		goto err_out;
 	}
 
-	res = vol->be->list_objs(vol, cli->db);
+	res = vol->be->list_objs(vol);
 
 	asprintf(&s,
 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
@@ -151,7 +151,8 @@ bool volume_list(struct client *cli, const char *user,
 				fn, strerror(errno));
 			st.st_mtime = 0;
 			st.st_size = 0;
-		}
+		} else
+			st.st_size -= sizeof(struct be_fs_obj_hdr);
 
 		asprintf(&s,
                          "  <Contents>\r\n"

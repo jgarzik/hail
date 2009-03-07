@@ -7,7 +7,6 @@
 #include <openssl/ssl.h>
 #include <glib.h>
 #include <pcre.h>
-#include <sqlite3.h>
 #include <event.h>
 #include <httputil.h>
 #include <elist.h>
@@ -56,11 +55,6 @@ struct client;
 struct client_write;
 struct server_volume;
 struct server_socket;
-
-struct database {
-	sqlite3		*sqldb;
-	sqlite3_stmt	*prep_stmts[st_last + 1];
-};
 
 enum {
 	pat_volume_name,
@@ -116,8 +110,6 @@ struct client {
 	struct list_head	write_q;	/* list of async writes */
 	bool			writing;
 
-	struct database		*db;
-
 	unsigned int		req_used;	/* amount of req_buf in use */
 	char			*req_ptr;	/* start of unexamined data */
 
@@ -145,6 +137,11 @@ struct client {
 	char			netbuf[CLI_DATA_BUF_SZ];
 };
 
+struct be_fs_obj_hdr {
+	char			checksum[128];
+	char			owner[128];
+};
+
 struct backend_obj {
 	struct server_volume	*vol;
 	void			*private;
@@ -159,10 +156,8 @@ struct backend_info {
 	const char		*name;
 
 	struct backend_obj	* (*obj_new) (struct server_volume *,
-					      struct database *,
 					      const char *);
 	struct backend_obj	* (*obj_open) (struct server_volume *,
-					       struct database *,
 					       const char *,
 					       enum errcode *);
 	ssize_t			(*obj_read)(struct backend_obj *,
@@ -173,12 +168,10 @@ struct backend_info {
 						    const char *, const char *,
 						    bool);
 	bool			(*obj_delete)(struct server_volume *,
-					      struct database *,
 					      const char *,
 					      enum errcode *);
 	void			(*obj_free)(struct backend_obj *);
-	GList			* (*list_objs)(struct server_volume *,
-					       struct database *);
+	GList			* (*list_objs)(struct server_volume *);
 };
 
 struct listen_cfg {
@@ -212,8 +205,6 @@ struct server {
 	char			*config;	/* master config file */
 	char			*data_dir;
 	char			*pid_file;	/* PID file */
-
-	struct database		*db;
 
 	GHashTable		*volumes;
 	GHashTable		*backends;
@@ -259,12 +250,7 @@ extern void shastr(const unsigned char *digest, char *outstr);
 extern void req_sign(struct http_req *req, const char *volume, const char *key,
 	      char *b64hmac_out);
 
-extern bool sql_begin(struct database *);
-extern bool sql_commit(struct database *);
-extern bool sql_rollback(struct database *);
 extern void read_config(void);
-extern struct database *db_open(void);
-extern void db_close(struct database *db);
 
 /* server.c */
 extern SSL_CTX *ssl_ctx;

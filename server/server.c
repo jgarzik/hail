@@ -1133,8 +1133,6 @@ static void tcp_srv_event(int fd, short events, void *userdata)
 		return;
 	}
 
-	cli->db = storaged_srv.db;
-
 	/* receive TCP connection from kernel */
 	cli->fd = accept(sock->fd, (struct sockaddr *) &cli->addr, &addrlen);
 	if (cli->fd < 0) {
@@ -1423,10 +1421,6 @@ int main (int argc, char *argv[])
 
 	event_init();
 
-	storaged_srv.db = db_open();
-	if (!storaged_srv.db)
-		exit(1);
-
 	/* set up server networking */
 	tmpl = storaged_srv.listeners;
 	while (tmpl) {
@@ -1449,8 +1443,6 @@ int main (int argc, char *argv[])
 	}
 
 	syslog(LOG_INFO, "shutting down");
-
-	db_close(storaged_srv.db);
 
 	rc = 0;
 

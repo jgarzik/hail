@@ -12,31 +12,7 @@
 #include <stdio.h>
 #include <openssl/hmac.h>
 #include <glib.h>
-#include <sqlite3.h>
 #include "storaged.h"
-
-static const char *sql_stmt_text[] = {
-	[st_begin] =
-	"begin transaction",
-
-	[st_commit] =
-	"commit transaction",
-
-	[st_rollback] =
-	"rollback transaction",
-
-	[st_volume_objects] =
-	"select * from objects where volume = ?",
-
-	[st_add_obj] =
-	"insert into objects values (?, ?, ?, ?)",
-
-	[st_del_obj] =
-	"delete from objects where volume = ? and name = ?",
-
-	[st_object] =
-	"select * from objects where volume = ? and name = ?",
-};
 
 size_t strlist_len(GList *l)
 {
@@ -160,69 +136,6 @@ void shastr(const unsigned char *digest, char *outstr)
 	}
 
 	outstr[SHA_DIGEST_LENGTH * 2] = 0;
-}
-
-bool sql_begin(struct database *db)
-{
-	int rc = sqlite3_step(db->prep_stmts[st_begin]);
-	sqlite3_reset(db->prep_stmts[st_begin]);
-	return (rc == SQLITE_DONE);
-}
-
-bool sql_commit(struct database *db)
-{
-	int rc = sqlite3_step(db->prep_stmts[st_commit]);
-	sqlite3_reset(db->prep_stmts[st_commit]);
-	return (rc == SQLITE_DONE);
-}
-
-bool sql_rollback(struct database *db)
-{
-	int rc = sqlite3_step(db->prep_stmts[st_rollback]);
-	sqlite3_reset(db->prep_stmts[st_rollback]);
-	return (rc == SQLITE_DONE);
-}
-
-struct database *db_open(void)
-{
-	char db_fn[PATH_MAX + 1];
-	unsigned int i;
-	int rc;
-	struct database *db;
-
-	db = calloc(1, sizeof(*db));
-	if (!db)
-		return NULL;
-
-	sprintf(db_fn, "%s/master.db", storaged_srv.data_dir);
-
-	rc = sqlite3_open(db_fn, &db->sqldb);
-	if (rc != SQLITE_OK) {
-		syslog(LOG_ERR, "sqlite3_open failed");
-		free(db);
-		return NULL;
-	}
-
-	for (i = 0; i <= st_last; i++) {
-		const char *dummy;
-
-		rc = sqlite3_prepare_v2(db->sqldb, sql_stmt_text[i], -1,
-					&db->prep_stmts[i], &dummy);
-		g_assert(rc == SQLITE_OK);
-	}
-
-	return db;
-}
-
-void db_close(struct database *db)
-{
-	int i;
-
-	for (i = 0; i <= st_last; i++)
-		sqlite3_finalize(db->prep_stmts[i]);
-	sqlite3_close(db->sqldb);
-
-	free(db);
 }
 
 static struct {

@@ -3,9 +3,8 @@
 
 	/path/storaged/data
 
-2) Init database, using provided SQL schema:
+2) (placeholder)
 
-	sqlite3 /path/storaged/data/master.db < mk-storagedb.sql
 
 3) create one or more volumes (directories that store data):
 

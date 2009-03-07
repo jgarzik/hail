@@ -24,7 +24,7 @@ bool object_del(struct client *cli, const char *user,
 	if (!user)
 		return cli_err(cli, AccessDenied);
 
-	rcb = vol->be->obj_delete(vol, cli->db, basename, &err);
+	rcb = vol->be->obj_delete(vol, basename, &err);
 	if (!rcb)
 		return cli_err(cli, err);
 
@@ -198,7 +198,7 @@ bool object_put(struct client *cli, const char *user,
 	if (!user)
 		return cli_err(cli, AccessDenied);
  
-	cli->out_bo = vol->be->obj_new(vol, cli->db, key);
+	cli->out_bo = vol->be->obj_new(vol, key);
 	if (!cli->out_bo)
 		return cli_err(cli, InternalError);
 
@@ -326,7 +326,7 @@ bool object_get(struct client *cli, const char *user,
 		goto err_out;
 	}
 
-	obj = vol->be->obj_open(vol, cli->db, basename, &err);
+	obj = vol->be->obj_open(vol, basename, &err);
 	if (!obj)
 		goto err_out;
 
