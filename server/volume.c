@@ -143,7 +143,8 @@ bool volume_list(struct client *cli, const char *user,
 		hash = tmpl->data;
 		tmpl = tmpl->next;
 
-		if (asprintf(&fn, "%s/%s", vol->path, name) < 0)
+		fn = fs_obj_pathname(vol, name);
+		if (!fn)
 			goto do_next;
 
 		if (stat(fn, &st) < 0) {

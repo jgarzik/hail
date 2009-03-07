@@ -217,6 +217,9 @@ struct server {
 	struct server_stats	stats;		/* global statistics */
 };
 
+/* be-fs.c */
+extern char *fs_obj_pathname(struct server_volume *vol, const char *cookie);
+
 /* volume.c */
 extern bool volume_list(struct client *cli, const char *user, struct server_volume *volume);
 extern bool volume_valid(const char *volume);

@@ -42,6 +42,16 @@ static struct fs_obj *fs_obj_alloc(struct server_volume *vol)
 	return obj;
 }
 
+char *fs_obj_pathname(struct server_volume *vol, const char *cookie)
+{
+	char *s = NULL;
+
+	if (asprintf(&s, "%s/%s", vol->path, cookie) < 0)
+		return NULL;
+	
+	return s;
+}
+
 static bool cookie_valid(const char *cookie)
 {
 	int len = 0;
@@ -88,7 +98,8 @@ static struct backend_obj *fs_obj_new(struct server_volume *vol,
 		return NULL;
 
 	/* build local fs pathname, volume path + cookie */
-	if (asprintf(&fn, "%s/%s", vol->path, cookie) < 0) {
+	fn = fs_obj_pathname(vol, cookie);
+	if (!fn) {
 		syslog(LOG_ERR, "OOM in object_put");
 		goto err_out;
 	}
@@ -141,7 +152,8 @@ static struct backend_obj *fs_obj_open(struct server_volume *vol,
 		return NULL;
 
 	/* build local fs pathname, volume path + cookie */
-	if (asprintf(&obj->in_fn, "%s/%s", vol->path, cookie) < 0)
+	obj->in_fn = fs_obj_pathname(vol, cookie);
+	if (!obj->in_fn)
 		goto err_out;
 
 	obj->in_fd = open(obj->in_fn, O_RDONLY);
@@ -289,15 +301,16 @@ static bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 static bool fs_obj_delete(struct server_volume *vol,
 			  const char *cookie, enum errcode *err_code)
 {
-	char *fn;
+	char *fn = NULL;
 
 	*err_code = InternalError;
 
 	/* FIXME: check owner */
 
 	/* build local fs pathname, volume path + cookie */
-	fn = alloca(strlen(vol->path) + strlen(cookie) + 2);
-	sprintf(fn, "%s/%s", vol->path, cookie);
+	fn = fs_obj_pathname(vol, cookie);
+	if (!fn)
+		goto err_out;
 
 	if (unlink(fn) < 0) {
 		if (errno == ENOENT)
@@ -308,9 +321,11 @@ static bool fs_obj_delete(struct server_volume *vol,
 		goto err_out;
 	}
 
+	free(fn);
 	return true;
 
 err_out:
+	free(fn);
 	return false;
 }
 
@@ -336,7 +351,8 @@ static GList *fs_list_objs(struct server_volume *vol)
 		if (de->d_name[0] == '.')
 			continue;
 
-		if (asprintf(&fn, "%s/%s", vol->path, de->d_name) < 0)
+		fn = fs_obj_pathname(vol, de->d_name);
+		if (!fn)
 			break;
 
 		fd = open(fn, O_RDONLY);
