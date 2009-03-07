@@ -14,6 +14,16 @@ then
 	exit 1
 fi
 
-cp $top_srcdir/test/ssl-*.pem .
+if [ ! -f ssl-cert.pem ]
+then
+	cp $top_srcdir/test/ssl-cert.pem .
+	touch ssl-cert.pem.copied
+fi
+
+if [ ! -f ssl-key.pem ]
+then
+	cp $top_srcdir/test/ssl-key.pem .
+	touch ssl-key.pem.copied
+fi
 
 exit 0

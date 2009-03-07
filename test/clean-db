@@ -6,6 +6,16 @@ then
 	exit 1
 fi
 
-rm -rf data ssl-*.pem
+rm -rf data
+
+if [ -f ssl-cert.pem.copied ]
+then
+	rm -f ssl-cert.pem*
+fi
+
+if [ -f ssl-key.pem.copied ]
+then
+	rm -f ssl-key.pem*
+fi
 
 exit 0
