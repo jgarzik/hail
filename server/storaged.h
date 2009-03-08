@@ -118,7 +118,6 @@ struct client {
 	char			*hdr_start;	/* current hdr start */
 	char			*hdr_end;	/* current hdr end (so far) */
 
-	struct server_volume	*out_vol;
 	char			*out_user;
 	SHA_CTX			out_hash;
 	long			out_len;
@@ -127,7 +126,6 @@ struct client {
 	struct backend_obj	*out_bo;
 
 	long			in_len;
-	struct server_volume	*in_vol;
 	struct backend_obj	*in_obj;
 
 	/* we put the big arrays and objects at the end... */

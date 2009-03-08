@@ -54,7 +54,6 @@ void cli_out_end(struct client *cli)
 		return;
 
 	if (cli->out_bo) {
-		g_assert(cli->out_vol != NULL);
 		fs_obj_free(cli->out_bo);
 		cli->out_bo = NULL;
 	}
@@ -202,7 +201,6 @@ bool object_put(struct client *cli, const char *user,
 	if (!cli->out_bo)
 		return cli_err(cli, InternalError);
 
-	cli->out_vol = vol;
 	SHA1_Init(&cli->out_hash);
 	cli->out_len = content_len;
 	cli->out_user = strdup(user);
@@ -257,7 +255,6 @@ void cli_in_end(struct client *cli)
 		return;
 
 	if (cli->in_obj) {
-		g_assert(cli->in_vol != NULL);
 		fs_obj_free(cli->in_obj);
 		cli->in_obj = NULL;
 	}
@@ -402,7 +399,6 @@ bool object_get(struct client *cli, const char *user,
 	}
 
 	cli->in_len = obj->size;
-	cli->in_vol = vol;
 	cli->in_obj = obj;
 
 	bytes = fs_obj_read(cli->in_obj, cli->netbuf,
