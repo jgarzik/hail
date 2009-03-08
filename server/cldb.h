@@ -41,6 +41,10 @@ enum lock_flags {
 	CLFL_PENDING		= (1 << 1),	/* lock waiting to be acq. */
 };
 
+/*
+ * session record key:		uint8_t sid[8]
+ */
+
 struct raw_session {
 	uint8_t			sid[8];		/* session id */
 	char			addr[64];	/* IP address */
@@ -55,6 +59,11 @@ struct raw_handle_key {
 	uint64_t		fh;		/* handle id */
 };
 
+/*
+ * handle record key:		struct raw_handle_key
+ * handle secondary index key:	cldino_t inum (duplicate keys ok)
+ */
+
 struct raw_handle {
 	uint8_t			sid[8];		/* session id */
 	uint64_t		fh;		/* handle id */
@@ -62,6 +71,11 @@ struct raw_handle {
 	uint32_t		mode;		/* open mode */
 	uint32_t		events;		/* event mask */
 };
+
+/*
+ * inode record key:		cldino_t inum
+ * inode secondary index key:	inode name
+ */
 
 struct raw_inode {
 	cldino_t		inum;		/* unique inode number */
@@ -73,6 +87,10 @@ struct raw_inode {
 	uint32_t		flags;		/* inode flags; CIFL_xxx */
 	/* inode name */
 };
+
+/*
+ * lock record key:		cldino_t inum (duplicate keys ok)
+ */
 
 struct raw_lock {
 	uint8_t			sid[8];		/* session id */
