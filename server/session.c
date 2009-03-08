@@ -27,6 +27,7 @@
 #include "cld.h"
 
 static void session_retry(int fd, short events, void *userdata);
+static void session_timeout(int fd, short events, void *userdata);
 
 guint sess_hash(gconstpointer v)
 {
@@ -42,6 +43,22 @@ gboolean sess_equal(gconstpointer _a, gconstpointer _b)
 	const struct session *b = _b;
 
 	return (memcmp(a->sid, b->sid, CLD_SID_SZ) == 0);
+}
+
+static struct session *session_new(void)
+{
+	struct session *sess;
+
+	sess = calloc(1, sizeof(*sess));
+	if (!sess)
+		return NULL;
+
+	sess->handles = g_array_new(FALSE, FALSE, sizeof(uint64_t));
+
+	evtimer_set(&sess->timer, session_timeout, sess);
+	evtimer_set(&sess->retry_timer, session_retry, sess);
+
+	return sess;
 }
 
 static void session_ping(struct session *sess)
@@ -95,22 +112,6 @@ static void session_timeout(int fd, short events, void *userdata)
 
 	/* FIXME */
 	(void) sess;
-}
-
-static struct session *session_new(void)
-{
-	struct session *sess;
-
-	sess = calloc(1, sizeof(*sess));
-	if (!sess)
-		return NULL;
-
-	sess->handles = g_array_new(FALSE, FALSE, sizeof(uint64_t));
-
-	evtimer_set(&sess->timer, session_timeout, sess);
-	evtimer_set(&sess->retry_timer, session_retry, sess);
-
-	return sess;
 }
 
 static void session_encode(struct raw_session *raw, const struct session *sess)
