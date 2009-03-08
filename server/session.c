@@ -61,6 +61,19 @@ static struct session *session_new(void)
 	return sess;
 }
 
+static void session_free(struct session *sess)
+{
+	if (!sess)
+		return;
+
+	g_hash_table_remove(cld_srv.sessions, sess->sid);
+
+	/* FIXME: clear timers? */
+
+	g_array_free(sess->handles, TRUE);
+	free(sess);
+}
+
 static void session_ping(struct session *sess)
 {
 	struct cld_msg_hdr resp;
@@ -333,7 +346,7 @@ bool msg_new_sess(struct server_socket *sock, DB_TXN *txn,
 
 err_out:
 	/* note: no response to client, in new-session error case */
-	free(sess);
+	session_free(sess);
 	return false;
 }
 
