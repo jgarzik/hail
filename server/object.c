@@ -266,12 +266,7 @@ static bool object_get_more(struct client *cli, struct client_write *wr,
 	char *buf;
 	ssize_t bytes;
 
-	/* free now-written buffer */
-	free(wr->cb_data);
-
-	buf = malloc(CLI_DATA_BUF_SZ);
-	if (!buf)
-		return false;
+	buf = cli->netbuf_out;
 
 	/* do not queue more, if !completion or fd was closed early */
 	if (!done)
@@ -290,7 +285,7 @@ static bool object_get_more(struct client *cli, struct client_write *wr,
 		cli_in_end(cli);
 
 	if (cli_writeq(cli, buf, bytes,
-		       cli->in_len ? object_get_more : cli_cb_free, buf))
+		       cli->in_len ? object_get_more : NULL, NULL))
 		goto err_out;
 
 	return true;
@@ -298,7 +293,6 @@ static bool object_get_more(struct client *cli, struct client_write *wr,
 err_out:
 	cli_in_end(cli);
 err_out_buf:
-	free(buf);
 	return false;
 }
 
@@ -413,20 +407,17 @@ bool object_get(struct client *cli, const char *user,
 	if (!cli->in_len)
 		cli_in_end(cli);
 
-	tmp = malloc(bytes);
-	if (!tmp)
-		goto err_out_obj;
+	tmp = cli->netbuf_out;
 	memcpy(tmp, cli->netbuf, bytes);
 
 	rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
 	if (rc) {
 		free(hdr);
-		free(tmp);
 		return true;
 	}
 
 	if (cli_writeq(cli, tmp, bytes,
-		       cli->in_len ? object_get_more : cli_cb_free, tmp))
+		       cli->in_len ? object_get_more : NULL, NULL))
 		goto err_out_obj;
 
 start_write:

@@ -23,7 +23,7 @@ enum {
 	MAX_COOKIE_LEN		= 128,
 
 	CLI_REQ_BUF_SZ		= 8192,		/* buffer for req + hdrs */
-	CLI_DATA_BUF_SZ		= 8192,
+	CLI_DATA_BUF_SZ		= 16 * 1024,
 
 	STD_COOKIE_MIN		= 7,
 
@@ -137,6 +137,7 @@ struct client {
 	char			req_buf[CLI_REQ_BUF_SZ]; /* input buffer */
 
 	char			netbuf[CLI_DATA_BUF_SZ];
+	char			netbuf_out[CLI_DATA_BUF_SZ];
 };
 
 struct be_fs_obj_hdr {
