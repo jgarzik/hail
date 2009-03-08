@@ -241,11 +241,18 @@ static void cli_free(struct client *cli)
 static struct client *cli_alloc(bool encrypt)
 {
 	struct client *cli;
+	const int skip_set =
+		CLI_REQ_BUF_SZ + CLI_DATA_BUF_SZ + CLI_DATA_BUF_SZ;
 
 	/* alloc and init client info */
-	cli = calloc(1, sizeof(*cli));
+	cli = malloc(sizeof(*cli));
 	if (!cli)
 		return NULL;
+
+	/* avoid large and unnecessary memset of network buffers
+	 * found at tail end of struct client
+	 */
+	memset(cli, 0, sizeof(*cli) - skip_set);
 
 	if (encrypt) {
 		cli->ssl = SSL_new(ssl_ctx);
