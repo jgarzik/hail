@@ -40,13 +40,12 @@ using <Listen>, <Node>, <Port>, and <Encrypt>:
 volumes served
 ==============
 You specify each volume served by this daemon using <Volume>, <Name>,
-<Path>, and <Method>.
+and <Path>.
 
     Your basic setup, an empty directory:
 	<Volume>
 		<Name>MyFirstVolume</Name>
 		<Path>/disk/massive/data</Path>
-		<Method>fs</Method>
 	</Volume>
 
 
@@ -54,7 +53,6 @@ You specify each volume served by this daemon using <Volume>, <Name>,
 <Name>		short reference name for this volume
 		("DNS rules": no weird characters, length <= 63)
 <Path>		Path to volume
-<Method>	name of storage backend to use
 
 
 SSL settings
