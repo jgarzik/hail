@@ -263,16 +263,13 @@ void cli_in_end(struct client *cli)
 static bool object_get_more(struct client *cli, struct client_write *wr,
 			    bool done)
 {
-	char *buf;
 	ssize_t bytes;
-
-	buf = cli->netbuf_out;
 
 	/* do not queue more, if !completion or fd was closed early */
 	if (!done)
 		goto err_out_buf;
 
-	bytes = fs_obj_read(cli->in_obj, buf,
+	bytes = fs_obj_read(cli->in_obj, cli->netbuf_out,
 			  MIN(cli->in_len, CLI_DATA_BUF_SZ));
 	if (bytes < 0)
 		goto err_out;
@@ -284,7 +281,7 @@ static bool object_get_more(struct client *cli, struct client_write *wr,
 	if (!cli->in_len)
 		cli_in_end(cli);
 
-	if (cli_writeq(cli, buf, bytes,
+	if (cli_writeq(cli, cli->netbuf_out, bytes,
 		       cli->in_len ? object_get_more : NULL, NULL))
 		goto err_out;
 
@@ -300,7 +297,7 @@ bool object_get(struct client *cli, const char *user,
 		struct server_volume *vol,
 		const char *basename, bool want_body)
 {
-	char timestr[50], modstr[50], *hdr, *tmp;
+	char timestr[50], modstr[50], *hdr;
 	int rc;
 	enum errcode err = InternalError;
 	ssize_t bytes;
@@ -395,7 +392,7 @@ bool object_get(struct client *cli, const char *user,
 	cli->in_len = obj->size;
 	cli->in_obj = obj;
 
-	bytes = fs_obj_read(cli->in_obj, cli->netbuf,
+	bytes = fs_obj_read(cli->in_obj, cli->netbuf_out,
 			  MIN(cli->in_len, CLI_DATA_BUF_SZ));
 	if (bytes < 0)
 		goto err_out_obj;
@@ -407,16 +404,13 @@ bool object_get(struct client *cli, const char *user,
 	if (!cli->in_len)
 		cli_in_end(cli);
 
-	tmp = cli->netbuf_out;
-	memcpy(tmp, cli->netbuf, bytes);
-
 	rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
 	if (rc) {
 		free(hdr);
 		return true;
 	}
 
-	if (cli_writeq(cli, tmp, bytes,
+	if (cli_writeq(cli, cli->netbuf_out, bytes,
 		       cli->in_len ? object_get_more : NULL, NULL))
 		goto err_out_obj;
 
