@@ -26,6 +26,8 @@ enum {
 	CLI_DATA_BUF_SZ		= 8192,
 
 	STD_COOKIE_MIN		= 7,
+
+	STD_TRASH_MAX		= 1000,
 };
 
 enum errcode {
@@ -188,6 +190,9 @@ struct server {
 
 	GList			*listeners;
 	GList			*sockets;
+
+	struct list_head	wr_trash;
+	unsigned int		trash_sz;
 
 	struct server_stats	stats;		/* global statistics */
 };

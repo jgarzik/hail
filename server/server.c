@@ -188,10 +188,21 @@ static bool cli_write_free(struct client *cli, struct client_write *tmp,
 {
 	bool rcb = false;
 
+	/* call callback, clean up struct */
 	if (tmp->cb)
 		rcb = tmp->cb(cli, tmp, done);
 	list_del(&tmp->node);
-	free(tmp);
+
+	if (storaged_srv.trash_sz < STD_TRASH_MAX) {
+
+		/* recycle struct for future use */
+		memset(tmp, 0, sizeof(*tmp));
+		INIT_LIST_HEAD(&tmp->node);
+
+		list_add(&tmp->node, &storaged_srv.wr_trash);
+		storaged_srv.trash_sz++;
+	} else
+		free(tmp);
 
 	return rcb;
 }
@@ -432,14 +443,25 @@ int cli_writeq(struct client *cli, const void *buf, unsigned int buflen,
 	if (!buf || !buflen)
 		return -EINVAL;
 
-	wr = malloc(sizeof(struct client_write));
-	if (!wr)
-		return -ENOMEM;
+	if (!storaged_srv.trash_sz) {
+		wr = calloc(1, sizeof(struct client_write));
+		if (!wr)
+			return -ENOMEM;
+
+		INIT_LIST_HEAD(&wr->node);
+	} else {
+		struct list_head *tmp = storaged_srv.wr_trash.next;
+		wr = list_entry(tmp, struct client_write, node);
+
+		list_del_init(&wr->node);
+		storaged_srv.trash_sz--;
+	}
 
 	wr->buf = buf;
 	wr->len = buflen;
 	wr->cb = cb;
 	wr->cb_data = cb_data;
+
 	list_add_tail(&wr->node, &cli->write_q);
 
 	return 0;
@@ -1405,6 +1427,9 @@ int main (int argc, char *argv[])
 	signal(SIGUSR1, stats_signal);
 
 	event_init();
+
+	INIT_LIST_HEAD(&storaged_srv.wr_trash);
+	storaged_srv.trash_sz = 0;
 
 	/* set up server networking */
 	tmpl = storaged_srv.listeners;
