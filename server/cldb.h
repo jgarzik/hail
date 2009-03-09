@@ -125,6 +125,7 @@ extern void cldb_close(struct cldb *cldb);
 extern int cldb_session_get(DB_TXN *txn, uint8_t *sid, struct raw_session **sess,
 		     bool notfound_err, bool rmw);
 extern int cldb_session_put(DB_TXN *txn, struct raw_session *sess, int put_flags);
+extern int cldb_session_del(DB_TXN *txn, uint8_t *sid);
 
 extern int cldb_inode_get(DB_TXN *txn, cldino_t inum,
 		   struct raw_inode **inode_out, bool notfound_err,

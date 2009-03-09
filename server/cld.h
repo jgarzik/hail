@@ -131,6 +131,7 @@ extern bool msg_new_sess(struct server_socket *, DB_TXN *,
 extern struct raw_session *session_new_raw(const struct session *sess);
 extern bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
 		  bool copy_msg);
+extern int session_dispose(DB_TXN *txn, struct session *sess);
 
 /* server.c */
 extern struct server cld_srv;

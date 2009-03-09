@@ -155,8 +155,21 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 	case cmo_nop:
 		resp_ok(sock, sess, msg);
 		break;
+
 	case cmo_new_sess:
 		return msg_new_sess(sock, txn, cli, raw_msg, msg_len);
+	case cmo_end_sess: {
+		int rc = session_dispose(txn, sess);
+
+		/* transmit response (once, without retries) */
+		resp_copy(&resp.hdr, msg);
+		resp.code = GUINT32_TO_LE(rc == 0 ? CLE_OK : CLE_DB_ERR);
+		udp_tx(sock, (struct sockaddr *) &cli->addr, cli->addr_len,
+		       &resp, sizeof(resp));
+
+		return (rc == 0) ? true : false;
+	}
+
 	case cmo_open:
 		return msg_open(sock, txn, sess, raw_msg, msg_len);
 	case cmo_get:

@@ -45,6 +45,7 @@ enum cld_msg_ops {
 	cmo_ack			= 12,		/* client ack of msgid rx'd */
 	cmo_ping		= 13,		/* server to client ping */
 	cmo_not_master		= 14,		/* I am not the master! */
+	cmo_end_sess		= 15,		/* end session */
 };
 
 enum cle_err_codes {

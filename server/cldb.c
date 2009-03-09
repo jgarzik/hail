@@ -281,6 +281,26 @@ void cldb_close(struct cldb *cldb)
 	cldb->env = NULL;
 }
 
+int cldb_session_del(DB_TXN *txn, uint8_t *sid)
+{
+	DB_ENV *dbenv = cld_srv.cldb.env;
+	DB *db_sess = cld_srv.cldb.sessions;
+	DBT key;
+	int rc;
+
+	memset(&key, 0, sizeof(key));
+
+	/* key: sid */
+	key.data = sid;
+	key.size = CLD_ID_SZ;
+
+	rc = db_sess->del(db_sess, txn, &key, 0);
+	if (rc)
+		dbenv->err(dbenv, rc, "db_sess->del");
+
+	return rc;
+}
+
 int cldb_session_get(DB_TXN *txn, uint8_t *sid, struct raw_session **sess_out,
 		     bool notfound_err, bool rmw)
 {

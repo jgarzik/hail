@@ -23,6 +23,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <syslog.h>
 #include "cld.h"
 
@@ -74,6 +75,228 @@ static void session_free(struct session *sess)
 	free(sess);
 }
 
+static int session_remove_locks(DB_TXN *txn, uint8_t *sid, cldino_t inum,
+				bool *waiter)
+{
+	DB *db_locks = cld_srv.cldb.locks;
+	DBC *cur;
+	*waiter = false;
+	int rc;
+	DBT pkey, pval;
+	cldino_t inum_le = cldino_to_le(inum);
+	bool first_loop = true;
+
+	*waiter = false;
+
+	rc = db_locks->cursor(db_locks, txn, &cur, 0);
+	if (rc) {
+		db_locks->err(db_locks, rc, "session_remove_locks cur");
+		goto err_out;
+	}
+
+	memset(&pkey, 0, sizeof(pkey));
+	memset(&pval, 0, sizeof(pval));
+
+	pkey.data = &inum_le;
+	pkey.size = sizeof(inum_le);
+
+	while (1) {
+		struct raw_lock *l;
+		int gflags;
+
+		if (first_loop) {
+			first_loop = false;
+			gflags = DB_SET;
+		} else
+			gflags = DB_NEXT_DUP;
+
+		/* search for first/next matching lock */
+		rc = cur->get(cur, &pkey, &pval, gflags);
+		if (rc) {
+			if (rc != DB_NOTFOUND)
+				db_locks->err(db_locks, rc, "curget2");
+			break;
+		}
+
+		l = pval.data;
+
+		/* if not our sid, check for pending lock acquisitions */
+		if (memcmp(l->sid, sid, sizeof(l->sid))) {
+			if (GUINT32_FROM_LE(l->flags) & CLFL_PENDING)
+				*waiter = true;
+		}
+
+		/* if our sid, delete lock */
+		else {
+			rc = cur->del(cur, 0);
+			if (rc) {
+				db_locks->err(db_locks, rc, "curdel2");
+				break;
+			}
+		}
+	}
+
+	/* close cursor, being careful to preserve return value
+	 * in most cases, but ignoring it in some others
+	 */
+	if (rc == DB_NOTFOUND)
+		rc = 0;
+	if (rc)
+		cur->close(cur);
+	else {
+		rc = cur->close(cur);
+		if (rc)
+			db_locks->err(db_locks, rc, "curclose2");
+	}
+	if (rc)
+		goto err_out;
+
+	return 0;
+
+err_out:
+	return rc;
+}
+
+static int session_remove(DB_TXN *txn, struct session *sess)
+{
+	DB *db_handles = cld_srv.cldb.handles;
+	DBC *cur;
+	struct raw_handle_key hkey;
+	int rc, i;
+	DBT pkey, pval;
+	bool first_loop = true;
+	GArray *locks, *waiters;
+
+	memcpy(&hkey.sid, sess->sid, sizeof(sess->sid));
+	hkey.fh = 0;
+
+	locks = g_array_sized_new(FALSE, TRUE, sizeof(cldino_t), 128);
+	if (!locks)
+		return -ENOMEM;
+	waiters = g_array_sized_new(FALSE, TRUE, sizeof(cldino_t), 64);
+	if (!waiters) {
+		rc = -ENOMEM;
+		goto err_out;
+	}
+
+	rc = db_handles->cursor(db_handles, txn, &cur, 0);
+	if (rc) {
+		db_handles->err(db_handles, rc, "session_remove cur1");
+		goto err_out;
+	}
+
+	memset(&pkey, 0, sizeof(pkey));
+	memset(&pval, 0, sizeof(pval));
+
+	pkey.data = &hkey;
+	pkey.size = sizeof(hkey);
+
+	/* loop through handles, deleting those with our sid */
+	while (1) {
+		int gflags;
+		struct raw_handle *h;
+
+		if (first_loop) {
+			first_loop = false;
+			gflags = DB_SET_RANGE;
+		} else
+			gflags = DB_NEXT;
+
+		/* search for first/next matching handle */
+		rc = cur->get(cur, &pkey, &pval, gflags);
+		if (rc) {
+			if (rc != DB_NOTFOUND)
+				db_handles->err(db_handles, rc, "curget1");
+			break;
+		}
+
+		h = pval.data;
+
+		/* verify same sid */
+		if (memcmp(h->sid, sess->sid, sizeof(sess->sid)))
+			break;
+
+		if (GUINT32_FROM_LE(h->mode) & COM_LOCK) {
+			cldino_t inum;
+
+			inum = cldino_from_le(h->inum);
+			g_array_append_val(locks, inum);
+		}
+
+		rc = cur->del(cur, 0);
+		if (rc) {
+			db_handles->err(db_handles, rc, "curdel1");
+			break;
+		}
+	}
+
+	/* close cursor, being careful to preserve return value
+	 * in most cases, but ignoring it in some others
+	 */
+	if (rc == DB_NOTFOUND)
+		rc = 0;
+	if (rc)
+		cur->close(cur);
+	else {
+		rc = cur->close(cur);
+		if (rc)
+			db_handles->err(db_handles, rc, "curclose1");
+	}
+	if (rc)
+		goto err_out;
+
+	/*
+	 * scan locks for waiters; delete our locks
+	 */
+	for (i = 0; i < locks->len; i++) {
+		cldino_t inum;
+		bool waiter;
+
+		inum = g_array_index(locks, cldino_t, i);
+		rc = session_remove_locks(txn, sess->sid, inum, &waiter);
+		if (rc)
+			goto err_out;
+
+		if (waiter)
+			g_array_append_val(waiters, inum);
+	}
+
+	/* FIXME: rescan each inode in 'waiters', possibly acquiring locks */
+
+	/*
+	 * finally, delete the session
+	 */
+	rc = cldb_session_del(txn, sess->sid);
+	if (rc)
+		goto err_out;
+
+	g_array_free(locks, TRUE);
+	g_array_free(waiters, TRUE);
+	return 0;
+
+err_out:
+	g_array_free(locks, TRUE);
+	g_array_free(waiters, TRUE);
+	return rc;
+}
+
+int session_dispose(DB_TXN *txn, struct session *sess)
+{
+	int rc;
+
+	if (!sess)
+		return -EINVAL;
+	
+	rc = session_remove(txn, sess);
+	
+	session_free(sess);
+
+	if (rc)
+		syslog(LOG_WARNING, "failed to remove session");
+
+	return rc;
+}
+
 static void session_ping(struct session *sess)
 {
 	struct cld_msg_hdr resp;
@@ -123,8 +346,8 @@ static void session_timeout(int fd, short events, void *userdata)
 		sess->ipaddr,
 		(unsigned long long) GUINT64_FROM_LE(*tmp64));
 
-	/* FIXME */
-	(void) sess;
+	/* FIXME: need transaction */
+	session_dispose(NULL, sess);
 }
 
 static void session_encode(struct raw_session *raw, const struct session *sess)
