@@ -76,7 +76,8 @@ static int handle_idx_key(DB *secondary, const DBT *pkey, const DBT *pdata,
 
 static int open_db(DB_ENV *env, DB **db_out, const char *name,
 		   unsigned int page_size, DBTYPE dbtype, unsigned int flags,
-		   int (*bt_compare)(DB *db, const DBT *dbt1, const DBT *dbt2))
+		   int (*bt_compare)(DB *db, const DBT *dbt1, const DBT *dbt2),
+		   int fset)
 {
 	int rc;
 	DB *db;
@@ -108,6 +109,15 @@ static int open_db(DB_ENV *env, DB **db_out, const char *name,
 		rc = db->set_bt_compare(db, bt_compare);
 		if (rc) {
 			db->err(db, rc, "db->set_bt_compare");
+			rc = -EIO;
+			goto err_out;
+		}
+	}
+
+	if (fset) {
+		rc = db->set_flags(db, fset);
+		if (rc) {
+			db->err(db, rc, "db->set_flags");
 			rc = -EIO;
 			goto err_out;
 		}
@@ -191,17 +201,17 @@ int cldb_open(struct cldb *cldb, unsigned int env_flags, unsigned int flags,
 	 */
 
 	rc = open_db(dbenv, &cldb->sessions, "sessions", CLDB_PGSZ_SESSIONS,
-		     DB_HASH, flags, NULL);
+		     DB_HASH, flags, NULL, 0);
 	if (rc)
 		goto err_out;
 
 	rc = open_db(dbenv, &cldb->inodes, "inodes", CLDB_PGSZ_INODES,
-		     DB_HASH, flags, NULL);
+		     DB_HASH, flags, NULL, 0);
 	if (rc)
 		goto err_out_sess;
 
 	rc = open_db(dbenv, &cldb->inode_names, "inode_names",
-		     CLDB_PGSZ_INODE_NAMES, DB_BTREE, flags, NULL);
+		     CLDB_PGSZ_INODE_NAMES, DB_BTREE, flags, NULL, 0);
 	if (rc)
 		goto err_out_ino;
 
@@ -214,17 +224,17 @@ int cldb_open(struct cldb *cldb, unsigned int env_flags, unsigned int flags,
 	}
 
 	rc = open_db(dbenv, &cldb->data, "data", CLDB_PGSZ_DATA,
-		     DB_HASH, flags, NULL);
+		     DB_HASH, flags, NULL, 0);
 	if (rc)
 		goto err_out_ino_name;
 
 	rc = open_db(dbenv, &cldb->handles, "handles", CLDB_PGSZ_HANDLES,
-		     DB_BTREE, flags, NULL);
+		     DB_BTREE, flags, NULL, 0);
 	if (rc)
 		goto err_out_data;
 
 	rc = open_db(dbenv, &cldb->handle_idx, "handle_idx",
-		     CLDB_PGSZ_HANDLE_IDX, DB_BTREE, flags | DB_DUP, NULL);
+		     CLDB_PGSZ_HANDLE_IDX, DB_BTREE, flags, NULL, DB_DUPSORT);
 	if (rc)
 		goto err_out_handles;
 
@@ -237,7 +247,7 @@ int cldb_open(struct cldb *cldb, unsigned int env_flags, unsigned int flags,
 	}
 
 	rc = open_db(dbenv, &cldb->locks, "locks", CLDB_PGSZ_LOCKS,
-		     DB_HASH, flags | DB_DUP, NULL);
+		     DB_HASH, flags, NULL, DB_DUPSORT);
 	if (rc)
 		goto err_out_handle_idx;
 
