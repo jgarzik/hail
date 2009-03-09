@@ -786,7 +786,7 @@ bool msg_close(struct server_socket *sock, DB_TXN *txn,
 	}
 
 	/* remove locks, if any */
-	rc = session_remove_locks(txn, sess->sid, lock_inum, &waiter);
+	rc = session_remove_locks(txn, sess->sid, fh, lock_inum, &waiter);
 	if (rc) {
 		resp_rc = CLE_DB_ERR;
 		goto err_out;

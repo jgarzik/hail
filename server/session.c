@@ -74,7 +74,18 @@ static void session_free(struct session *sess)
 	free(sess);
 }
 
-int session_remove_locks(DB_TXN *txn, uint8_t *sid, cldino_t inum, bool *waiter)
+static bool lmatch(const struct raw_lock *lock, uint8_t *sid, uint64_t fh)
+{
+	if (memcmp(lock->sid, sid, sizeof(lock->sid)))
+		return false;
+	if (fh && (GUINT64_FROM_LE(lock->fh) != fh))
+		return false;
+	
+	return true;
+}
+
+int session_remove_locks(DB_TXN *txn, uint8_t *sid, uint64_t fh,
+			 cldino_t inum, bool *waiter)
 {
 	DB *db_locks = cld_srv.cldb.locks;
 	DBC *cur;
@@ -119,12 +130,12 @@ int session_remove_locks(DB_TXN *txn, uint8_t *sid, cldino_t inum, bool *waiter)
 		l = pval.data;
 
 		/* if not our sid, check for pending lock acquisitions */
-		if (memcmp(l->sid, sid, sizeof(l->sid))) {
+		if (!lmatch(l, sid, fh)) {
 			if (GUINT32_FROM_LE(l->flags) & CLFL_PENDING)
 				*waiter = true;
 		}
 
-		/* if our sid, delete lock */
+		/* delete lock matching search criteria */
 		else {
 			rc = cur->del(cur, 0);
 			if (rc) {
@@ -251,7 +262,7 @@ static int session_remove(DB_TXN *txn, struct session *sess)
 		bool waiter;
 
 		inum = g_array_index(locks, cldino_t, i);
-		rc = session_remove_locks(txn, sess->sid, inum, &waiter);
+		rc = session_remove_locks(txn, sess->sid, 0, inum, &waiter);
 		if (rc)
 			goto err_out;
 
