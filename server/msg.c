@@ -431,9 +431,6 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn,
 		goto err_out;
 	}
 
-	/* add handle to session */
-	g_array_append_val(sess->handles, fh);
-
 	if (create) {
 		/* write inode */
 		rc = inode_touch(txn, inode);

@@ -62,7 +62,6 @@ struct session {
 
 	uint64_t		last_contact;
 	uint64_t		next_fh;
-	GArray			*handles;
 	struct event		timer;
 
 	GList			*put_q;		/* queued PUT pkts */

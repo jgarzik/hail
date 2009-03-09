@@ -50,8 +50,6 @@ struct raw_session {
 	char			addr[64];	/* IP address */
 	uint64_t		last_contact;	/* time of last contact */
 	uint64_t		next_fh;	/* next fh */
-	uint32_t		n_handles;
-	/* list of handles */
 };
 
 struct raw_handle_key {

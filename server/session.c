@@ -54,7 +54,7 @@ static struct session *session_new(void)
 	if (!sess)
 		return NULL;
 
-	sess->handles = g_array_new(FALSE, FALSE, sizeof(uint64_t));
+	sess->next_fh = 2;
 
 	evtimer_set(&sess->timer, session_timeout, sess);
 	evtimer_set(&sess->retry_timer, session_retry, sess);
@@ -71,7 +71,6 @@ static void session_free(struct session *sess)
 
 	/* FIXME: clear timers? */
 
-	g_array_free(sess->handles, TRUE);
 	free(sess);
 }
 
@@ -351,32 +350,16 @@ static void session_timeout(int fd, short events, void *userdata)
 
 static void session_encode(struct raw_session *raw, const struct session *sess)
 {
-	uint64_t *hsrc, *hdest;
-	int i;
-	void *p;
-
 	memcpy(raw, sess, CLD_SID_SZ + CLD_IPADDR_SZ);
 	raw->last_contact = GUINT64_TO_LE(sess->last_contact);
 	raw->next_fh = GUINT64_TO_LE(sess->next_fh);
-	raw->n_handles = GUINT32_TO_LE(sess->handles->len);
-
-	hsrc = (uint64_t *) sess->handles->data;
-
-	p = raw;
-	p += sizeof(*raw);
-	hdest = p;
-
-	for (i = 0; i < sess->handles->len; i++)
-		hdest[i] = GUINT64_TO_LE(hsrc[i]);
 }
 
 struct raw_session *session_new_raw(const struct session *sess)
 {
 	struct raw_session *raw_sess;
-	size_t alloc_len;
 
-	alloc_len = sizeof(*raw_sess) + (sizeof(uint64_t) * sess->handles->len);
-	raw_sess = malloc(alloc_len);
+	raw_sess = malloc(sizeof(*raw_sess));
 	if (!raw_sess)
 		return NULL;
 

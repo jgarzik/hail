@@ -333,15 +333,6 @@ int cldb_session_get(DB_TXN *txn, uint8_t *sid, struct raw_session **sess_out,
 	return rc;
 }
 
-static size_t raw_session_size(const struct raw_session *sess)
-{
-	size_t sz = sizeof(struct raw_session);
-
-	sz += GUINT32_FROM_LE(sess->n_handles) * sizeof(uint64_t);
-
-	return sz;
-}
-
 int cldb_session_put(DB_TXN *txn, struct raw_session *sess, int put_flags)
 {
 	DB_ENV *dbenv = cld_srv.cldb.env;
@@ -357,7 +348,7 @@ int cldb_session_put(DB_TXN *txn, struct raw_session *sess, int put_flags)
 	key.size = sizeof(sess->sid);
 
 	val.data = sess;
-	val.size = raw_session_size(sess);
+	val.size = sizeof(*sess);
 
 	rc = db_session->put(db_session, txn, &key, &val, put_flags);
 	if (rc)
