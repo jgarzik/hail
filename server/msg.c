@@ -758,6 +758,9 @@ bool msg_close(struct server_socket *sock, DB_TXN *txn,
 	uint64_t fh;
 	int rc;
 	enum cle_err_codes resp_rc = CLE_OK;
+	struct raw_handle *h = NULL;
+	cldino_t lock_inum = 0;
+	bool waiter = false;
 
 	/* make sure input data as large as expected */
 	if (msg_len < sizeof(*msg))
@@ -765,8 +768,8 @@ bool msg_close(struct server_socket *sock, DB_TXN *txn,
 
 	fh = GUINT64_FROM_LE(msg->fh);
 
-	/* delete handle from db */
-	rc = cldb_handle_del(txn, sess->sid, fh);
+	/* read handle from db */
+	rc = cldb_handle_get(txn, sess->sid, fh, &h, DB_RMW);
 	if (rc) {
 		if (rc == DB_NOTFOUND)
 			resp_rc = CLE_FH_INVAL;
@@ -775,11 +778,32 @@ bool msg_close(struct server_socket *sock, DB_TXN *txn,
 		goto err_out;
 	}
 
+	if (GUINT32_FROM_LE(h->mode) & COM_LOCK)
+		lock_inum = cldino_from_le(h->inum);
+
+	/* delete handle from db */
+	rc = cldb_handle_del(txn, sess->sid, fh);
+	if (rc) {
+		resp_rc = CLE_DB_ERR;
+		goto err_out;
+	}
+
+	/* remove locks, if any */
+	rc = session_remove_locks(txn, sess->sid, lock_inum, &waiter);
+	if (rc) {
+		resp_rc = CLE_DB_ERR;
+		goto err_out;
+	}
+
+	/* FIXME: rescan lock_inum if 'waiter', possibly acquiring locks */
+
 	resp_ok(sock, sess, (struct cld_msg_hdr *) msg);
+	free(h);
 	return true;
 
 err_out:
 	resp_err(sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
+	free(h);
 	return false;
 }
 

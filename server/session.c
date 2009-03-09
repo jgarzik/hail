@@ -75,8 +75,7 @@ static void session_free(struct session *sess)
 	free(sess);
 }
 
-static int session_remove_locks(DB_TXN *txn, uint8_t *sid, cldino_t inum,
-				bool *waiter)
+int session_remove_locks(DB_TXN *txn, uint8_t *sid, cldino_t inum, bool *waiter)
 {
 	DB *db_locks = cld_srv.cldb.locks;
 	DBC *cur;
