@@ -473,27 +473,6 @@ int cldb_inode_put(DB_TXN *txn, struct raw_inode *inode, int put_flags)
 	return rc;
 }
 
-int cldb_inode_del_byname(DB_TXN *txn, char *name, size_t name_len,
-			  bool notfound_err)
-{
-	DB_ENV *dbenv = cld_srv.cldb.env;
-	DB *db_inode_names = cld_srv.cldb.inode_names;
-	int rc;
-	DBT key;
-
-	memset(&key, 0, sizeof(key));
-
-	/* key: inode name */
-	key.data = name;
-	key.size = name_len;
-
-	rc = db_inode_names->del(db_inode_names, txn, &key, 0);
-	if (rc && ((rc != DB_NOTFOUND) || notfound_err))
-		dbenv->err(dbenv, rc, "db_inode_names->get");
-
-	return rc;
-}
-
 struct raw_inode *cldb_inode_new(DB_TXN *txn, char *name, size_t name_len,
 				 uint32_t flags)
 {

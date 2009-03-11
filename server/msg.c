@@ -37,6 +37,8 @@ struct pathname_info {
 	size_t		base_len;
 };
 
+static uint64_t next_msgid = 0xcab0beef;
+
 static bool valid_inode_name(const char *name, size_t name_len)
 {
 	if (!name || !*name || !name_len)
@@ -169,13 +171,92 @@ static bool dirdata_append(void **data, size_t *data_len,
 	return true;
 }
 
+static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
+{
+	int rc;
+	DB *hand_idx = cld_srv.cldb.handle_idx;
+	DBC *cur;
+	DBT key, val;
+	bool firstloop = true;
+	struct cld_msg_event me;
+	cldino_t inum_le = cldino_to_le(inum);
+
+	memset(&key, 0, sizeof(key));
+	memset(&val, 0, sizeof(val));
+
+	key.data = &inum_le;
+	key.size = sizeof(inum_le);
+
+	memset(&me, 0, sizeof(me));
+	memcpy(me.hdr.magic, CLD_MAGIC, sizeof(me.hdr.magic));
+	me.hdr.op = cmo_event;
+
+	rc = hand_idx->cursor(hand_idx, txn, &cur, 0);
+	if (rc) {
+		hand_idx->err(hand_idx, rc, "inode_touch cursor");
+		return rc;
+	}
+
+	while (1) {
+		int gflags;
+		struct raw_handle *h;
+		uint64_t tmp_msgid;
+
+		if (firstloop) {
+			firstloop = false;
+			gflags = DB_SET;
+		} else
+			gflags = DB_NEXT_DUP;
+
+		rc = cur->get(cur, &key, &val, gflags);
+		if (rc) {
+			if (rc != DB_NOTFOUND)
+				hand_idx->err(hand_idx, rc,
+					"inode_touch cursor get");
+			break;
+		}
+
+		h = val.data;
+
+		if (!deleted && !(GUINT32_FROM_LE(h->events) & CE_UPDATED))
+			continue;
+
+		next_msgid++;
+		tmp_msgid = GUINT64_TO_LE(next_msgid);
+
+		memcpy(&me.hdr.msgid, &tmp_msgid, sizeof(tmp_msgid));
+		memcpy(&me.hdr.sid, h->sid, sizeof(me.hdr.sid));
+		me.fh = h->fh;
+		me.events = GUINT32_TO_LE(deleted ? CE_DELETED : CE_UPDATED);
+
+		if (!sid_sendmsg(h->sid, &me, sizeof(me), true))
+			break;
+	}
+
+	rc = cur->close(cur);
+	if (rc)
+		hand_idx->err(hand_idx, rc, "inode_touch cursor close");
+
+	return 0;
+}
+
 static int inode_touch(DB_TXN *txn, struct raw_inode *ino)
 {
+	int rc;
+
 	ino->time_modify = GUINT64_TO_LE(current_time);
 	ino->version = GUINT32_TO_LE(GUINT32_FROM_LE(ino->version) + 1);
 
 	/* write parent inode */
-	return cldb_inode_put(txn, ino, 0);
+	rc = cldb_inode_put(txn, ino, 0);
+	if (rc)
+		return rc;
+
+	rc = inode_notify(txn, cldino_from_le(ino->inum), false);
+	if (rc)
+		return rc;
+
+	return 0;
 }
 
 bool msg_get(struct server_socket *sock, DB_TXN *txn,
@@ -441,6 +522,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn,
 		}
 	}
 
+	/* encode in-memory session to raw database session struct */
 	raw_sess = session_new_raw(sess);
 
 	if (!raw_sess) {
@@ -812,9 +894,13 @@ bool msg_del(struct server_socket *sock, DB_TXN *txn,
 	int rc, name_len;
 	char *name;
 	struct pathname_info pinfo;
-	struct raw_inode *parent = NULL;
+	struct raw_inode *parent = NULL, *ino = NULL;
 	void *parent_data = NULL;
 	size_t parent_len;
+	cldino_t del_inum;
+	DB *inodes = cld_srv.cldb.inodes;
+	DB *handle_idx = cld_srv.cldb.handle_idx;
+	DBT key;
 
 	/* make sure input data as large as expected */
 	if (msg_len < sizeof(*msg))
@@ -850,13 +936,44 @@ bool msg_del(struct server_socket *sock, DB_TXN *txn,
 		goto err_out;
 	}
 
-	/* delete inode */
-	rc = cldb_inode_del_byname(txn, name, name_len, true);
+	/* read inode to be deleted */
+	rc = cldb_inode_get_byname(txn, name, name_len, &ino, false, DB_RMW);
 	if (rc) {
 		if (rc == DB_NOTFOUND)
 			resp_rc = CLE_INODE_INVAL;
 		else
 			resp_rc = CLE_DB_ERR;
+		goto err_out;
+	}
+
+	del_inum = cldino_from_le(ino->inum);
+
+	/* notify interested parties of impending deletion */
+	rc = inode_notify(txn, del_inum, true);
+	if (rc) {
+		resp_rc = CLE_DB_ERR;
+		goto err_out;
+	}
+
+	memset(&key, 0, sizeof(key));
+
+	key.data = &ino->inum;
+	key.size = sizeof(ino->inum);
+
+	/* delete inode */
+	rc = inodes->del(inodes, txn, &key, 0);
+	if (rc) {
+		if (rc == DB_NOTFOUND)
+			resp_rc = CLE_INODE_INVAL;
+		else
+			resp_rc = CLE_DB_ERR;
+		goto err_out;
+	}
+
+	/* delete all filehandles associated with this inode */
+	rc = handle_idx->del(handle_idx, txn, &key, 0);
+	if (rc) {
+		resp_rc = CLE_DB_ERR;
 		goto err_out;
 	}
 
@@ -886,12 +1003,14 @@ bool msg_del(struct server_socket *sock, DB_TXN *txn,
 	}
 
 	resp_ok(sock, sess, (struct cld_msg_hdr *) msg);
+	free(ino);
 	free(parent);
 	free(parent_data);
 	return true;
 
 err_out:
 	resp_err(sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
+	free(ino);
 	free(parent);
 	free(parent_data);
 	return false;

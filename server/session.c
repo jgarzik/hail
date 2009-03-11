@@ -466,6 +466,17 @@ bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
 	return true;
 }
 
+bool sid_sendmsg(const uint8_t *sid, void *msg_, size_t msglen, bool copy_msg)
+{
+	struct session *sess;
+
+	sess = g_hash_table_lookup(cld_srv.sessions, sid);
+	if (!sess)
+		return false;
+	
+	return sess_sendmsg(sess, msg_, msglen, copy_msg);
+}
+
 bool msg_ack(struct server_socket *sock, DB_TXN *txn,
 	     struct session *sess, uint8_t *raw_msg, size_t msg_len)
 {

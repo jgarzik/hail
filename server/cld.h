@@ -130,6 +130,8 @@ extern bool msg_new_sess(struct server_socket *, DB_TXN *,
 extern struct raw_session *session_new_raw(const struct session *sess);
 extern bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
 		  bool copy_msg);
+extern bool sid_sendmsg(const uint8_t *sid, void *msg_, size_t msglen,
+		  bool copy_msg);
 extern int session_dispose(DB_TXN *txn, struct session *sess);
 extern int session_remove_locks(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 				cldino_t inum, bool *waiter);

@@ -46,6 +46,7 @@ enum cld_msg_ops {
 	cmo_ping		= 13,		/* server to client ping */
 	cmo_not_master		= 14,		/* I am not the master! */
 	cmo_end_sess		= 15,		/* end session */
+	cmo_event		= 16,		/* server->cli async event */
 };
 
 enum cle_err_codes {
@@ -77,8 +78,9 @@ enum cld_open_modes {
 
 enum cld_events {
 	CE_UPDATED		= (1 << 0),	/* contents updated */
-	CE_MASTER_FAILOVER	= (1 << 1),	/* master failover */
+	CE_DELETED		= (1 << 1),	/* inode deleted */
 	CE_LOCKED		= (1 << 2),	/* lock acquired */
+	CE_MASTER_FAILOVER	= (1 << 3),	/* master failover */
 };
 
 enum cld_lock_flags {
@@ -183,6 +185,13 @@ struct cld_msg_lock {
 
 	uint64_t		fh;		/* open file handle */
 	uint32_t		flags;		/* CLF_xxx */
+};
+
+struct cld_msg_event {
+	struct cld_msg_hdr	hdr;
+
+	uint64_t		fh;		/* open file handle */
+	uint32_t		events;		/* CE_xxx */
 };
 
 #endif /* __CLD_MSG_H__ */
