@@ -39,6 +39,13 @@ struct pathname_info {
 
 static uint64_t next_msgid = 0xcab0beef;
 
+static void get_next_msgid(uint8_t *msgid_out)
+{
+	uint64_t tmp = GUINT64_TO_LE(next_msgid++);
+
+	memcpy(msgid_out, &tmp, CLD_MSGID_SZ);
+}
+
 static bool valid_inode_name(const char *name, size_t name_len)
 {
 	if (!name || !*name || !name_len)
@@ -200,7 +207,6 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 	while (1) {
 		int gflags;
 		struct raw_handle *h;
-		uint64_t tmp_msgid;
 
 		if (firstloop) {
 			firstloop = false;
@@ -221,10 +227,7 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 		if (!deleted && !(GUINT32_FROM_LE(h->events) & CE_UPDATED))
 			continue;
 
-		next_msgid++;
-		tmp_msgid = GUINT64_TO_LE(next_msgid);
-
-		memcpy(&me.hdr.msgid, &tmp_msgid, sizeof(tmp_msgid));
+		get_next_msgid(me.hdr.msgid);
 		memcpy(&me.hdr.sid, h->sid, sizeof(me.hdr.sid));
 		me.fh = h->fh;
 		me.events = GUINT32_TO_LE(deleted ? CE_DELETED : CE_UPDATED);
@@ -339,9 +342,7 @@ bool msg_get(struct server_socket *sock, DB_TXN *txn,
 			goto err_out;
 		}
 
-		/* copy the GET msg's hdr, then change op to DATA.
-		 * this guarantees all packets in stream share same msgid[]
-		 */
+		/* copy the GET msg's hdr, then change op to DATA */
 		resp_copy(&dr->hdr, &msg->hdr);
 		dr->hdr.op = cmo_data;
 		i = 0;
@@ -353,6 +354,8 @@ bool msg_get(struct server_socket *sock, DB_TXN *txn,
 
 			seg_len -= sizeof(*dr);
 
+			get_next_msgid(dr->hdr.msgid);
+			memcpy(&dr->strid, &dr->hdr.msgid, CLD_MSGID_SZ);
 			dr->seg = GUINT32_TO_LE(i);
 			dr->seg_len = GUINT32_TO_LE(seg_len);
 			memcpy(dbuf + sizeof(*dr), p, seg_len);
@@ -365,6 +368,8 @@ bool msg_get(struct server_socket *sock, DB_TXN *txn,
 		}
 
 		/* send terminating packet (seg_len == 0) */
+		get_next_msgid(dr->hdr.msgid);
+		memcpy(&dr->strid, &dr->hdr.msgid, CLD_MSGID_SZ);
 		dr->seg = GUINT32_TO_LE(i);
 		dr->seg_len = 0;
 		sess_sendmsg(sess, dr, sizeof(*dr), true);
@@ -626,12 +631,12 @@ err_out:
 
 static bool try_commit_data(struct server_socket *sock, DB_TXN *txn,
 			struct session *sess,
-			uint8_t *msgid, GList *pmsg_ent)
+			uint8_t *strid, GList *pmsg_ent)
 {
 	struct cld_msg_put *pmsg = pmsg_ent->data;
 	struct cld_msg_data *dmsg;
 	GList *tmp, *tmp1;
-	uint32_t data_size, tmp_size, tmp_seg;
+	uint32_t data_size, tmp_size, tmp_seg = 0;
 	int last_seg, nseg, rc, i;
 	struct raw_handle *h = NULL;
 	struct raw_inode *inode = NULL;
@@ -640,6 +645,7 @@ static bool try_commit_data(struct server_socket *sock, DB_TXN *txn,
 	enum cle_err_codes resp_rc = CLE_OK;
 	void *mem, *p, *q;
 	struct cld_msg_data **darr;
+	bool have_end_seg = false;
 
 	data_size = GUINT32_FROM_LE(pmsg->data_size);
 	tmp_size = 0;
@@ -652,26 +658,42 @@ static bool try_commit_data(struct server_socket *sock, DB_TXN *txn,
 	 */
 	tmp = sess->data_q;
 	while (tmp) {
-		uint32_t tmp_seg;
+		uint32_t tmp_seg, tmp_seg_len;
 
 		dmsg = tmp->data;
 		tmp = tmp->next;
 
-		/* non-matching msgid[] implies not-our-stream */
-		if (memcmp(dmsg->hdr.msgid, msgid, CLD_MSGID_SZ))
+		/* non-matching strid[] implies not-our-stream */
+		if (memcmp(dmsg->strid, strid, CLD_MSGID_SZ))
 			continue;
 
 		tmp_seg = GUINT32_FROM_LE(dmsg->seg);
+		if (tmp_seg >= CLD_MAX_DATA_MSGS)
+			break;
 		if (tmp_seg > last_seg)
 			last_seg = tmp_seg;
 
-		tmp_size += GUINT32_FROM_LE(dmsg->seg_len);
+		tmp_seg_len = GUINT32_FROM_LE(dmsg->seg_len);
+		if (tmp_seg_len == 0)
+			have_end_seg = true;
+		else
+			tmp_size += tmp_seg_len;
 		nseg++;
+		if (nseg > CLD_MAX_DATA_MSGS)
+			break;
 	}
 
 	/* return if data stream not yet 100% received */
-	if (tmp_size < data_size)
+	if (!have_end_seg || tmp_size < data_size)
 		return true;		/* nothing to do */
+
+	/* stream parameter bounds checking */
+	if ((tmp_seg >= CLD_MAX_DATA_MSGS) ||
+	    (nseg > CLD_MAX_DATA_MSGS) ||
+	    (tmp_size > data_size)) {
+		resp_rc = CLE_DATA_INVAL;
+		goto err_out;
+	}
 
 	/* create array to store pointers to each data packet */
 	darr = alloca(nseg * sizeof(struct cld_msg_data *));
@@ -688,16 +710,32 @@ static bool try_commit_data(struct server_socket *sock, DB_TXN *txn,
 		tmp1 = tmp;
 		tmp = tmp->next;
 
-		/* non-matching msgid[] implies not-our-stream */
-		if (memcmp(dmsg->hdr.msgid, msgid, CLD_MSGID_SZ))
+		/* non-matching strid[] implies not-our-stream */
+		if (memcmp(dmsg->strid, strid, CLD_MSGID_SZ))
 			continue;
 
 		/* remove data packet from data msg queue */
 		sess->data_q = g_list_delete_link(sess->data_q, tmp1);
 
 		tmp_seg = GUINT32_FROM_LE(dmsg->seg);
+
+		/* prevent duplicate segment numbers */
+		if (darr[tmp_seg]) {
+			resp_rc = CLE_DATA_INVAL;
+			goto err_out;
+		}
 		darr[tmp_seg] = dmsg;
 	}
+
+	/* final check for missing segments; if segments are missing
+	 * at this point, it is a corrupted/malicious data stream,
+	 * because it passed other checks following Pass #1
+	 */
+	for (i = 0; i < nseg; i++)
+		if (!darr[i]) {
+			resp_rc = CLE_DATA_INVAL;
+			goto err_out;
+		}
 
 	fh = GUINT64_FROM_LE(pmsg->fh);
 
@@ -725,7 +763,6 @@ static bool try_commit_data(struct server_socket *sock, DB_TXN *txn,
 	}
 
 	/* loop through array, copying each data packet into contig. area */
-	/* FIXME: will segfault if a segment is missing */
 	for (i = 0; i <= last_seg; i++) {
 		dmsg = darr[i];
 		q = dmsg;
@@ -785,7 +822,7 @@ bool msg_data(struct server_socket *sock, DB_TXN *txn,
 	if (msg_len < (sizeof(*msg) + seg_len))
 		return false;
 
-	/* search for PUT message with same msgid; that is how we
+	/* search for PUT message with msgid == our strid; that is how we
 	 * associate DATA messages with the initial PUT msg
 	 */
 	tmp = sess->put_q;
@@ -793,8 +830,7 @@ bool msg_data(struct server_socket *sock, DB_TXN *txn,
 		struct cld_msg_put *pmsg;
 
 		pmsg = tmp->data;
-		if (!memcmp(pmsg->hdr.msgid, msg->hdr.msgid,
-			    sizeof(msg->hdr.msgid)))
+		if (!memcmp(pmsg->hdr.msgid, msg->strid, CLD_MSGID_SZ))
 			break;
 
 		tmp = tmp->next;
@@ -820,7 +856,7 @@ bool msg_data(struct server_socket *sock, DB_TXN *txn,
 	sess_sendmsg(sess, msg, sizeof(*msg), true);
 
 	/* scan DATA queue for completed stream; commit to db, if found */
-	return try_commit_data(sock, txn, sess, msg->hdr.msgid, tmp);
+	return try_commit_data(sock, txn, sess, msg->strid, tmp);
 
 err_out:
 	resp_err(sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
