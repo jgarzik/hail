@@ -69,7 +69,8 @@ static void session_free(struct session *sess)
 
 	g_hash_table_remove(cld_srv.sessions, sess->sid);
 
-	/* FIXME: clear timers? */
+	evtimer_del(&sess->timer);
+	evtimer_del(&sess->retry_timer);
 
 	free(sess);
 }
@@ -332,6 +333,9 @@ static void session_timeout(int fd, short events, void *userdata)
 {
 	struct session *sess = userdata;
 	uint64_t sess_expire, *tmp64;
+	int rc;
+	DB_ENV *dbenv = cld_srv.cldb.env;
+	DB_TXN *txn;
 
 	sess_expire = sess->last_contact + CLD_SESS_TIMEOUT;
 	if (sess_expire > current_time) {
@@ -355,8 +359,26 @@ static void session_timeout(int fd, short events, void *userdata)
 		sess->ipaddr,
 		(unsigned long long) GUINT64_FROM_LE(*tmp64));
 
-	/* FIXME: need transaction */
-	session_dispose(NULL, sess);
+	/* open transaction */
+	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
+		return;
+	}
+
+	/* dispose of session */
+	rc = session_dispose(txn, sess);
+
+	/* close transaction */
+	if (rc) {
+		rc = txn->abort(txn);
+		if (rc)
+			dbenv->err(dbenv, rc, "session txn_abort");
+	} else {
+		rc = txn->commit(txn, 0);
+		if (rc)
+			dbenv->err(dbenv, rc, "session txn_commit");
+	}
 }
 
 static void session_encode(struct raw_session *raw, const struct session *sess)
