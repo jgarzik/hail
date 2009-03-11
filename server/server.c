@@ -113,6 +113,64 @@ void resp_ok(struct server_socket *sock, struct session *sess,
 	resp_err(sock, sess, msg, CLE_OK);
 }
 
+static guint msgid_hash(gconstpointer _v)
+{
+	const struct msgid_hist_ent *v = _v;
+	uint64_t a, b, c;
+
+	memcpy(&a, &v->msgid, 8);
+	memcpy(&b, &v->sid, 8);
+
+	c = a ^ b;
+
+	return (guint) c;
+}
+
+static gboolean msgid_equal(gconstpointer _a, gconstpointer _b)
+{
+	const struct msgid_hist_ent *a = _a;
+	const struct msgid_hist_ent *b = _b;
+
+	if (memcmp(&a->msgid, &b->msgid, 8) ||
+	    memcmp(&a->sid, &b->sid, CLD_ID_SZ))
+		return FALSE;
+
+	return TRUE;
+}
+
+static bool seen_msgid(const uint8_t *sid, const uint8_t *msgid)
+{
+	struct msgid_hist_ent ent, *e;
+
+	memcpy(&ent.sid, sid, sizeof(ent.sid));
+	memcpy(&ent.msgid, msgid, sizeof(ent.msgid));
+	ent.expire_time = current_time + CLD_MSGID_EXPIRE;
+
+	if (g_hash_table_lookup(cld_srv.msgids, &ent))
+		return true;
+
+	e = malloc(sizeof(*e));
+	if (!e)
+		return false;
+
+	memcpy(e, &ent, sizeof(ent));
+
+	g_hash_table_insert(cld_srv.msgids, e, e);
+	g_queue_push_head(cld_srv.msgid_q, e);
+
+	while (cld_srv.msgid_q->length > 0) {
+		e = g_queue_peek_tail(cld_srv.msgid_q);
+		if (e->expire_time > current_time)
+			break;
+
+		e = g_queue_pop_tail(cld_srv.msgid_q);
+		g_hash_table_remove(cld_srv.msgids, e);
+		free(e);
+	}
+
+	return false;
+}
+
 static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 		   const struct client *cli,
 		   uint8_t *raw_msg, size_t msg_len)
@@ -138,6 +196,10 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 		resp_rc = CLE_SESS_INVAL;
 		goto err_out;
 	}
+
+	/* eliminate duplicates; do not return any response */
+	if (seen_msgid(msg->sid, msg->msgid))
+		return false;
 
 	if (msg->op != cmo_new_sess) {
 		if (!sess) {
@@ -499,7 +561,10 @@ int main (int argc, char *argv[])
 
 	cld_srv.sessions = g_hash_table_new(sess_hash, sess_equal);
 	cld_srv.timers = g_queue_new();
-	if (!cld_srv.sessions || !cld_srv.timers)
+	cld_srv.msgids = g_hash_table_new(msgid_hash, msgid_equal);
+	cld_srv.msgid_q = g_queue_new();
+	if (!cld_srv.sessions || !cld_srv.timers ||
+	    !cld_srv.msgids || !cld_srv.msgid_q)
 		goto err_out_pid;
 
 	/* set up server networking */

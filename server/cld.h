@@ -35,8 +35,15 @@ enum {
 	CLD_SID_SZ		= 8,
 	CLD_IPADDR_SZ		= 64,
 	CLD_SESS_TIMEOUT	= 60,
+	CLD_MSGID_EXPIRE	= CLD_SESS_TIMEOUT * 2,
 	CLD_RETRY_START		= 2,		/* initial retry after 2sec */
 	SFL_FOREGROUND		= (1 << 0),	/* run in foreground */
+};
+
+struct msgid_hist_ent {
+	uint8_t		msgid[8];		/* message id */
+	uint8_t		sid[CLD_ID_SZ];		/* client id */
+	time_t		expire_time;
 };
 
 struct client {
@@ -98,6 +105,9 @@ struct server {
 	GHashTable		*sessions;
 
 	GQueue			*timers;
+
+	GHashTable		*msgids;
+	GQueue			*msgid_q;
 
 	struct server_stats	stats;		/* global statistics */
 };

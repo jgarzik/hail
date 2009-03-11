@@ -649,8 +649,6 @@ static bool try_commit_data(struct server_socket *sock, DB_TXN *txn,
 	/*
 	 * Pass 1: count total size of all packets in our stream;
 	 * count number of segments in stream.
-	 *
-	 * FIXME: dup pkts (retries) not eliminated!!!
 	 */
 	tmp = sess->data_q;
 	while (tmp) {
