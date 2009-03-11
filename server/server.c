@@ -87,7 +87,7 @@ int udp_tx(struct server_socket *sock, struct sockaddr *addr,
 
 	if (src < 0)
 		return -errno;
-	
+
 	return 0;
 }
 
@@ -118,8 +118,8 @@ static guint msgid_hash(gconstpointer _v)
 	const struct msgid_hist_ent *v = _v;
 	uint64_t a, b, c;
 
-	memcpy(&a, &v->msgid, 8);
-	memcpy(&b, &v->sid, 8);
+	memcpy(&a, &v->msgid, CLD_MSGID_SZ);
+	memcpy(&b, &v->sid, CLD_SID_SZ);
 
 	c = a ^ b;
 
@@ -131,8 +131,8 @@ static gboolean msgid_equal(gconstpointer _a, gconstpointer _b)
 	const struct msgid_hist_ent *a = _a;
 	const struct msgid_hist_ent *b = _b;
 
-	if (memcmp(&a->msgid, &b->msgid, 8) ||
-	    memcmp(&a->sid, &b->sid, CLD_ID_SZ))
+	if (memcmp(&a->msgid, &b->msgid, CLD_MSGID_SZ) ||
+	    memcmp(&a->sid, &b->sid, CLD_SID_SZ))
 		return FALSE;
 
 	return TRUE;

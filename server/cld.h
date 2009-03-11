@@ -32,7 +32,6 @@ struct server_socket;
 #define ALIGN8(n) ((8 - ((n) & 7)) & 7)
 
 enum {
-	CLD_SID_SZ		= 8,
 	CLD_IPADDR_SZ		= 64,
 	CLD_SESS_TIMEOUT	= 60,
 	CLD_MSGID_EXPIRE	= CLD_SESS_TIMEOUT * 2,
@@ -41,8 +40,8 @@ enum {
 };
 
 struct msgid_hist_ent {
-	uint8_t		msgid[8];		/* message id */
-	uint8_t		sid[CLD_ID_SZ];		/* client id */
+	uint8_t		msgid[CLD_MSGID_SZ];		/* message id */
+	uint8_t		sid[CLD_SID_SZ];		/* client id */
 	time_t		expire_time;
 };
 

@@ -302,7 +302,7 @@ int cldb_session_del(DB_TXN *txn, uint8_t *sid)
 
 	/* key: sid */
 	key.data = sid;
-	key.size = CLD_ID_SZ;
+	key.size = CLD_SID_SZ;
 
 	rc = db_sess->del(db_sess, txn, &key, 0);
 	if (rc)
@@ -327,7 +327,7 @@ int cldb_session_get(DB_TXN *txn, uint8_t *sid, struct raw_session **sess_out,
 
 	/* key: sid */
 	key.data = sid;
-	key.size = CLD_ID_SZ;
+	key.size = CLD_SID_SZ;
 
 	val.flags = DB_DBT_MALLOC;
 
@@ -339,7 +339,7 @@ int cldb_session_get(DB_TXN *txn, uint8_t *sid, struct raw_session **sess_out,
 
 	if (!err && (rc == 0))
 		*sess_out = val.data;
-	
+
 	return rc;
 }
 
@@ -399,7 +399,7 @@ int cldb_inode_get(DB_TXN *txn, cldino_t inum,
 
 	if (!err && (rc == 0) && inode_out)
 		*inode_out = val.data;
-	
+
 	return rc;
 }
 
@@ -434,7 +434,7 @@ int cldb_inode_get_byname(DB_TXN *txn, char *name, size_t name_len,
 
 	if (!err && (rc == 0) && inode_out)
 		*inode_out = val.data;
-	
+
 	return rc;
 }
 
@@ -502,10 +502,10 @@ struct raw_inode *cldb_inode_new(DB_TXN *txn, char *name, size_t name_len,
 	ino = calloc(1, sizeof(*ino) + name_len + ALIGN8(name_len));
 	if (!ino)
 		return NULL;
-	
+
 	ino->inum = cldino_to_le(new_inum);
 	ino->ino_len = GUINT32_TO_LE(name_len);
-	ino->time_create = 
+	ino->time_create =
 	ino->time_modify = GUINT64_TO_LE(current_time);
 	ino->flags = GUINT32_TO_LE(flags);
 
@@ -547,7 +547,7 @@ int cldb_data_get(DB_TXN *txn, cldino_t inum,
 		*data_out = val.data;
 		*data_len = val.size;
 	}
-	
+
 	return rc;
 }
 
@@ -613,7 +613,7 @@ int cldb_handle_get(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 	if (h_out)
 		*h_out = NULL;
 
-	memcpy(&hkey.sid, &sid, CLD_ID_SZ);
+	memcpy(&hkey.sid, &sid, CLD_SID_SZ);
 	hkey.fh = GUINT64_TO_LE(fh);
 
 	memset(&key, 0, sizeof(key));
@@ -668,7 +668,7 @@ int cldb_handle_del(DB_TXN *txn, uint8_t *sid, uint64_t fh)
 	DBT key;
 	struct raw_handle_key hkey;
 
-	memcpy(&hkey.sid, &sid, CLD_ID_SZ);
+	memcpy(&hkey.sid, &sid, CLD_SID_SZ);
 	hkey.fh = GUINT64_TO_LE(fh);
 
 	memset(&key, 0, sizeof(key));
@@ -775,7 +775,7 @@ static int cldb_lock_find(DB_TXN *txn, uint8_t *sid, uint64_t fh, cldino_t inum,
 
 		if (lflags & CLFL_PENDING)
 			continue;
-		
+
 		if (!want_shared ||
 		    (want_shared && (!(lflags & CLFL_SHARED))))
 			break;
@@ -805,7 +805,7 @@ int cldb_lock_add(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 		return rc;
 	if (rc == 0)
 		have_conflict = true;
-	
+
 	if (!wait && have_conflict)
 		return DB_KEYEXIST;
 
@@ -834,7 +834,7 @@ int cldb_lock_add(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 
 	if (acquired && !rc)
 		*acquired = true;
-	
+
 	return rc;
 }
 

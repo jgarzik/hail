@@ -22,6 +22,7 @@
 
 #include <stdbool.h>
 #include <db.h>
+#include "cld_msg.h"
 
 typedef uint64_t cldino_t;
 
@@ -42,18 +43,18 @@ enum lock_flags {
 };
 
 /*
- * session record key:		uint8_t sid[8]
+ * session record key:		uint8_t sid[CLD_SID_SZ]
  */
 
 struct raw_session {
-	uint8_t			sid[8];		/* session id */
+	uint8_t			sid[CLD_SID_SZ]; /* session id */
 	char			addr[64];	/* IP address */
 	uint64_t		last_contact;	/* time of last contact */
 	uint64_t		next_fh;	/* next fh */
 };
 
 struct raw_handle_key {
-	uint8_t			sid[8];		/* session id */
+	uint8_t			sid[CLD_SID_SZ]; /* session id */
 	uint64_t		fh;		/* handle id */
 };
 
@@ -63,7 +64,7 @@ struct raw_handle_key {
  */
 
 struct raw_handle {
-	uint8_t			sid[8];		/* session id */
+	uint8_t			sid[CLD_SID_SZ]; /* session id */
 	uint64_t		fh;		/* handle id */
 	cldino_t		inum;		/* inode number */
 	uint32_t		mode;		/* open mode */
@@ -91,7 +92,7 @@ struct raw_inode {
  */
 
 struct raw_lock {
-	uint8_t			sid[8];		/* session id */
+	uint8_t			sid[CLD_SID_SZ]; /* session id */
 	uint64_t		fh;		/* handle id */
 	uint32_t		flags;		/* lock flags: CLFL_xxxx */
 };

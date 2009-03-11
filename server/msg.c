@@ -658,7 +658,7 @@ static bool try_commit_data(struct server_socket *sock, DB_TXN *txn,
 		tmp = tmp->next;
 
 		/* non-matching msgid[] implies not-our-stream */
-		if (memcmp(dmsg->hdr.msgid, msgid, 8))
+		if (memcmp(dmsg->hdr.msgid, msgid, CLD_MSGID_SZ))
 			continue;
 
 		tmp_seg = GUINT32_FROM_LE(dmsg->seg);
@@ -689,16 +689,16 @@ static bool try_commit_data(struct server_socket *sock, DB_TXN *txn,
 		tmp = tmp->next;
 
 		/* non-matching msgid[] implies not-our-stream */
-		if (memcmp(dmsg->hdr.msgid, msgid, 8))
+		if (memcmp(dmsg->hdr.msgid, msgid, CLD_MSGID_SZ))
 			continue;
-		
+
 		/* remove data packet from data msg queue */
 		sess->data_q = g_list_delete_link(sess->data_q, tmp1);
 
 		tmp_seg = GUINT32_FROM_LE(dmsg->seg);
 		darr[tmp_seg] = dmsg;
 	}
-	
+
 	fh = GUINT64_FROM_LE(pmsg->fh);
 
 	/* read handle from db */

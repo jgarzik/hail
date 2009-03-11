@@ -26,7 +26,8 @@
 
 enum {
 	CLD_MAGIC_SZ		= 8,
-	CLD_ID_SZ		= 8,
+	CLD_SID_SZ		= 8,
+	CLD_MSGID_SZ		= 8,
 };
 
 enum cld_msg_ops {
@@ -89,8 +90,8 @@ enum cld_lock_flags {
 
 struct cld_msg_hdr {
 	uint8_t		magic[CLD_MAGIC_SZ];	/* magic number; constant */
-	uint8_t		msgid[8];		/* message id */
-	uint8_t		sid[CLD_ID_SZ];		/* client id */
+	uint8_t		msgid[CLD_MSGID_SZ];	/* message id */
+	uint8_t		sid[CLD_SID_SZ];	/* client id */
 	uint8_t		op;			/* operation code */
 	uint8_t		res1[7];
 };

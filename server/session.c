@@ -80,7 +80,7 @@ static bool lmatch(const struct raw_lock *lock, uint8_t *sid, uint64_t fh)
 		return false;
 	if (fh && (GUINT64_FROM_LE(lock->fh) != fh))
 		return false;
-	
+
 	return true;
 }
 
@@ -295,9 +295,9 @@ int session_dispose(DB_TXN *txn, struct session *sess)
 
 	if (!sess)
 		return -EINVAL;
-	
+
 	rc = session_remove(txn, sess);
-	
+
 	session_free(sess);
 
 	if (rc)
@@ -320,7 +320,7 @@ static void session_ping(struct session *sess)
 	memset(&resp, 0, sizeof(resp));
 	memcpy(&resp.magic, CLD_MAGIC, strlen(CLD_MAGIC));
 	memcpy(&resp.msgid, &msgid, sizeof(msgid));
-	memcpy(&resp.sid, &sess->sid, CLD_ID_SZ);
+	memcpy(&resp.sid, &sess->sid, CLD_SID_SZ);
 	resp.op = cmo_ping;
 
 	sess_sendmsg(sess, &resp, sizeof(resp), true);
@@ -383,7 +383,7 @@ static void om_free(struct session_outmsg *om)
 {
 	if (!om)
 		return;
-	
+
 	free(om->msg);
 	free(om);
 }
@@ -460,7 +460,7 @@ bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
 
 	sess->out_q = g_list_append(sess->out_q, om);
 
-	udp_tx(sess->sock, (struct sockaddr *) &sess->addr, 
+	udp_tx(sess->sock, (struct sockaddr *) &sess->addr,
 	       sess->addr_len, msg, msglen);
 
 	return true;
@@ -473,7 +473,7 @@ bool sid_sendmsg(const uint8_t *sid, void *msg_, size_t msglen, bool copy_msg)
 	sess = g_hash_table_lookup(cld_srv.sessions, sid);
 	if (!sess)
 		return false;
-	
+
 	return sess_sendmsg(sess, msg_, msglen, copy_msg);
 }
 
