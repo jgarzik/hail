@@ -92,8 +92,10 @@ struct raw_inode {
  */
 
 struct raw_lock {
+	cldino_t		inum;
 	uint8_t			sid[CLD_SID_SZ]; /* session id */
 	uint64_t		fh;		/* handle id */
+	uint64_t		ctime;
 	uint32_t		flags;		/* lock flags: CLFL_xxxx */
 };
 

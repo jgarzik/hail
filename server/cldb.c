@@ -74,9 +74,37 @@ static int handle_idx_key(DB *secondary, const DBT *pkey, const DBT *pdata,
 	return 0;
 }
 
+static int lock_compare(DB *db, const DBT *a_dbt, const DBT *b_dbt)
+{
+	const struct raw_lock *a = a_dbt->data;
+	const struct raw_lock *b = b_dbt->data;
+	cldino_t ai = cldino_from_le(a->inum);
+	cldino_t bi = cldino_from_le(b->inum);
+	uint64_t at = GUINT64_FROM_LE(a->ctime);
+	uint64_t bt = GUINT64_FROM_LE(b->ctime);
+	uint64_t afh = GUINT64_FROM_LE(a->fh);
+	uint64_t bfh = GUINT64_FROM_LE(b->fh);
+	int64_t v;
+
+	v = ai - bi;
+	if (v)
+		return v;
+	
+	v = at - bt;
+	if (v)
+		return v;
+	
+	v = memcmp(a->sid, b->sid, sizeof(a->sid));
+	if (v)
+		return v;
+	
+	return afh - bfh;
+}
+
 static int open_db(DB_ENV *env, DB **db_out, const char *name,
 		   unsigned int page_size, DBTYPE dbtype, unsigned int flags,
 		   int (*bt_compare)(DB *db, const DBT *dbt1, const DBT *dbt2),
+		   int (*dup_compare)(DB *db, const DBT *dbt1, const DBT *dbt2),
 		   int fset)
 {
 	int rc;
@@ -118,6 +146,15 @@ static int open_db(DB_ENV *env, DB **db_out, const char *name,
 		rc = db->set_flags(db, fset);
 		if (rc) {
 			db->err(db, rc, "db->set_flags");
+			rc = -EIO;
+			goto err_out;
+		}
+	}
+
+	if (dup_compare) {
+		rc = db->set_dup_compare(db, dup_compare);
+		if (rc) {
+			db->err(db, rc, "db->set_dup_compare");
 			rc = -EIO;
 			goto err_out;
 		}
@@ -201,17 +238,17 @@ int cldb_open(struct cldb *cldb, unsigned int env_flags, unsigned int flags,
 	 */
 
 	rc = open_db(dbenv, &cldb->sessions, "sessions", CLDB_PGSZ_SESSIONS,
-		     DB_HASH, flags, NULL, 0);
+		     DB_HASH, flags, NULL, NULL, 0);
 	if (rc)
 		goto err_out;
 
 	rc = open_db(dbenv, &cldb->inodes, "inodes", CLDB_PGSZ_INODES,
-		     DB_HASH, flags, NULL, 0);
+		     DB_HASH, flags, NULL, NULL, 0);
 	if (rc)
 		goto err_out_sess;
 
 	rc = open_db(dbenv, &cldb->inode_names, "inode_names",
-		     CLDB_PGSZ_INODE_NAMES, DB_BTREE, flags, NULL, 0);
+		     CLDB_PGSZ_INODE_NAMES, DB_BTREE, flags, NULL, NULL, 0);
 	if (rc)
 		goto err_out_ino;
 
@@ -224,17 +261,18 @@ int cldb_open(struct cldb *cldb, unsigned int env_flags, unsigned int flags,
 	}
 
 	rc = open_db(dbenv, &cldb->data, "data", CLDB_PGSZ_DATA,
-		     DB_HASH, flags, NULL, 0);
+		     DB_HASH, flags, NULL, NULL, 0);
 	if (rc)
 		goto err_out_ino_name;
 
 	rc = open_db(dbenv, &cldb->handles, "handles", CLDB_PGSZ_HANDLES,
-		     DB_BTREE, flags, NULL, 0);
+		     DB_BTREE, flags, NULL, NULL, 0);
 	if (rc)
 		goto err_out_data;
 
 	rc = open_db(dbenv, &cldb->handle_idx, "handle_idx",
-		     CLDB_PGSZ_HANDLE_IDX, DB_BTREE, flags, NULL, DB_DUPSORT);
+		     CLDB_PGSZ_HANDLE_IDX, DB_BTREE, flags, NULL,
+		     NULL, DB_DUPSORT);
 	if (rc)
 		goto err_out_handles;
 
@@ -247,7 +285,7 @@ int cldb_open(struct cldb *cldb, unsigned int env_flags, unsigned int flags,
 	}
 
 	rc = open_db(dbenv, &cldb->locks, "locks", CLDB_PGSZ_LOCKS,
-		     DB_HASH, flags, NULL, DB_DUPSORT);
+		     DB_HASH, flags, NULL, lock_compare, DB_DUPSORT);
 	if (rc)
 		goto err_out_handle_idx;
 
@@ -814,8 +852,10 @@ int cldb_lock_add(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 	if (wait && have_conflict)
 		lock_flags |= CLFL_PENDING;
 
+	lock.inum = cldino_to_le(inum);
 	memcpy(lock.sid, sid, sizeof(lock.sid));
 	lock.fh = GUINT64_TO_LE(fh);
+	lock.ctime = GUINT64_TO_LE(current_time);
 	lock.flags = GUINT32_TO_LE(lock_flags);
 
 	memset(&key, 0, sizeof(key));
