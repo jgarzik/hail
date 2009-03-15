@@ -362,3 +362,11 @@ void read_config(void)
 		exit(1);
 	}
 }
+
+char *time2str(char *strbuf, time_t time)
+{
+	struct tm *tm = gmtime(&time);
+	strftime(strbuf, 64, "%a, %d %b %Y %H:%M:%S %z", tm);
+	return strbuf;
+}
+
