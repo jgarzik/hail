@@ -3,7 +3,9 @@
 #include "chunkd-config.h"
 #include <sys/types.h>
 #include <sys/stat.h>
-#if defined(HAVE_SENDFILE) && defined(HAVE_SYS_SENDFILE_H)
+#include <sys/socket.h>
+#include <sys/uio.h>
+#if defined(HAVE_SYS_SENDFILE_H)
 #include <sys/sendfile.h>
 #endif
 #include <stdlib.h>
@@ -284,7 +286,7 @@ ssize_t fs_obj_write(struct backend_obj *bo, const void *ptr, size_t len)
 	return rc;
 }
 
-#if defined(HAVE_SENDFILE) && defined(HAVE_SYS_SENDFILE_H)
+#if defined(HAVE_SENDFILE) && defined(__linux__)
 
 ssize_t fs_obj_sendfile(struct backend_obj *bo, int out_fd, size_t len)
 {
@@ -300,6 +302,30 @@ ssize_t fs_obj_sendfile(struct backend_obj *bo, int out_fd, size_t len)
 		       obj->in_fn, strerror(errno));
 
 	return rc;
+}
+
+#elif defined(HAVE_SENDFILE) && defined(__FreeBSD__)
+
+ssize_t fs_obj_sendfile(struct backend_obj *bo, int out_fd, size_t len)
+{
+	struct fs_obj *obj = bo->private;
+	ssize_t rc;
+	off_t sbytes = 0;
+
+	if (obj->sendfile_ofs == 0)
+		obj->sendfile_ofs += sizeof(struct be_fs_obj_hdr);
+
+	rc = sendfile(obj->in_fd, out_fd, obj->sendfile_ofs, len,
+		      NULL, &sbytes, 0);
+	if (rc < 0) {
+		syslog(LOG_ERR, "obj sendfile(%s) failed: %s",
+		       obj->in_fn, strerror(errno));
+		return rc;
+	}
+
+	obj->sendfile_ofs += sbytes;
+
+	return sbytes;
 }
 
 #else
