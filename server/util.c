@@ -140,28 +140,12 @@ void shastr(const unsigned char *digest, char *outstr)
 
 static struct {
 	char		*text;
-	bool		in_vol;
 	bool		in_ssl;
 	bool		in_listen;
 	bool		have_ssl;
-	struct server_volume *tmp_vol;
+	char		*vol_path;
 	struct listen_cfg tmp_listen;
 } cfg_context;
-
-static void free_server_volume(struct server_volume *v)
-{
-	if (!v)
-		return;
-	
-	free(v->name);
-	free(v->path);
-	free(v);
-}
-
-static void __free_server_volume(gpointer data)
-{
-	free_server_volume(data);
-}
 
 static void cfg_elm_text (GMarkupParseContext *context,
 			  const gchar	*text,
@@ -180,12 +164,7 @@ static void cfg_elm_start (GMarkupParseContext *context,
 			 gpointer     user_data,
 			 GError	     **error)
 {
-	if (!strcmp(element_name, "Volume")) {
-		cfg_context.in_vol = true;
-		free_server_volume(cfg_context.tmp_vol);
-		cfg_context.tmp_vol = calloc(1, sizeof(struct server_volume));
-	}
-	else if (!strcmp(element_name, "SSL"))
+	if (!strcmp(element_name, "SSL"))
 		cfg_context.in_ssl = true;
 	else if (!strcmp(element_name, "Listen")) {
 		cfg_context.in_listen = true;
@@ -223,33 +202,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		cfg_context.text = NULL;
 	}
 
-	else if (!strcmp(element_name, "Volume")) {
-		cfg_context.in_vol = false;
-		if (cfg_context.tmp_vol->name &&
-		    cfg_context.tmp_vol->path)
-			g_hash_table_replace(chunkd_srv.volumes,
-				cfg_context.tmp_vol->name,
-				cfg_context.tmp_vol);
-		else
-			free_server_volume(cfg_context.tmp_vol);
-		cfg_context.tmp_vol = NULL;
-	}
-
-	else if (cfg_context.in_vol && cfg_context.text &&
-		 !strcmp(element_name, "Name")) {
-		if (!volume_valid(cfg_context.text)) {
-			syslog(LOG_ERR, "invalid volume name (req. DNS rules): '%s'",
-				cfg_context.text);
-			return;
-		}
-
-		free(cfg_context.tmp_vol->name);
-		cfg_context.tmp_vol->name = cfg_context.text;
-		cfg_context.text = NULL;
-	}
-
-	else if (cfg_context.in_vol && cfg_context.text &&
-		 !strcmp(element_name, "Path")) {
+	else if (!strcmp(element_name, "Path") && cfg_context.text) {
 		if (stat(cfg_context.text, &st) < 0) {
 			syslog(LOG_ERR, "stat(2) cfgfile Path '%s' failed: %s",
 			       cfg_context.text, strerror(errno));
@@ -262,8 +215,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 			return;
 		}
 
-		free(cfg_context.tmp_vol->path);
-		cfg_context.tmp_vol->path = cfg_context.text;
+		chunkd_srv.vol_path = cfg_context.text;
 		cfg_context.text = NULL;
 	}
 
@@ -366,13 +318,6 @@ void read_config(void)
 	char *text;
 	gsize len;
 
-	chunkd_srv.volumes = g_hash_table_new_full(
-		g_str_hash, g_str_equal, NULL, __free_server_volume);
-	if (!chunkd_srv.volumes) {
-		syslog(LOG_ERR, "OOM in read_config");
-		exit(1);
-	}
-
 	if (!g_file_get_contents(chunkd_srv.config, &text, &len, NULL)) {
 		syslog(LOG_ERR, "failed to read config file %s",
 			chunkd_srv.config);
@@ -393,8 +338,8 @@ void read_config(void)
 	g_markup_parse_context_free(parser);
 	free(text);
 
-	if (!chunkd_srv.volumes) {
-		syslog(LOG_ERR, "error: no volumes defined in cfg file");
+	if (!chunkd_srv.vol_path) {
+		syslog(LOG_ERR, "error: no volume Path defined in cfg file");
 		exit(1);
 	}
 

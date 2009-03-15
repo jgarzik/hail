@@ -14,95 +14,7 @@
 #include <pcre.h>
 #include "chunkd.h"
 
-struct vol_foreach_info {
-	GList		*content;
-};
-
-static void volume_foreach(gpointer key, gpointer val, gpointer user_data)
-{
-	struct server_volume *vol = val;
-	struct vol_foreach_info *vfi = user_data;
-	char *s;
-
-	if (asprintf(&s,
-                     "    <Volume>\r\n"
-                     "      <Name>%s</Name>\r\n"
-                     "    </Volume>\r\n",
-
-		     vol->name) < 0)
-		return;
-
-	vfi->content = g_list_append(vfi->content, s);
-}
-
-bool service_list(struct client *cli, const char *user)
-{
-	GList *files = NULL, *content = NULL;
-	char *s;
-	enum errcode err = InternalError;
-	bool rcb;
-	struct vol_foreach_info vfi;
-
-	if (asprintf(&s,
-"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
-"<ListAllMyVolumesResult xmlns=\"http://indy.yyz.us/doc/2006-03-01/\">\r\n"
-"  <Owner>%s</Owner>\r\n"
-"  <Volumes>\r\n",
-
-		     user) < 0)
-		goto err_out;
-
-	content = g_list_append(content, s);
-
-	memset(&vfi, 0, sizeof(vfi));
-
-	vfi.content = content;
-
-	g_hash_table_foreach(chunkd_srv.volumes, volume_foreach, &vfi);
-
-	content = vfi.content;
-
-	if (asprintf(&s,
-"  </Volumes>\r\n"
-"</ListAllMyVolumesResult>\r\n") < 0)
-		goto err_out_content;
-
-	content = g_list_append(content, s);
-
-	rcb = cli_resp_xml(cli, 200, content);
-
-	strlist_free(files);
-	g_list_free(content);
-
-	return rcb;
-
-err_out_content:
-	strlist_free(content);
-err_out:
-	strlist_free(files);
-	return cli_err(cli, err);
-}
-
-bool volume_valid(const char *volume)
-{
-	int captured[16], rc;
-	size_t len;
-
-	if (!volume)
-		return false;
-
-	len = strlen(volume);
-	if (len < 1 || len > 63)
-		return false;
-
-	rc = pcre_exec(patterns[pat_volume_name].re, NULL,
-			volume, len, 0, 0, captured, 16);
-
-	return (rc > 0);
-}
-
-bool volume_list(struct client *cli, const char *user,
-		 struct server_volume *vol)
+bool volume_list(struct client *cli, const char *user)
 {
 	enum errcode err = InternalError;
 	char *s;
@@ -111,23 +23,19 @@ bool volume_list(struct client *cli, const char *user,
 	GList *res = NULL;
 
 	/* verify READ access */
-	if (!vol) {
-		err = NoSuchVolume;
-		goto err_out;
-	}
 	if (!user) {
 		err = AccessDenied;
 		goto err_out;
 	}
 
-	res = fs_list_objs(vol);
+	res = fs_list_objs();
 
 	asprintf(&s,
 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
 "<ListVolumeResult xmlns=\"http://indy.yyz.us/doc/2006-03-01/\">\r\n"
 "  <Name>%s</Name>\r\n",
 
-		 vol->name);
+		 "volume");
 
 	content = g_list_append(NULL, s);
 
@@ -143,7 +51,7 @@ bool volume_list(struct client *cli, const char *user,
 		hash = tmpl->data;
 		tmpl = tmpl->next;
 
-		fn = fs_obj_pathname(vol, name);
+		fn = fs_obj_pathname(name);
 		if (!fn)
 			goto do_next;
 

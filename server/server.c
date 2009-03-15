@@ -72,15 +72,6 @@ struct server chunkd_srv = {
 };
 
 struct compiled_pat patterns[] = {
-	[pat_volume_name] =
-	{ "^\\w+$", 0, },
-
-	[pat_volume_host] =
-	{ "^\\s*(\\w+)\\.(\\w.*)$", 0, },
-
-	[pat_volume_path] =
-	{ "^/(\\w+)(.*)$", 0, },
-
 	[pat_auth] =
 	{ "^STOR (\\w+):(\\S+)", 0, },
 };
@@ -102,10 +93,6 @@ static struct {
 	{ "InvalidArgument", 400,
 	  "Invalid Argument" },
 
-	[InvalidVolumeName] =
-	{ "InvalidVolumeName", 400,
-	  "The specified volume is not valid" },
-
 	[InvalidURI] =
 	{ "InvalidURI", 400,
 	  "Could not parse the specified URI" },
@@ -113,10 +100,6 @@ static struct {
 	[MissingContentLength] =
 	{ "MissingContentLength", 411,
 	  "You must provide the Content-Length HTTP header" },
-
-	[NoSuchVolume] =
-	{ "NoSuchVolume", 404,
-	  "The specified volume does not exist" },
 
 	[NoSuchKey] =
 	{ "NoSuchKey", 404,
@@ -658,17 +641,15 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 	int captured[16];
 	struct http_req *req = &cli->req;
 	char *host, *auth, *content_len_str, *cxn_str;
-	char *volume = NULL;
 	char *path = NULL;
 	char *user = NULL;
 	char *key = NULL;
 	char *method = req->method;
-	bool rcb, pslash, buck_in_path = false;
+	bool rcb, pslash;
 	bool expect_cont = false;
 	bool force_close = false;
 	bool sync_data;
 	enum errcode err;
-	struct server_volume *vol = NULL;
 
 	/* grab useful headers */
 	host = req_hdr(req, "host");
@@ -687,45 +668,15 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 	if (http11(req) && !force_close)
 		req->pipeline = true;
 
-	if (!host) {
-		syslog(LOG_INFO, "%s missing Host header", cli->addr_host);
-		return cli_err(cli, InvalidArgument);
-	}
+	path = g_strndup(req->uri.path, req->uri.path_len);
 
-	/* attempt to obtain volume name from Host */
-	if (pcre_exec(patterns[pat_volume_host].re, NULL,
-		      host, strlen(host), 0, 0, captured, 16) == 3) {
-		if ((strlen(MY_ENDPOINT) == (captured[5] - captured[4])) &&
-		    (!memcmp(MY_ENDPOINT, host + captured[4],
-		    	     strlen(MY_ENDPOINT)))) {
-			volume = g_strndup(host + captured[2],
-					 captured[3] - captured[2]);
-			path = g_strndup(req->uri.path, req->uri.path_len);
-		}
-	}
-
-	/* attempt to obtain volume name from URI path */
-	if (!volume && pcre_exec(patterns[pat_volume_path].re, NULL,
-			   req->uri.path, req->uri.path_len,
-			   0, 0, captured, 16) == 3) {
-		volume = g_strndup(req->uri.path + captured[2],
-				 captured[3] - captured[2]);
-		buck_in_path = true;
-
-		if ((captured[5] - captured[4]) > 0)
-			path = g_strndup(req->uri.path + captured[4],
-				       captured[5] - captured[4]);
-	}
-
-	if (!path)
-		path = strdup("/");
 	pslash = (strcmp(path, "/") == 0);
 	if ((strlen(path) > 1) && (*path == '/'))
 		key = path + 1;
 
 	if (debugging)
-		syslog(LOG_DEBUG, "%s: method %s, path '%s', volume '%s'",
-		       cli->addr_host, method, path, volume);
+		syslog(LOG_DEBUG, "%s: method %s, path '%s'",
+		       cli->addr_host, method, path);
 
 	/* parse Authentication header */
 	if (auth) {
@@ -744,7 +695,7 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 		user = g_strndup(auth + captured[2], captured[3] - captured[2]);
 		usiglen = captured[5] - captured[4];
 
-		req_sign(&cli->req, buck_in_path ? NULL : volume, user, b64sig);
+		req_sign(&cli->req, "volume", user, b64sig);
 
 		rc = strncmp(b64sig, auth + captured[4], usiglen);
 
@@ -758,9 +709,6 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 		err = AccessDenied;
 		goto err_out;
 	}
-
-	if (volume)
-		vol = g_hash_table_lookup(chunkd_srv.volumes, volume);
 
 	/* no matter whether error or not, this is our next state.
 	 * the main question is whether or not we will go immediately
@@ -776,20 +724,13 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 		cli->state = evt_dispose;
 
 	/*
-	 * pre-operation checks
-	 */
-
-	if (volume && !volume_valid(volume))
-		rcb = cli_err(cli, InvalidVolumeName);
-
-	/*
 	 * operations on objects
 	 */
-	else if (volume && !pslash && !strcmp(method, "HEAD"))
-		rcb = object_get(cli, user, vol, key, false);
-	else if (volume && !pslash && !strcmp(method, "GET"))
-		rcb = object_get(cli, user, vol, key, true);
-	else if (volume && !pslash && !strcmp(method, "PUT")) {
+	if (!pslash && !strcmp(method, "HEAD"))
+		rcb = object_get(cli, user, key, false);
+	else if (!pslash && !strcmp(method, "GET"))
+		rcb = object_get(cli, user, key, true);
+	else if (!pslash && !strcmp(method, "PUT")) {
 		long content_len;
 
 		if (!content_len_str) {
@@ -799,30 +740,22 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 
 		content_len = atol(content_len_str);
 
-		rcb = object_put(cli, user, vol, key, content_len, expect_cont,
+		rcb = object_put(cli, user, key, content_len, expect_cont,
 				 sync_data);
-	} else if (volume && !pslash && !strcmp(method, "DELETE"))
-		rcb = object_del(cli, user, vol, key);
+	} else if (!pslash && !strcmp(method, "DELETE"))
+		rcb = object_del(cli, user, key);
 
 	/*
 	 * operations on volumes
 	 */
-	else if (volume && pslash && !strcmp(method, "GET")) {
-		rcb = volume_list(cli, user, vol);
-	}
-
-	/*
-	 * service-wide operations
-	 */
-	else if (!volume && pslash && !strcmp(method, "GET")) {
-		rcb = service_list(cli, user);
+	else if (pslash && !strcmp(method, "GET")) {
+		rcb = volume_list(cli, user);
 	}
 
 	else
 		rcb = cli_err(cli, InvalidURI);
 
 out:
-	free(volume);
 	free(path);
 	free(user);
 	return rcb;

@@ -37,21 +37,14 @@ using <Listen>, <Node>, <Port>, and <Encrypt>:
 <Encrypt>	TLS is enabled on this port
 
 
-volumes served
-==============
-You specify each volume served by this daemon using <Volume>, <Name>,
-and <Path>.
+volume served
+=============
+You specify the volume served by this daemon using <Path>.
 
     Your basic setup, an empty directory:
-	<Volume>
-		<Name>MyFirstVolume</Name>
-		<Path>/disk/massive/data</Path>
-	</Volume>
+	<Path>/disk/massive/data</Path>
 
 
-<Volume>	Record delimiter
-<Name>		short reference name for this volume
-		("DNS rules": no weird characters, length <= 63)
 <Path>		Path to volume
 
 

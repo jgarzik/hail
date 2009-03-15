@@ -25,7 +25,7 @@ struct fs_obj {
 	char			*in_fn;
 };
 
-static struct fs_obj *fs_obj_alloc(struct server_volume *vol)
+static struct fs_obj *fs_obj_alloc(void)
 {
 	struct fs_obj *obj;
 
@@ -34,7 +34,6 @@ static struct fs_obj *fs_obj_alloc(struct server_volume *vol)
 		return NULL;
 
 	obj->bo.private = obj;
-	obj->bo.vol = vol;
 
 	obj->out_fd = -1;
 	obj->in_fd = -1;
@@ -42,7 +41,7 @@ static struct fs_obj *fs_obj_alloc(struct server_volume *vol)
 	return obj;
 }
 
-char *fs_obj_pathname(struct server_volume *vol, const char *cookie)
+char *fs_obj_pathname(const char *cookie)
 {
 	char *s = NULL;
 	char prefix[5] = "";
@@ -52,12 +51,12 @@ char *fs_obj_pathname(struct server_volume *vol, const char *cookie)
 	/* cookies are guaranteed elsewhere to be at least 7 chars */
 	memcpy(prefix, cookie, 4);
 
-	slen = strlen(vol->path) + strlen(prefix) + strlen(cookie) + 3;
+	slen = strlen(chunkd_srv.vol_path) + strlen(prefix) + strlen(cookie) + 3;
 	s = malloc(slen);
 	if (!s)
 		return NULL;
 
-	sprintf(s, "%s/%s", vol->path, prefix);
+	sprintf(s, "%s/%s", chunkd_srv.vol_path, prefix);
 
 	/* create subdir on the fly, if not already exists */
 	if (stat(s, &st) < 0) {
@@ -75,7 +74,7 @@ char *fs_obj_pathname(struct server_volume *vol, const char *cookie)
 		goto err_out;
 	}
 
-	sprintf(s, "%s/%s/%s", vol->path, prefix, cookie);
+	sprintf(s, "%s/%s/%s", chunkd_srv.vol_path, prefix, cookie);
 	
 	return s;
 
@@ -112,7 +111,7 @@ static bool cookie_valid(const char *cookie)
 	return true;
 }
 
-struct backend_obj *fs_obj_new(struct server_volume *vol, const char *cookie)
+struct backend_obj *fs_obj_new(const char *cookie)
 {
 	struct fs_obj *obj;
 	char *fn = NULL;
@@ -124,12 +123,12 @@ struct backend_obj *fs_obj_new(struct server_volume *vol, const char *cookie)
 	if (!cookie_valid(cookie))
 		return NULL;
 
-	obj = fs_obj_alloc(vol);
+	obj = fs_obj_alloc();
 	if (!obj)
 		return NULL;
 
-	/* build local fs pathname, volume path + cookie */
-	fn = fs_obj_pathname(vol, cookie);
+	/* build local fs pathname */
+	fn = fs_obj_pathname(cookie);
 	if (!fn) {
 		syslog(LOG_ERR, "OOM in object_put");
 		goto err_out;
@@ -164,9 +163,8 @@ err_out:
 	return NULL;
 }
 
-struct backend_obj *fs_obj_open(struct server_volume *vol,
-				       const char *cookie,
-				       enum errcode *err_code)
+struct backend_obj *fs_obj_open(const char *cookie,
+				enum errcode *err_code)
 {
 	struct fs_obj *obj;
 	struct stat st;
@@ -178,12 +176,12 @@ struct backend_obj *fs_obj_open(struct server_volume *vol,
 
 	*err_code = InternalError;
 
-	obj = fs_obj_alloc(vol);
+	obj = fs_obj_alloc();
 	if (!obj)
 		return NULL;
 
-	/* build local fs pathname, volume path + cookie */
-	obj->in_fn = fs_obj_pathname(vol, cookie);
+	/* build local fs pathname */
+	obj->in_fn = fs_obj_pathname(cookie);
 	if (!obj->in_fn)
 		goto err_out;
 
@@ -328,8 +326,7 @@ bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 	return true;
 }
 
-bool fs_obj_delete(struct server_volume *vol,
-			  const char *cookie, enum errcode *err_code)
+bool fs_obj_delete(const char *cookie, enum errcode *err_code)
 {
 	char *fn = NULL;
 
@@ -337,8 +334,8 @@ bool fs_obj_delete(struct server_volume *vol,
 
 	/* FIXME: check owner */
 
-	/* build local fs pathname, volume path + cookie */
-	fn = fs_obj_pathname(vol, cookie);
+	/* build local fs pathname */
+	fn = fs_obj_pathname(cookie);
 	if (!fn)
 		goto err_out;
 
@@ -359,18 +356,18 @@ err_out:
 	return false;
 }
 
-GList *fs_list_objs(struct server_volume *vol)
+GList *fs_list_objs(void)
 {
 	GList *res = NULL;
 	struct dirent *de, *root_de;
 	DIR *d, *root;
 	char *sub;
 
-	sub = alloca(strlen(vol->path) + 1 + 4 + 1);
+	sub = alloca(strlen(chunkd_srv.vol_path) + 1 + 4 + 1);
 
-	root = opendir(vol->path);
+	root = opendir(chunkd_srv.vol_path);
 	if (!root) {
-		syslogerr(vol->path);
+		syslogerr(chunkd_srv.vol_path);
 		return NULL;
 	}
 
@@ -382,7 +379,7 @@ GList *fs_list_objs(struct server_volume *vol)
 		if (strlen(root_de->d_name) != 4)
 			continue;
 
-		sprintf(sub, "%s/%s", vol->path, root_de->d_name);
+		sprintf(sub, "%s/%s", chunkd_srv.vol_path, root_de->d_name);
 		d = opendir(sub);
 		if (!d) {
 			syslogerr(sub);
@@ -398,7 +395,7 @@ GList *fs_list_objs(struct server_volume *vol)
 			if (de->d_name[0] == '.')
 				continue;
 
-			fn = fs_obj_pathname(vol, de->d_name);
+			fn = fs_obj_pathname(de->d_name);
 			if (!fn)
 				break;
 

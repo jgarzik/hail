@@ -34,36 +34,18 @@ enum errcode {
 	AccessDenied,
 	InternalError,
 	InvalidArgument,
-	InvalidVolumeName,
 	InvalidURI,
 	MissingContentLength,
-	NoSuchVolume,
 	NoSuchKey,
 	PreconditionFailed,
 	SignatureDoesNotMatch,
 };
 
-enum sql_stmt_indices {
-	st_begin,
-	st_commit,
-	st_rollback,
-	st_volume_objects,
-	st_add_obj,
-	st_del_obj,
-	st_object,
-
-	st_last = st_object
-};
-
 struct client;
 struct client_write;
-struct server_volume;
 struct server_socket;
 
 enum {
-	pat_volume_name,
-	pat_volume_host,
-	pat_volume_path,
 	pat_auth,
 };
 
@@ -146,7 +128,6 @@ struct be_fs_obj_hdr {
 };
 
 struct backend_obj {
-	struct server_volume	*vol;
 	void			*private;
 	char			cookie[MAX_COOKIE_LEN + 1];
 
@@ -168,11 +149,6 @@ struct server_stats {
 	unsigned long		opt_write;	/* optimistic writes */
 };
 
-struct server_volume {
-	char			*name;		/* DNS-friendly short name */
-	char			*path;		/* pathname for this volume */
-};
-
 struct server_socket {
 	int			fd;
 	bool			encrypt;
@@ -186,46 +162,40 @@ struct server {
 	char			*data_dir;
 	char			*pid_file;	/* PID file */
 
-	GHashTable		*volumes;
-	GHashTable		*backends;
-
 	GList			*listeners;
 	GList			*sockets;
 
 	struct list_head	wr_trash;
 	unsigned int		trash_sz;
 
+	char			*vol_path;
+
 	struct server_stats	stats;		/* global statistics */
 };
 
 /* be-fs.c */
-extern char *fs_obj_pathname(struct server_volume *vol, const char *cookie);
-extern struct backend_obj *fs_obj_new(struct server_volume *vol, const char *cookie);
-extern struct backend_obj *fs_obj_open(struct server_volume *vol,
-				       const char *cookie,
+extern char *fs_obj_pathname(const char *cookie);
+extern struct backend_obj *fs_obj_new(const char *cookie);
+extern struct backend_obj *fs_obj_open(const char *cookie,
 				       enum errcode *err_code);
 extern ssize_t fs_obj_write(struct backend_obj *bo, const void *ptr, size_t len);
 extern ssize_t fs_obj_read(struct backend_obj *bo, void *ptr, size_t len);
 extern void fs_obj_free(struct backend_obj *bo);
 extern bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 				const char *hashstr, bool sync_data);
-extern bool fs_obj_delete(struct server_volume *vol,
-			  const char *cookie, enum errcode *err_code);
-extern GList *fs_list_objs(struct server_volume *vol);
+extern bool fs_obj_delete(const char *cookie, enum errcode *err_code);
+extern GList *fs_list_objs(void);
 
 /* volume.c */
-extern bool volume_list(struct client *cli, const char *user, struct server_volume *volume);
-extern bool volume_valid(const char *volume);
-extern bool service_list(struct client *cli, const char *user);
+extern bool volume_list(struct client *cli, const char *user);
 
 /* object.c */
 extern bool object_del(struct client *cli, const char *user,
-			struct server_volume *volume, const char *key);
+		const char *key);
 extern bool object_put(struct client *cli, const char *user,
-			struct server_volume *volume, const char *key,
+		const char *key,
 		long content_len, bool expect_cont, bool sync_data);
 extern bool object_get(struct client *cli, const char *user,
-			struct server_volume *volume,
                        const char *key, bool want_body);
 extern bool cli_evt_http_data_in(struct client *cli, unsigned int events);
 extern void cli_out_end(struct client *cli);

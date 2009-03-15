@@ -7,15 +7,6 @@
 #include <glib.h>
 #include <pcre.h>
 
-struct st_volume {
-	char		*name;
-};
-
-struct st_vlist {
-	char		*owner;		/* Owner */
-	GList		*list;		/* list of st_volume */
-};
-
 struct st_object {
 	char		*name;
 	char		*time_mod;
@@ -41,8 +32,6 @@ struct st_client {
 };
 
 extern void stc_free(struct st_client *stc);
-extern void stc_free_volume(struct st_volume *vol);
-extern void stc_free_vlist(struct st_vlist *vlist);
 extern void stc_free_keylist(struct st_keylist *keylist);
 extern void stc_free_object(struct st_object *obj);
 
@@ -50,21 +39,18 @@ extern struct st_client *stc_new(const char *service_host, int port,
 				 const char *user, const char *secret_key,
 				 bool encrypt);
 
-extern bool stc_get(struct st_client *stc, const char *volume, const char *key,
+extern bool stc_get(struct st_client *stc, const char *key,
 	     size_t (*write_cb)(void *, size_t, size_t, void *),
 	     void *user_data, bool want_headers);
-extern void *stc_get_inline(struct st_client *stc, const char *volume,
+extern void *stc_get_inline(struct st_client *stc,
 			    const char *key, bool want_headers, size_t *len);
-extern bool stc_put(struct st_client *stc, const char *volume,
-	     const char *key,
+extern bool stc_put(struct st_client *stc, const char *key,
 	     size_t (*read_cb)(void *, size_t, size_t, void *),
 	     uint64_t len, void *user_data);
-extern bool stc_put_inline(struct st_client *stc, const char *volume,
-			   const char *key,
+extern bool stc_put_inline(struct st_client *stc, const char *key,
 			   void *data, uint64_t len);
-extern bool stc_del(struct st_client *stc, const char *volume, const char *key);
+extern bool stc_del(struct st_client *stc, const char *key);
 
-extern struct st_vlist *stc_list_volumes(struct st_client *stc);
-extern struct st_keylist *stc_keys(struct st_client *stc, const char *volume);
+extern struct st_keylist *stc_keys(struct st_client *stc);
 
 #endif /* __STC_H__ */

@@ -12,19 +12,17 @@
 #include "chunkd.h"
 
 bool object_del(struct client *cli, const char *user,
-		struct server_volume *vol, const char *basename)
+		const char *basename)
 {
 	char timestr[50], *hdr;
 	int rc;
 	enum errcode err = InternalError;
 	bool rcb;
 
-	if (!vol)
-		return cli_err(cli, NoSuchVolume);
 	if (!user)
 		return cli_err(cli, AccessDenied);
 
-	rcb = fs_obj_delete(vol, basename, &err);
+	rcb = fs_obj_delete(basename, &err);
 	if (!rcb)
 		return cli_err(cli, err);
 
@@ -186,18 +184,16 @@ bool cli_evt_http_data_in(struct client *cli, unsigned int events)
 }
 
 bool object_put(struct client *cli, const char *user,
-		struct server_volume *vol, const char *key,
+		const char *key,
 		long content_len, bool expect_cont, bool sync_data)
 {
 	long avail;
 	bool start_write = false;
 
-	if (!vol)
-		return cli_err(cli, NoSuchVolume);
 	if (!user)
 		return cli_err(cli, AccessDenied);
  
-	cli->out_bo = fs_obj_new(vol, key);
+	cli->out_bo = fs_obj_new(key);
 	if (!cli->out_bo)
 		return cli_err(cli, InternalError);
 
@@ -294,7 +290,6 @@ err_out_buf:
 }
 
 bool object_get(struct client *cli, const char *user,
-		struct server_volume *vol,
 		const char *basename, bool want_body)
 {
 	char timestr[50], modstr[50], *hdr;
@@ -304,16 +299,12 @@ bool object_get(struct client *cli, const char *user,
 	bool modified = true;
 	struct backend_obj *obj;
 
-	if (!vol) {
-		err = NoSuchVolume;
-		goto err_out;
-	}
 	if (!user) {
 		err = AccessDenied;
 		goto err_out;
 	}
 
-	obj = fs_obj_open(vol, basename, &err);
+	obj = fs_obj_open(basename, &err);
 	if (!obj)
 		goto err_out;
 

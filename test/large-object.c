@@ -49,11 +49,11 @@ static void test(bool encrypt)
 	OK(stc);
 
 	/* store object */
-	rcb = stc_put(stc, "testvol", key, read_cb, N_BUFS * BUFSZ, data);
+	rcb = stc_put(stc, key, read_cb, N_BUFS * BUFSZ, data);
 	OK(rcb);
 
 	/* make sure object appears in list of volume keys */
-	klist = stc_keys(stc, "testvol");
+	klist = stc_keys(stc);
 	OK(klist);
 	OK(klist->contents);
 	OK(klist->contents->next == NULL);
@@ -68,7 +68,7 @@ static void test(bool encrypt)
 	OK(obj->owner);
 
 	/* get object */
-	mem = stc_get_inline(stc, "testvol", key, false, &len);
+	mem = stc_get_inline(stc, key, false, &len);
 	OK(mem);
 	OK(len == (N_BUFS * BUFSZ));
 
@@ -80,7 +80,7 @@ static void test(bool encrypt)
 	}
 
 	/* delete object */
-	rcb = stc_del(stc, "testvol", key);
+	rcb = stc_del(stc, key);
 	OK(rcb);
 
 	stc_free(stc);

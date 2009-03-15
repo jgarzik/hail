@@ -83,7 +83,7 @@ static size_t all_data_cb(void *ptr, size_t size, size_t nmemb, void *user_data)
 	return len;
 }
 
-bool stc_get(struct st_client *stc, const char *volume, const char *key,
+bool stc_get(struct st_client *stc, const char *key,
 	     size_t (*write_cb)(void *, size_t, size_t, void *),
 	     void *user_data, bool want_headers)
 {
@@ -93,7 +93,7 @@ bool stc_get(struct st_client *stc, const char *volume, const char *key,
 	struct curl_slist *headers = NULL;
 	int rc;
 
-	if (asprintf(&stmp, "/%s/%s", volume, key) < 0)
+	if (asprintf(&stmp, "/%s", key) < 0)
 		return false;
 
 	orig_path = field_escape(stmp, PATH_ESCAPE_MASK);
@@ -106,7 +106,7 @@ bool stc_get(struct st_client *stc, const char *volume, const char *key,
 
 	req_hdr_push(&req, "Date", timestr);
 
-	req_sign(&req, NULL, stc->key, hmac);
+	req_sign(&req, "volume", stc->key, hmac);
 
 	sprintf(auth, "Authorization: STOR %s:%s", stc->user, hmac);
 	sprintf(host, "Host: %s", stc->host);
@@ -136,7 +136,7 @@ bool stc_get(struct st_client *stc, const char *volume, const char *key,
 	return (rc == 0);
 }
 
-void *stc_get_inline(struct st_client *stc, const char *volume, const char *key,
+void *stc_get_inline(struct st_client *stc, const char *key,
 		     bool want_headers, size_t *len)
 {
 	bool rcb;
@@ -147,7 +147,7 @@ void *stc_get_inline(struct st_client *stc, const char *volume, const char *key,
 	if (!all_data)
 		return NULL;
 
-	rcb = stc_get(stc, volume, key, all_data_cb, all_data, want_headers);
+	rcb = stc_get(stc, key, all_data_cb, all_data, want_headers);
 	if (!rcb) {
 		g_byte_array_free(all_data, TRUE);
 		return NULL;
@@ -162,8 +162,7 @@ void *stc_get_inline(struct st_client *stc, const char *volume, const char *key,
 	return mem;
 }
 
-bool stc_put(struct st_client *stc, const char *volume,
-	     const char *key,
+bool stc_put(struct st_client *stc, const char *key,
 	     size_t (*read_cb)(void *, size_t, size_t, void *),
 	     uint64_t len, void *user_data)
 {
@@ -174,7 +173,7 @@ bool stc_put(struct st_client *stc, const char *volume,
 	int rc;
 	GByteArray *all_data;
 
-	if (asprintf(&stmp, "/%s/%s", volume, key) < 0)
+	if (asprintf(&stmp, "/%s", key) < 0)
 		return false;
 
 	all_data = g_byte_array_new();
@@ -193,7 +192,7 @@ bool stc_put(struct st_client *stc, const char *volume,
 
 	req_hdr_push(&req, "Date", timestr);
 
-	req_sign(&req, NULL, stc->key, hmac);
+	req_sign(&req, "volume", stc->key, hmac);
 
 	sprintf(auth, "Authorization: STOR %s:%s", stc->user, hmac);
 	sprintf(host, "Host: %s", stc->host);
@@ -256,16 +255,15 @@ static size_t read_inline_cb(void *ptr, size_t size, size_t nmemb,
 	return len;
 }
 
-bool stc_put_inline(struct st_client *stc, const char *volume,
-	     const char *key,
+bool stc_put_inline(struct st_client *stc, const char *key,
 	     void *data, uint64_t len)
 {
 	struct stc_put_info spi = { data, len };
 
-	return stc_put(stc, volume, key, read_inline_cb, len, &spi);
+	return stc_put(stc, key, read_inline_cb, len, &spi);
 }
 
-bool stc_del(struct st_client *stc, const char *volume, const char *key)
+bool stc_del(struct st_client *stc, const char *key)
 {
 	struct http_req req;
 	char datestr[80], timestr[64], hmac[64], auth[128], host[80],
@@ -273,7 +271,7 @@ bool stc_del(struct st_client *stc, const char *volume, const char *key)
 	struct curl_slist *headers = NULL;
 	int rc;
 
-	if (asprintf(&stmp, "/%s/%s", volume, key) < 0)
+	if (asprintf(&stmp, "/%s", key) < 0)
 		return false;
 
 	orig_path = field_escape(stmp, PATH_ESCAPE_MASK);
@@ -286,7 +284,7 @@ bool stc_del(struct st_client *stc, const char *volume, const char *key)
 
 	req_hdr_push(&req, "Date", timestr);
 
-	req_sign(&req, NULL, stc->key, hmac);
+	req_sign(&req, "volume", stc->key, hmac);
 
 	sprintf(auth, "Authorization: STOR %s:%s", stc->user, hmac);
 	sprintf(host, "Host: %s", stc->host);
@@ -311,181 +309,6 @@ bool stc_del(struct st_client *stc, const char *volume, const char *key)
 	free(orig_path);
 
 	return (rc == 0);
-}
-
-void stc_free_volume(struct st_volume *vol)
-{
-	if (!vol)
-		return;
-
-	free(vol->name);
-	free(vol);
-}
-
-void stc_free_vlist(struct st_vlist *vlist)
-{
-	GList *tmp;
-
-	if (!vlist)
-		return;
-
-	free(vlist->owner);
-
-	tmp = vlist->list;
-	while (tmp) {
-		struct st_volume *vol;
-
-		vol = tmp->data;
-		stc_free_volume(vol);
-
-		tmp = tmp->next;
-	}
-
-	g_list_free(vlist->list);
-
-	free(vlist);
-}
-
-static void stc_parse_volumes(xmlDocPtr doc, xmlNode *node,
-			      struct st_vlist *vlist)
-{
-	struct st_volume *vol;
-	xmlNode *tmp;
-
-	while (node) {
-		if (node->type != XML_ELEMENT_NODE)
-			goto next;
-
-		if (_strcmp(node->name, "Volume"))
-			goto next;
-
-		vol = calloc(1, sizeof(*vol));
-		if (!vol)
-			goto next;
-
-		tmp = node->children;
-		while (tmp) {
-			if (tmp->type != XML_ELEMENT_NODE)
-				goto next_tmp;
-
-			if (!_strcmp(tmp->name, "Name"))
-				vol->name = (char *) xmlNodeListGetString(doc,
-							tmp->children, 1);
-
-next_tmp:
-			tmp = tmp->next;
-		}
-
-		if (!vol->name)
-			stc_free_volume(vol);
-		else
-			vlist->list = g_list_append(vlist->list, vol);
-
-next:
-		node = node->next;
-	}
-}
-
-struct st_vlist *stc_list_volumes(struct st_client *stc)
-{
-	struct http_req req;
-	char datestr[80], timestr[64], hmac[64], auth[128], host[80], url[80];
-	struct curl_slist *headers = NULL;
-	struct st_vlist *vlist;
-	xmlDocPtr doc;
-	xmlNode *node;
-	xmlChar *xs;
-	GByteArray *all_data;
-	int rc;
-
-	all_data = g_byte_array_new();
-	if (!all_data)
-		return NULL;
-
-	memset(&req, 0, sizeof(req));
-	req.method = "GET";
-	req.orig_path = "/";
-
-	sprintf(datestr, "Date: %s", time2str(timestr, time(NULL)));
-
-	req_hdr_push(&req, "Date", timestr);
-
-	req_sign(&req, NULL, stc->key, hmac);
-
-	sprintf(auth, "Authorization: STOR %s:%s", stc->user, hmac);
-	sprintf(host, "Host: %s", stc->host);
-
-	headers = curl_slist_append(headers, host);
-	headers = curl_slist_append(headers, datestr);
-	headers = curl_slist_append(headers, auth);
-
-	sprintf(url, "%s/", stc->url);
-
-	curl_easy_reset(stc->curl);
-	if (stc->verbose)
-		curl_easy_setopt(stc->curl, CURLOPT_VERBOSE, 1);
-	curl_easy_setopt(stc->curl, CURLOPT_SSL_VERIFYPEER, 0);
-	curl_easy_setopt(stc->curl, CURLOPT_URL, url);
-	curl_easy_setopt(stc->curl, CURLOPT_HTTPHEADER, headers);
-	curl_easy_setopt(stc->curl, CURLOPT_ENCODING, "");
-	curl_easy_setopt(stc->curl, CURLOPT_FAILONERROR, 1);
-	curl_easy_setopt(stc->curl, CURLOPT_WRITEFUNCTION, all_data_cb);
-	curl_easy_setopt(stc->curl, CURLOPT_WRITEDATA, all_data);
-
-	rc = curl_easy_perform(stc->curl);
-
-	curl_slist_free_all(headers);
-
-	if (rc)
-		goto err_out;
-
-	doc = xmlReadMemory((char *) all_data->data, all_data->len,
-			    "foo.xml", NULL, 0);
-	if (!doc)
-		goto err_out;
-
-	node = xmlDocGetRootElement(doc);
-	if (!node)
-		goto err_out_doc;
-
-	if (_strcmp(node->name, "ListAllMyVolumesResult"))
-		goto err_out_doc;
-
-	vlist = calloc(1, sizeof(*vlist));
-	if (!vlist)
-		goto err_out_doc;
-
-	node = node->children;
-	while (node) {
-		if (node->type != XML_ELEMENT_NODE) {
-			node = node->next;
-			continue;
-		}
-
-		if (!_strcmp(node->name, "Owner")) {
-			xs = xmlNodeListGetString(doc, node->children, 1);
-			vlist->owner = strdup((char *)xs);
-			xmlFree(xs);
-		}
-
-		else if (!_strcmp(node->name, "Volumes"))
-			stc_parse_volumes(doc, node->children, vlist);
-
-		node = node->next;
-	}
-
-	xmlFreeDoc(doc);
-	g_byte_array_free(all_data, TRUE);
-	all_data = NULL;
-
-	return vlist;
-
-err_out_doc:
-	xmlFreeDoc(doc);
-err_out:
-	g_byte_array_free(all_data, TRUE);
-	all_data = NULL;
-	return NULL;
 }
 
 void stc_free_object(struct st_object *obj)
@@ -570,11 +393,11 @@ static void stc_parse_key(xmlDocPtr doc, xmlNode *node,
 		stc_free_object(obj);
 }
 
-struct st_keylist *stc_keys(struct st_client *stc, const char *volume)
+struct st_keylist *stc_keys(struct st_client *stc)
 {
 	struct http_req req;
 	char datestr[80], timestr[64], hmac[64], auth[128], host[80];
-	char orig_path[strlen(volume) + 8];
+	char orig_path[1 + 8];
 	struct curl_slist *headers = NULL;
 	struct st_keylist *keylist;
 	xmlDocPtr doc;
@@ -588,7 +411,7 @@ struct st_keylist *stc_keys(struct st_client *stc, const char *volume)
 	if (!all_data)
 		return NULL;
 
-	sprintf(orig_path, "/%s/", volume);
+	strcpy(orig_path, "/");
 
 	memset(&req, 0, sizeof(req));
 	req.method = "GET";
@@ -598,7 +421,7 @@ struct st_keylist *stc_keys(struct st_client *stc, const char *volume)
 
 	req_hdr_push(&req, "Date", timestr);
 
-	req_sign(&req, NULL, stc->key, hmac);
+	req_sign(&req, "volume", stc->key, hmac);
 
 	sprintf(auth, "Authorization: STOR %s:%s", stc->user, hmac);
 	sprintf(host, "Host: %s", stc->host);
