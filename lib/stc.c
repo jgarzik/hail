@@ -212,6 +212,9 @@ bool stc_get(struct st_client *stc, const char *key,
 	struct chunksrv_resp_get resp;
 	uint64_t content_len;
 
+	if (stc->verbose)
+		fprintf(stderr, "libstc: GET(%s)\n", key);
+
 	/* initialize request */
 	memset(&req, 0, sizeof(req));
 	memcpy(req.magic, CHUNKD_MAGIC, CHD_MAGIC_SZ);
@@ -293,6 +296,10 @@ bool stc_put(struct st_client *stc, const char *key,
 	struct chunksrv_req req;
 	struct chunksrv_req resp;
 	uint64_t content_len = len;
+
+	if (stc->verbose)
+		fprintf(stderr, "libstc: PUT(%s, %Lu)\n", key,
+			(unsigned long long) len);
 
 	/* initialize request */
 	memset(&req, 0, sizeof(req));
@@ -380,6 +387,9 @@ bool stc_del(struct st_client *stc, const char *key)
 {
 	struct chunksrv_req req;
 	struct chunksrv_resp_get resp;
+
+	if (stc->verbose)
+		fprintf(stderr, "libstc: DEL(%s)\n", key);
 
 	/* initialize request */
 	memset(&req, 0, sizeof(req));
@@ -503,6 +513,9 @@ struct st_keylist *stc_keys(struct st_client *stc)
 	struct chunksrv_resp_get resp;
 	uint64_t content_len;
 
+	if (stc->verbose)
+		fprintf(stderr, "libstc: LIST-KEYS\n");
+
 	/* initialize request */
 	memset(&req, 0, sizeof(req));
 	memcpy(req.magic, CHUNKD_MAGIC, CHD_MAGIC_SZ);
@@ -597,6 +610,9 @@ bool stc_ping(struct st_client *stc)
 {
 	struct chunksrv_req req;
 	struct chunksrv_resp_get resp;
+
+	if (stc->verbose)
+		fprintf(stderr, "libstc: PING\n");
 
 	/* initialize request */
 	memset(&req, 0, sizeof(req));
