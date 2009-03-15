@@ -137,7 +137,6 @@ struct st_client *stc_new(const char *service_host, int port,
 		if (connect(fd, rp->ai_addr, rp->ai_addrlen) != -1)
 			break;
 
-		perror("connect");
 		close(fd);
 	}
 
