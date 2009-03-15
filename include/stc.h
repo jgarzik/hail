@@ -1,6 +1,7 @@
 #ifndef __STC_H__
 #define __STC_H__
 
+#include <openssl/ssl.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <glib.h>
@@ -23,8 +24,11 @@ struct st_client {
 	char		*user;
 	char		*key;
 	bool		verbose;
-	bool		ssl;
+
 	int		fd;
+
+	SSL_CTX		*ssl_ctx;
+	SSL		*ssl;
 };
 
 extern void stc_free(struct st_client *stc);
@@ -46,6 +50,7 @@ extern bool stc_put(struct st_client *stc, const char *key,
 extern bool stc_put_inline(struct st_client *stc, const char *key,
 			   void *data, uint64_t len);
 extern bool stc_del(struct st_client *stc, const char *key);
+extern bool stc_ping(struct st_client *stc);
 
 extern struct st_keylist *stc_keys(struct st_client *stc);
 

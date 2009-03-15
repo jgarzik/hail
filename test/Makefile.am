@@ -30,7 +30,7 @@ check_PROGRAMS		= basic-object it-works large-object \
 
 TESTLDADD		= ../lib/libstc.a	\
 			  @GLIB_LIBS@ @CRYPTO_LIBS@ \
-			  @XML_LIBS@
+			  @XML_LIBS@ @SSL_LIBS@
 basic_object_LDADD	= $(TESTLDADD)
 it_works_LDADD		= $(TESTLDADD)
 large_object_LDADD	= $(TESTLDADD)

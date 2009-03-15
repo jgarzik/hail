@@ -8,10 +8,14 @@
 static void test(bool ssl)
 {
 	struct st_client *stc;
+	bool rcb;
 
 	stc = stc_new(TEST_HOST, ssl ? TEST_SSL_PORT : TEST_PORT,
 		      TEST_USER, TEST_USER_KEY, ssl);
 	OK(stc);
+
+	rcb = stc_ping(stc);
+	OK(rcb);
 
 	stc_free(stc);
 }
@@ -19,6 +23,9 @@ static void test(bool ssl)
 int main(int argc, char *argv[])
 {
 	setlocale(LC_ALL, "C");
+
+	SSL_library_init();
+	SSL_load_error_strings();
 
 	test(false);
 	test(true);

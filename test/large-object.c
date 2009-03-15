@@ -90,6 +90,9 @@ int main(int argc, char *argv[])
 {
 	setlocale(LC_ALL, "C");
 
+	SSL_library_init();
+	SSL_load_error_strings();
+
 	test(false);
 
 	read_offset = 0;

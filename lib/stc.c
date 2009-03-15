@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <openssl/hmac.h>
+#include <openssl/ssl.h>
 #include <libxml/tree.h>
 #include <glib.h>
 #include <stc.h>
@@ -25,16 +26,82 @@ static int _strcmp(const unsigned char *a, const char *b)
 	return xmlStrcmp(a, (const unsigned char *) b);
 }
 
+static bool net_read(struct st_client *stc, void *data, size_t datalen)
+{
+	if (!datalen)
+		return true;
+
+	if (stc->ssl) {
+		int rc;
+
+		while (datalen) {
+			rc = SSL_read(stc->ssl, data, datalen);
+			if (rc < 0)
+				return false;
+			datalen -= rc;
+			data += rc;
+		}
+	} else {
+		ssize_t rc;
+
+		while (datalen) {
+			rc = read(stc->fd, data, datalen);
+			if (rc < 0)
+				return false;
+			datalen -= rc;
+			data += rc;
+		}
+	}
+
+	return true;
+}
+
+static bool net_write(struct st_client *stc, const void *data, size_t datalen)
+{
+	if (!datalen)
+		return true;
+
+	if (stc->ssl) {
+		int rc;
+
+		while (datalen) {
+			rc = SSL_write(stc->ssl, data, datalen);
+			if (rc < 0)
+				return false;
+			datalen -= rc;
+			data += rc;
+		}
+	} else {
+		ssize_t rc;
+
+		while (datalen) {
+			rc = write(stc->fd, data, datalen);
+			if (rc < 0)
+				return false;
+			datalen -= rc;
+			data += rc;
+		}
+	}
+
+	return true;
+}
+
 void stc_free(struct st_client *stc)
 {
 	if (!stc)
 		return;
 
-	if (stc->fd >= 0)
-		close(stc->fd);
 	free(stc->host);
 	free(stc->user);
 	free(stc->key);
+	if (stc->ssl) {
+		SSL_shutdown(stc->ssl);
+		SSL_free(stc->ssl);
+	}
+	if (stc->ssl_ctx)
+		SSL_CTX_free(stc->ssl_ctx);
+	if (stc->fd >= 0)
+		close(stc->fd);
 	free(stc);
 }
 
@@ -83,7 +150,6 @@ struct st_client *stc_new(const char *service_host, int port,
 		return NULL;
 
 	stc->fd = fd;
-	stc->ssl = encrypt;
 	stc->host = strdup(service_host);
 	stc->user = strdup(user);
 	stc->key = strdup(secret_key);
@@ -91,9 +157,32 @@ struct st_client *stc_new(const char *service_host, int port,
 	if (!stc->host || !stc->user || !stc->key)
 		goto err_out;
 
+	if (encrypt) {
+		stc->ssl_ctx = SSL_CTX_new(TLSv1_client_method());
+		if (!stc->ssl_ctx)
+			goto err_out;
+
+		SSL_CTX_set_mode(stc->ssl_ctx, SSL_MODE_AUTO_RETRY);
+
+		stc->ssl = SSL_new(stc->ssl_ctx);
+		if (!stc->ssl)
+			goto err_out_ctx;
+
+		if (!SSL_set_fd(stc->ssl, stc->fd))
+			goto err_out_ssl;
+
+		if (SSL_connect(stc->ssl) <= 0)
+			goto err_out_ssl;
+	}
+
 	return stc;
 
+err_out_ssl:
+	SSL_free(stc->ssl);
+err_out_ctx:
+	SSL_CTX_free(stc->ssl_ctx);
 err_out:
+	close(stc->fd);
 	stc_free(stc);
 	return NULL;
 }
@@ -113,7 +202,6 @@ bool stc_get(struct st_client *stc, const char *key,
 	     void *user_data, bool want_headers)
 {
 	char netbuf[4096];
-	ssize_t xrc;
 	struct chunksrv_req req;
 	struct chunksrv_resp_get resp;
 	uint64_t content_len;
@@ -126,31 +214,22 @@ bool stc_get(struct st_client *stc, const char *key,
 	strcpy(req.key, key);
 
 	/* write request */
-	xrc = write(stc->fd, &req, sizeof(req));
-	if (xrc != sizeof(req)) {
-		perror("write req");
+	if (!net_write(stc, &req, sizeof(req)))
 		return false;
-	}
 
 	/* read response header */
-	xrc = read(stc->fd, &resp, sizeof(resp.req));
-	if (xrc != sizeof(resp.req)) {
-		perror("read hdr");
+	if (!net_read(stc, &resp, sizeof(resp.req)))
 		return false;
-	}
 
 	/* check response code */
 	if (resp.req.resp_code != Success) {
-		fprintf(stderr, "get resp code: %d\n", resp.req.resp_code);
+		fprintf(stderr, "GET resp code: %d\n", resp.req.resp_code);
 		return false;
 	}
 
 	/* read rest of response header */
-	xrc = read(stc->fd, &resp.mtime, sizeof(resp) - sizeof(resp.req));
-	if (xrc != (sizeof(resp) - sizeof(resp.req))) {
-		perror("read rest");
+	if (!net_read(stc, &resp.mtime, sizeof(resp) - sizeof(resp.req)))
 		return false;
-	}
 
 	content_len = GUINT64_FROM_LE(resp.req.data_len);
 
@@ -159,14 +238,11 @@ bool stc_get(struct st_client *stc, const char *key,
 		int xfer_len;
 
 		xfer_len = MIN(content_len, sizeof(netbuf));
-		xrc = read(stc->fd, netbuf, xfer_len);
-		if (xrc != xfer_len) {
-			perror("read netbuf");
+		if (!net_read(stc, netbuf, xfer_len))
 			return false;
-		}
 
-		write_cb(netbuf, xrc, 1, user_data);
-		content_len -= xrc;
+		write_cb(netbuf, xfer_len, 1, user_data);
+		content_len -= xfer_len;
 	}
 
 	return true;
@@ -204,7 +280,6 @@ bool stc_put(struct st_client *stc, const char *key,
 {
 	GByteArray *all_data;
 	char netbuf[4096];
-	ssize_t xrc;
 	struct chunksrv_req req;
 	struct chunksrv_req resp;
 	uint64_t content_len = len;
@@ -222,11 +297,8 @@ bool stc_put(struct st_client *stc, const char *key,
 		return false;
 
 	/* write request */
-	xrc = write(stc->fd, &req, sizeof(req));
-	if (xrc != sizeof(req)) {
-		perror("write req");
+	if (!net_write(stc, &req, sizeof(req)))
 		goto err_out;
-	}
 
 	while (content_len) {
 		size_t rrc;
@@ -239,23 +311,17 @@ bool stc_put(struct st_client *stc, const char *key,
 
 		content_len -= rrc;
 
-		xrc = write(stc->fd, netbuf, rrc);
-		if (xrc != rrc) {
-			perror("write netbuf");
+		if (!net_write(stc, netbuf, rrc))
 			goto err_out;
-		}
 	}
 
 	/* read response header */
-	xrc = read(stc->fd, &resp, sizeof(resp));
-	if (xrc != sizeof(resp)) {
-		perror("read hdr");
+	if (!net_read(stc, &resp, sizeof(resp)))
 		goto err_out;
-	}
 
 	/* check response code */
 	if (resp.resp_code != Success) {
-		fprintf(stderr, "put resp code: %d\n", resp.resp_code);
+		fprintf(stderr, "PUT resp code: %d\n", resp.resp_code);
 		goto err_out;
 	}
 
@@ -298,7 +364,6 @@ bool stc_put_inline(struct st_client *stc, const char *key,
 
 bool stc_del(struct st_client *stc, const char *key)
 {
-	ssize_t xrc;
 	struct chunksrv_req req;
 	struct chunksrv_resp_get resp;
 
@@ -310,22 +375,16 @@ bool stc_del(struct st_client *stc, const char *key)
 	strcpy(req.key, key);
 
 	/* write request */
-	xrc = write(stc->fd, &req, sizeof(req));
-	if (xrc != sizeof(req)) {
-		perror("write req");
+	if (!net_write(stc, &req, sizeof(req)))
 		return false;
-	}
 
 	/* read response header */
-	xrc = read(stc->fd, &resp, sizeof(resp.req));
-	if (xrc != sizeof(resp.req)) {
-		perror("read hdr");
+	if (!net_read(stc, &resp, sizeof(resp.req)))
 		return false;
-	}
 
 	/* check response code */
 	if (resp.req.resp_code != Success) {
-		fprintf(stderr, "del resp code: %d\n", resp.req.resp_code);
+		fprintf(stderr, "DEL resp code: %d\n", resp.req.resp_code);
 		return false;
 	}
 
@@ -422,7 +481,6 @@ struct st_keylist *stc_keys(struct st_client *stc)
 	xmlChar *xs;
 	GByteArray *all_data;
 	char netbuf[4096];
-	ssize_t xrc;
 	struct chunksrv_req req;
 	struct chunksrv_resp_get resp;
 	uint64_t content_len;
@@ -434,22 +492,16 @@ struct st_keylist *stc_keys(struct st_client *stc)
 	strcpy(req.user, stc->user);
 
 	/* write request */
-	xrc = write(stc->fd, &req, sizeof(req));
-	if (xrc != sizeof(req)) {
-		perror("write req");
+	if (!net_write(stc, &req, sizeof(req)))
 		return false;
-	}
 
 	/* read response header */
-	xrc = read(stc->fd, &resp, sizeof(resp.req));
-	if (xrc != sizeof(resp.req)) {
-		perror("read hdr");
+	if (!net_read(stc, &resp, sizeof(resp.req)))
 		return false;
-	}
 
 	/* check response code */
 	if (resp.req.resp_code != Success) {
-		fprintf(stderr, "get resp code: %d\n", resp.req.resp_code);
+		fprintf(stderr, "LIST resp code: %d\n", resp.req.resp_code);
 		return false;
 	}
 
@@ -464,14 +516,11 @@ struct st_keylist *stc_keys(struct st_client *stc)
 		int xfer_len;
 
 		xfer_len = MIN(content_len, sizeof(netbuf));
-		xrc = read(stc->fd, netbuf, xfer_len);
-		if (xrc != xfer_len) {
-			perror("read netbuf");
+		if (!net_read(stc, netbuf, xfer_len))
 			goto err_out;
-		}
 
-		g_byte_array_append(all_data, (unsigned char *)netbuf, xrc);
-		content_len -= xrc;
+		g_byte_array_append(all_data, (unsigned char *)netbuf, xfer_len);
+		content_len -= xfer_len;
 	}
 
 	doc = xmlReadMemory((char *) all_data->data, all_data->len,
@@ -520,5 +569,33 @@ err_out:
 	g_byte_array_free(all_data, TRUE);
 	all_data = NULL;
 	return NULL;
+}
+
+bool stc_ping(struct st_client *stc)
+{
+	struct chunksrv_req req;
+	struct chunksrv_resp_get resp;
+
+	/* initialize request */
+	memset(&req, 0, sizeof(req));
+	memcpy(req.magic, CHUNKD_MAGIC, CHD_MAGIC_SZ);
+	req.op = CHO_NOP;
+	strcpy(req.user, stc->user);
+
+	/* write request */
+	if (!net_write(stc, &req, sizeof(req)))
+		return false;
+
+	/* read response header */
+	if (!net_read(stc, &resp, sizeof(resp.req)))
+		return false;
+
+	/* check response code */
+	if (resp.req.resp_code != Success) {
+		fprintf(stderr, "NOP resp code: %d\n", resp.req.resp_code);
+		return false;
+	}
+
+	return true;
 }
 

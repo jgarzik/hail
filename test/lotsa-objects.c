@@ -85,6 +85,9 @@ int main(int argc, char *argv[])
 
 	setlocale(LC_ALL, "C");
 
+	SSL_library_init();
+	SSL_load_error_strings();
+
 	if (argc == 2 && (atoi(argv[1]) > 0)) {
 		n_objects = atoi(argv[1]);
 		fprintf(stderr, "testing %d objects...\n", n_objects);
