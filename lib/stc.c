@@ -13,6 +13,7 @@
 #include <stc.h>
 #include <netdb.h>
 #include <chunk_msg.h>
+#include <chunksrv.h>
 
 #if 0
 static int _strcasecmp(const unsigned char *a, const char *b)
@@ -210,8 +211,12 @@ bool stc_get(struct st_client *stc, const char *key,
 	memset(&req, 0, sizeof(req));
 	memcpy(req.magic, CHUNKD_MAGIC, CHD_MAGIC_SZ);
 	req.op = CHO_GET;
+	req.nonce = rand();
 	strcpy(req.user, stc->user);
 	strcpy(req.key, key);
+
+	/* sign request */
+	chreq_sign(&req, stc->key, req.checksum);
 
 	/* write request */
 	if (!net_write(stc, &req, sizeof(req)))
@@ -288,6 +293,7 @@ bool stc_put(struct st_client *stc, const char *key,
 	memset(&req, 0, sizeof(req));
 	memcpy(req.magic, CHUNKD_MAGIC, CHD_MAGIC_SZ);
 	req.op = CHO_PUT;
+	req.nonce = rand();
 	req.data_len = GUINT64_TO_LE(content_len);
 	strcpy(req.user, stc->user);
 	strcpy(req.key, key);
@@ -295,6 +301,9 @@ bool stc_put(struct st_client *stc, const char *key,
 	all_data = g_byte_array_new();
 	if (!all_data)
 		return false;
+
+	/* sign request */
+	chreq_sign(&req, stc->key, req.checksum);
 
 	/* write request */
 	if (!net_write(stc, &req, sizeof(req)))
@@ -371,8 +380,12 @@ bool stc_del(struct st_client *stc, const char *key)
 	memset(&req, 0, sizeof(req));
 	memcpy(req.magic, CHUNKD_MAGIC, CHD_MAGIC_SZ);
 	req.op = CHO_DEL;
+	req.nonce = rand();
 	strcpy(req.user, stc->user);
 	strcpy(req.key, key);
+
+	/* sign request */
+	chreq_sign(&req, stc->key, req.checksum);
 
 	/* write request */
 	if (!net_write(stc, &req, sizeof(req)))
@@ -489,7 +502,11 @@ struct st_keylist *stc_keys(struct st_client *stc)
 	memset(&req, 0, sizeof(req));
 	memcpy(req.magic, CHUNKD_MAGIC, CHD_MAGIC_SZ);
 	req.op = CHO_LIST;
+	req.nonce = rand();
 	strcpy(req.user, stc->user);
+
+	/* sign request */
+	chreq_sign(&req, stc->key, req.checksum);
 
 	/* write request */
 	if (!net_write(stc, &req, sizeof(req)))
@@ -580,7 +597,11 @@ bool stc_ping(struct st_client *stc)
 	memset(&req, 0, sizeof(req));
 	memcpy(req.magic, CHUNKD_MAGIC, CHD_MAGIC_SZ);
 	req.op = CHO_NOP;
+	req.nonce = rand();
 	strcpy(req.user, stc->user);
+
+	/* sign request */
+	chreq_sign(&req, stc->key, req.checksum);
 
 	/* write request */
 	if (!net_write(stc, &req, sizeof(req)))

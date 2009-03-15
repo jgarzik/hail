@@ -25,6 +25,7 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <elist.h>
+#include <chunksrv.h>
 #include "chunkd.h"
 
 #define PROGRAM_NAME PACKAGE
@@ -502,8 +503,9 @@ bool cli_err(struct client *cli, enum errcode code)
 	int rc;
 	struct chunksrv_req *resp = NULL;
 
-	syslog(LOG_INFO, "client %s error %s",
-	       cli->addr_host, err_info[code].code);
+	if (code != Success)
+		syslog(LOG_INFO, "client %s error %s",
+		       cli->addr_host, err_info[code].code);
 
 	resp = malloc(sizeof(*resp));
 	if (!resp) {
@@ -644,13 +646,39 @@ do_next:
 	return rcb;
 }
 
+static bool authcheck(const struct chunksrv_req *req)
+{
+	struct chunksrv_req tmpreq;
+	char hmac[64];
+
+	memcpy(&tmpreq, req, sizeof(tmpreq));
+	memset(&tmpreq.checksum, 0, sizeof(tmpreq.checksum));
+
+	/* for lack of a better authentication scheme, we
+	 * supply the username as the secret key
+	 */
+	chreq_sign(&tmpreq, req->user, hmac);
+
+	return strcmp(req->checksum, hmac) ? false : true;
+}
+
 static bool valid_req_hdr(const struct chunksrv_req *req)
 {
+	size_t len;
+
 	if (memcmp(req->magic, CHUNKD_MAGIC, CHD_MAGIC_SZ))
 		return false;
-	if (strnlen(req->user, sizeof(req->user)) == sizeof(req->user))
+
+	len = strnlen(req->user, sizeof(req->user));
+	if (len < 1 || len == sizeof(req->user))
 		return false;
-	if (strnlen(req->key, sizeof(req->key)) == sizeof(req->key))
+
+	len = strnlen(req->key, sizeof(req->key));
+	if (len == sizeof(req->key))
+		return false;
+
+	len = strnlen(req->checksum, sizeof(req->checksum));
+	if (len < 1 || len == sizeof(req->checksum))
 		return false;
 
 	return true;
@@ -665,6 +693,12 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 	/* validate request header */
 	if (!valid_req_hdr(req)) {
 		err = InvalidArgument;
+		goto err_out;
+	}
+
+	/* check authentication */
+	if (!authcheck(req)) {
+		err = SignatureDoesNotMatch;
 		goto err_out;
 	}
 

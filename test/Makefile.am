@@ -29,6 +29,7 @@ check_PROGRAMS		= basic-object it-works large-object \
 			  lotsa-objects
 
 TESTLDADD		= ../lib/libstc.a	\
+			  ../lib/libchunksrv.a	\
 			  @GLIB_LIBS@ @CRYPTO_LIBS@ \
 			  @XML_LIBS@ @SSL_LIBS@
 basic_object_LDADD	= $(TESTLDADD)

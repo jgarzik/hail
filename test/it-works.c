@@ -1,5 +1,9 @@
 
 #include "chunkd-config.h"
+#include <sys/types.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <time.h>
 #include <string.h>
 #include <locale.h>
 #include <stc.h>
@@ -23,6 +27,8 @@ static void test(bool ssl)
 int main(int argc, char *argv[])
 {
 	setlocale(LC_ALL, "C");
+
+	srand(time(NULL) ^ getpid());
 
 	SSL_library_init();
 	SSL_load_error_strings();

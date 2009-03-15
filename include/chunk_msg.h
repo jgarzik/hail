@@ -37,7 +37,8 @@ struct chunksrv_req {
 	uint8_t			magic[CHD_MAGIC_SZ];
 	uint8_t			op;
 	uint8_t			resp_code;
-	uint8_t			rsv1[6];
+	uint8_t			rsv1[2];
+	uint32_t		nonce;
 	uint64_t		data_len;
 	char			user[CHD_USER_SZ];
 	char			key[CHD_KEY_SZ];

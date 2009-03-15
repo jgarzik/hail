@@ -1,5 +1,9 @@
 
 #include "chunkd-config.h"
+#include <sys/types.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <time.h>
 #include <string.h>
 #include <locale.h>
 #include <stc.h>
@@ -84,6 +88,8 @@ int main(int argc, char *argv[])
 	int n_objects = N_TEST_OBJS;
 
 	setlocale(LC_ALL, "C");
+
+	srand(time(NULL) ^ getpid());
 
 	SSL_library_init();
 	SSL_load_error_strings();
