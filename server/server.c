@@ -263,30 +263,6 @@ static bool cli_evt_recycle(struct client *cli, unsigned int events)
 	return true;
 }
 
-static int SSL_writev(SSL *ssl, const struct iovec *iov, int iovcnt)
-{
-	int i, bytes = 0;
-
-	for (i = 0; i < iovcnt; i++) {
-		int tmp;
-
-		tmp = SSL_write(ssl, iov[i].iov_base, iov[i].iov_len);
-		if (tmp > 0) {
-			bytes += tmp;
-
-			if (tmp == iov[i].iov_len)
-				continue;
-			return bytes;
-		}
-		if (bytes)
-			return bytes;
-
-		return -1;
-	}
-
-	return bytes;
-}
-
 static int cli_wr_iov(struct client *cli, struct iovec *iov, int max_iov)
 {
 	struct client_write *tmp;
@@ -336,20 +312,20 @@ static void cli_wr_completed(struct client *cli, ssize_t rc, bool *more_work)
 
 static void cli_writable(struct client *cli)
 {
-	unsigned int n_iov;
 	ssize_t rc;
-	struct iovec iov[CLI_MAX_WR_IOV];
 	bool more_work;
 
 restart:
 	more_work = false;
 
-	n_iov = cli_wr_iov(cli, iov, CLI_MAX_WR_IOV);
-
 	/* execute non-blocking write */
 do_write:
 	if (cli->ssl) {
-		rc = SSL_writev(cli->ssl, iov, n_iov);
+		struct client_write *tmp;
+
+		tmp = list_entry(cli->write_q.next, struct client_write, node);
+
+		rc = SSL_write(cli->ssl, tmp->buf, tmp->len);
 		if (rc <= 0) {
 			rc = SSL_get_error(cli->ssl, rc);
 			if (rc == SSL_ERROR_WANT_READ) {
@@ -362,6 +338,9 @@ do_write:
 			return;
 		}
 	} else {
+		struct iovec iov[CLI_MAX_WR_IOV];
+		int n_iov = cli_wr_iov(cli, iov, CLI_MAX_WR_IOV);
+
 		rc = writev(cli->fd, iov, n_iov);
 		if (rc < 0) {
 			if (errno == EINTR)
