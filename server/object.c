@@ -11,6 +11,9 @@
 #include <openssl/sha.h>
 #include "chunkd.h"
 
+static bool object_get_more(struct client *cli, struct client_write *wr,
+			    bool done);
+
 bool object_del(struct client *cli)
 {
 	const char *basename = cli->creq.key;
@@ -206,21 +209,16 @@ void cli_in_end(struct client *cli)
 	}
 }
 
-static bool object_get_more(struct client *cli, struct client_write *wr,
-			    bool done)
+static bool object_read_bytes(struct client *cli)
 {
 	ssize_t bytes;
 
-	/* do not queue more, if !completion or fd was closed early */
-	if (!done)
-		goto err_out_buf;
-
 	bytes = fs_obj_read(cli->in_obj, cli->netbuf_out,
-			  MIN(cli->in_len, CLI_DATA_BUF_SZ));
+			    MIN(cli->in_len, CLI_DATA_BUF_SZ));
 	if (bytes < 0)
-		goto err_out;
+		return false;
 	if (bytes == 0 && cli->in_len != 0)
-		goto err_out;
+		return false;
 
 	cli->in_len -= bytes;
 
@@ -229,6 +227,19 @@ static bool object_get_more(struct client *cli, struct client_write *wr,
 
 	if (cli_writeq(cli, cli->netbuf_out, bytes,
 		       cli->in_len ? object_get_more : NULL, NULL))
+		return false;
+
+	return true;
+}
+
+static bool object_get_more(struct client *cli, struct client_write *wr,
+			    bool done)
+{
+	/* do not queue more, if !completion or fd was closed early */
+	if (!done)
+		goto err_out_buf;
+
+	if (!object_read_bytes(cli))
 		goto err_out;
 
 	return true;
@@ -244,7 +255,6 @@ bool object_get(struct client *cli, bool want_body)
 	const char *basename = cli->creq.key;
 	int rc;
 	enum errcode err = InternalError;
-	ssize_t bytes;
 	struct backend_obj *obj;
 	struct chunksrv_resp_get *resp = NULL;
 
@@ -256,40 +266,18 @@ bool object_get(struct client *cli, bool want_body)
 
 	memcpy(resp, &cli->creq, sizeof(cli->creq));
 
-	obj = fs_obj_open(basename, &err);
-	if (!obj)
-		goto err_out;
+	cli->in_obj = obj = fs_obj_open(basename, &err);
+	if (!obj) {
+		free(resp);
+		return cli_err(cli, err);
+	}
+
+	cli->in_len = obj->size;
 
 	resp->req.data_len = GUINT32_TO_LE(obj->size);
 	memcpy(resp->req.checksum, obj->hashstr, sizeof(obj->hashstr));
 	resp->req.checksum[sizeof(obj->hashstr)] = 0;
 	resp->mtime = GUINT64_TO_LE(obj->mtime);
-
-	if (!want_body) {
-		cli_in_end(cli);
-
-		rc = cli_writeq(cli, resp, sizeof(*resp), cli_cb_free, resp);
-		if (rc) {
-			free(resp);
-			return true;
-		}
-		goto start_write;
-	}
-
-	cli->in_len = obj->size;
-	cli->in_obj = obj;
-
-	bytes = fs_obj_read(cli->in_obj, cli->netbuf_out,
-			  MIN(cli->in_len, CLI_DATA_BUF_SZ));
-	if (bytes < 0)
-		goto err_out_obj;
-	if (bytes == 0 && cli->in_len != 0)
-		goto err_out_obj;
-
-	cli->in_len -= bytes;
-
-	if (!cli->in_len)
-		cli_in_end(cli);
 
 	rc = cli_writeq(cli, resp, sizeof(*resp), cli_cb_free, resp);
 	if (rc) {
@@ -297,17 +285,18 @@ bool object_get(struct client *cli, bool want_body)
 		return true;
 	}
 
-	if (cli_writeq(cli, cli->netbuf_out, bytes,
-		       cli->in_len ? object_get_more : NULL, NULL))
-		goto err_out_obj;
+	if (!want_body) {
+		cli_in_end(cli);
+
+		goto start_write;
+	}
+
+	if (!object_read_bytes(cli)) {
+		cli_in_end(cli);
+		return cli_err(cli, err);
+	}
 
 start_write:
 	return cli_write_start(cli);
-
-err_out_obj:
-	cli_in_end(cli);
-err_out:
-	free(resp);
-	return cli_err(cli, err);
 }
 
