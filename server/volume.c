@@ -1,5 +1,5 @@
 #define _GNU_SOURCE
-#include "storaged-config.h"
+#include "chunkd-config.h"
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -12,7 +12,7 @@
 #include <errno.h>
 #include <glib.h>
 #include <pcre.h>
-#include "storaged.h"
+#include "chunkd.h"
 
 struct vol_foreach_info {
 	GList		*content;
@@ -58,7 +58,7 @@ bool service_list(struct client *cli, const char *user)
 
 	vfi.content = content;
 
-	g_hash_table_foreach(storaged_srv.volumes, volume_foreach, &vfi);
+	g_hash_table_foreach(chunkd_srv.volumes, volume_foreach, &vfi);
 
 	content = vfi.content;
 

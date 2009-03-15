@@ -253,7 +253,7 @@ extern void read_config(void);
 /* server.c */
 extern SSL_CTX *ssl_ctx;
 extern int debugging;
-extern struct server storaged_srv;
+extern struct server chunkd_srv;
 extern struct compiled_pat patterns[];
 extern bool cli_err(struct client *cli, enum errcode code);
 extern bool cli_resp_xml(struct client *cli, int http_status,

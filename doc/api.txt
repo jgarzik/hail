@@ -155,7 +155,7 @@ Each cookie must be at least 7 characters.
 
 Authentication and access control
 =================================
-Primarily because it was easy and useful, storaged follows the
+Primarily because it was easy and useful, chunkd follows the
 specification for Amazon S3's Authorization header, with the exception
 that 'AWS' prefix is replaced with 'STOR'.  Please refer to the S3
 public docs for specific details of construction of the Authorization

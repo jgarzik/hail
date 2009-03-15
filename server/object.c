@@ -1,5 +1,5 @@
 #define _GNU_SOURCE
-#include "storaged-config.h"
+#include "chunkd-config.h"
 #include <sys/types.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -9,7 +9,7 @@
 #include <syslog.h>
 #include <glib.h>
 #include <openssl/sha.h>
-#include "storaged.h"
+#include "chunkd.h"
 
 bool object_del(struct client *cli, const char *user,
 		struct server_volume *vol, const char *basename)

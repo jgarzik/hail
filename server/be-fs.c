@@ -1,6 +1,6 @@
 
 #define _GNU_SOURCE
-#include "storaged-config.h"
+#include "chunkd-config.h"
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <stdlib.h>
@@ -11,7 +11,7 @@
 #include <string.h>
 #include <errno.h>
 #include <syslog.h>
-#include "storaged.h"
+#include "chunkd.h"
 
 #define BE_NAME		"fs"
 

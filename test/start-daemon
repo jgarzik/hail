@@ -1,12 +1,12 @@
 #!/bin/sh
 
-if [ -f storaged.pid ]
+if [ -f chunkd.pid ]
 then
 	echo "pid file found.  daemon still running?"
 	exit 1
 fi
 
-../server/storaged -f $top_srcdir/test/server-test.cfg $*
+../server/chunkd -f $top_srcdir/test/server-test.cfg $*
 
 sleep 3
 

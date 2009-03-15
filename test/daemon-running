@@ -1,15 +1,15 @@
 #!/bin/sh
 
-if [ ! -f storaged.pid ]
+if [ ! -f chunkd.pid ]
 then
 	echo "no pid file found."
 	exit 1
 fi
 
-PID=`cat storaged.pid`
+PID=`cat chunkd.pid`
 
 rm -f psout.$$
-ps ax | grep storaged | grep -v grep > psout.$$
+ps ax | grep chunkd | grep -v grep > psout.$$
 if grep -q "$PID" psout.$$
 then
 	RC=0

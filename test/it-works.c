@@ -1,5 +1,5 @@
 
-#include "storaged-config.h"
+#include "chunkd-config.h"
 #include <string.h>
 #include <locale.h>
 #include <stc.h>

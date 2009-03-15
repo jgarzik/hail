@@ -1,5 +1,5 @@
 /*
- * Taken from GNet and modified for storaged
+ * Taken from GNet and modified for chunkd
  */
 
 /* GNet - Networking library

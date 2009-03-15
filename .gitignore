@@ -19,6 +19,6 @@ push
 stamp-h1
 
 # app-specific
-storaged
-storaged*.tar.gz
-storaged-config.h*
+chunkd
+chunkd*.tar.gz
+chunkd-config.h*

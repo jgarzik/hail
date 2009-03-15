@@ -1,5 +1,5 @@
 #define _GNU_SOURCE
-#include "storaged-config.h"
+#include "chunkd-config.h"
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
@@ -26,7 +26,7 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <elist.h>
-#include "storaged.h"
+#include "chunkd.h"
 
 #define PROGRAM_NAME PACKAGE
 
@@ -66,9 +66,9 @@ static bool dump_stats;
 int debugging = 0;
 SSL_CTX *ssl_ctx = NULL;
 
-struct server storaged_srv = {
-	.config			= "/spare/tmp/storaged/etc/storaged.conf",
-	.pid_file		= "/spare/tmp/storaged/run/storaged.pid",
+struct server chunkd_srv = {
+	.config			= "/spare/tmp/chunkd/etc/chunkd.conf",
+	.pid_file		= "/spare/tmp/chunkd/run/chunkd.pid",
 };
 
 struct compiled_pat patterns[] = {
@@ -135,16 +135,16 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 {
 	switch(key) {
 	case 'f':
-		storaged_srv.config = arg;
+		chunkd_srv.config = arg;
 		break;
 	case 'D':
 		debugging = 1;
 		break;
 	case 'F':
-		storaged_srv.flags |= SFL_FOREGROUND;
+		chunkd_srv.flags |= SFL_FOREGROUND;
 		break;
 	case 'P':
-		storaged_srv.pid_file = arg;
+		chunkd_srv.pid_file = arg;
 		break;
 	case ARGP_KEY_ARG:
 		argp_usage(state);	/* too many args */
@@ -171,7 +171,7 @@ static void stats_signal(int signal)
 }
 
 #define X(stat) \
-	syslog(LOG_INFO, "STAT %s %lu", #stat, storaged_srv.stats.stat)
+	syslog(LOG_INFO, "STAT %s %lu", #stat, chunkd_srv.stats.stat)
 
 static void stats_dump(void)
 {
@@ -193,14 +193,14 @@ static bool cli_write_free(struct client *cli, struct client_write *tmp,
 		rcb = tmp->cb(cli, tmp, done);
 	list_del(&tmp->node);
 
-	if (storaged_srv.trash_sz < STD_TRASH_MAX) {
+	if (chunkd_srv.trash_sz < STD_TRASH_MAX) {
 
 		/* recycle struct for future use */
 		memset(tmp, 0, sizeof(*tmp));
 		INIT_LIST_HEAD(&tmp->node);
 
-		list_add(&tmp->node, &storaged_srv.wr_trash);
-		storaged_srv.trash_sz++;
+		list_add(&tmp->node, &chunkd_srv.wr_trash);
+		chunkd_srv.trash_sz++;
 	} else
 		free(tmp);
 
@@ -430,7 +430,7 @@ bool cli_write_start(struct client *cli)
 	 */
 	cli_writable(cli);
 	if (list_empty(&cli->write_q)) {
-		storaged_srv.stats.opt_write++;
+		chunkd_srv.stats.opt_write++;
 		return true;		/* loop, not poll */
 	}
 
@@ -450,18 +450,18 @@ int cli_writeq(struct client *cli, const void *buf, unsigned int buflen,
 	if (!buf || !buflen)
 		return -EINVAL;
 
-	if (!storaged_srv.trash_sz) {
+	if (!chunkd_srv.trash_sz) {
 		wr = calloc(1, sizeof(struct client_write));
 		if (!wr)
 			return -ENOMEM;
 
 		INIT_LIST_HEAD(&wr->node);
 	} else {
-		struct list_head *tmp = storaged_srv.wr_trash.next;
+		struct list_head *tmp = chunkd_srv.wr_trash.next;
 		wr = list_entry(tmp, struct client_write, node);
 
 		list_del_init(&wr->node);
-		storaged_srv.trash_sz--;
+		chunkd_srv.trash_sz--;
 	}
 
 	wr->buf = buf;
@@ -760,7 +760,7 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 	}
 
 	if (volume)
-		vol = g_hash_table_lookup(storaged_srv.volumes, volume);
+		vol = g_hash_table_lookup(chunkd_srv.volumes, volume);
 
 	/* no matter whether error or not, this is our next state.
 	 * the main question is whether or not we will go immediately
@@ -1169,7 +1169,7 @@ static void tcp_srv_event(int fd, short events, void *userdata)
 		goto err_out;
 	}
 
-	storaged_srv.stats.tcp_accept++;
+	chunkd_srv.stats.tcp_accept++;
 
 	/* mark non-blocking, for upcoming poll use */
 	if (fsetflags("tcp client", cli->fd, O_NONBLOCK) < 0)
@@ -1333,8 +1333,8 @@ static int net_open(const struct listen_cfg *cfg)
 			goto err_out;
 		}
 
-		storaged_srv.sockets =
-			g_list_append(storaged_srv.sockets, sock);
+		chunkd_srv.sockets =
+			g_list_append(chunkd_srv.sockets, sock);
 	}
 
 	freeaddrinfo(res0);
@@ -1414,12 +1414,12 @@ int main (int argc, char *argv[])
 	 */
 	read_config();
 
-	if ((!(storaged_srv.flags & SFL_FOREGROUND)) && (daemon(1, 0) < 0)) {
+	if ((!(chunkd_srv.flags & SFL_FOREGROUND)) && (daemon(1, 0) < 0)) {
 		syslogerr("daemon");
 		goto err_out;
 	}
 
-	rc = write_pid_file(storaged_srv.pid_file);
+	rc = write_pid_file(chunkd_srv.pid_file);
 	if (rc < 0)
 		goto err_out;
 
@@ -1435,11 +1435,11 @@ int main (int argc, char *argv[])
 
 	event_init();
 
-	INIT_LIST_HEAD(&storaged_srv.wr_trash);
-	storaged_srv.trash_sz = 0;
+	INIT_LIST_HEAD(&chunkd_srv.wr_trash);
+	chunkd_srv.trash_sz = 0;
 
 	/* set up server networking */
-	tmpl = storaged_srv.listeners;
+	tmpl = chunkd_srv.listeners;
 	while (tmpl) {
 		rc = net_open(tmpl->data);
 		if (rc)
@@ -1464,7 +1464,7 @@ int main (int argc, char *argv[])
 	rc = 0;
 
 err_out_pid:
-	unlink(storaged_srv.pid_file);
+	unlink(chunkd_srv.pid_file);
 err_out:
 	closelog();
 	return rc;

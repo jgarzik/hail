@@ -1,6 +1,6 @@
 
 #define _GNU_SOURCE
-#include "storaged-config.h"
+#include "chunkd-config.h"
 #include <stdlib.h>
 #include <string.h>
 #include <curl/curl.h>

@@ -1,7 +1,7 @@
 
 1) Choose a database directory, for storing server-global data.  Example:
 
-	/path/storaged/data
+	/path/chunkd/data
 
 2) (placeholder)
 
@@ -9,9 +9,9 @@
 3) create one or more volumes (directories that store data):
 
 	mkdir -p \
-		/disk1/storaged   \
-		/disk2/storaged   \
-		/disk3/storaged
+		/disk1/chunkd   \
+		/disk2/chunkd   \
+		/disk3/chunkd
 
 4) create XML-like configuration file (filled in, in the following steps)
 
@@ -25,29 +25,29 @@
 6) choose pathname (dir + filename) where daemon should store its
    PID file (normally found somewhere in /var/run):
 
-	<PID>/var/run/storaged.pid</PID>
+	<PID>/var/run/chunkd.pid</PID>
 
 7) use chosen database dir, from step #1:
 
-	<DB>/path/storaged/data</DB>
+	<DB>/path/chunkd/data</DB>
 
 8) create one volume entry for each volume, from step #3:
 
 	<Volume>
 		<Name>replica1</Name>
-		<Path>/disk1/storaged</Path>
+		<Path>/disk1/chunkd</Path>
 		<Method>fs</Method>
 	</Volume>
 
 	<Volume>
 		<Name>replica2</Name>
-		<Path>/disk2/storaged</Path>
+		<Path>/disk2/chunkd</Path>
 		<Method>fs</Method>
 	</Volume>
 
 	<Volume>
 		<Name>spare</Name>
-		<Path>/disk3/storaged</Path>
+		<Path>/disk3/chunkd</Path>
 		<Method>fs</Method>
 	</Volume>
 
@@ -67,5 +67,5 @@ first component of the URI.
 10) start daemon (it will put itself into the background) with the
 configuration file just created:
 
-	/usr/sbin/storaged -f /etc/storaged.conf
+	/usr/sbin/chunkd -f /etc/chunkd.conf
 

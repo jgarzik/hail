@@ -1,5 +1,5 @@
 
-storaged's configuration file is "XML-like", but not strictly XML.
+chunkd's configuration file is "XML-like", but not strictly XML.
 
 listen addresses
 ================
@@ -61,7 +61,7 @@ You specify server SSL attributes using <SSL>, <PrivateKey>, and <Cert>.
 
     Your basic setup:
     	<SSL>
-		<PrivateKey>/etc/pki/storaged.pem</PrivateKey>
+		<PrivateKey>/etc/pki/chunkd.pem</PrivateKey>
 		<Cert>/etc/pkt/cert.pem</Cert>
 	</SSL>
 
@@ -81,5 +81,5 @@ Directory for daemon-managed cross-volume database:
 PID file contained the process id of the daemon after forking, normally
 written somewhere in /var/run:
 
-	<PID>/var/run/storaged.pid</PID>
+	<PID>/var/run/chunkd.pid</PID>
 

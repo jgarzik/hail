@@ -1,16 +1,16 @@
 #!/bin/sh
 
-if [ ! -f storaged.pid ]
+if [ ! -f chunkd.pid ]
 then
 	echo no daemon pid file found.
 	exit 1
 fi
 
-kill `cat storaged.pid`
+kill `cat chunkd.pid`
 
 for ((n = 0; n < 10; n++))
 do
-	if [ ! -f storaged.pid ]
+	if [ ! -f chunkd.pid ]
 	then
 		exit 0
 	fi
@@ -19,5 +19,5 @@ do
 done
 
 echo "PID file not removed, after signal sent."
-rm -f storaged.pid
+rm -f chunkd.pid
 exit 1

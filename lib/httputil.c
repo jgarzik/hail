@@ -1,6 +1,6 @@
 
 #define _GNU_SOURCE
-#include "storaged-config.h"
+#include "chunkd-config.h"
 #include <string.h>
 #include <ctype.h>
 #include <errno.h>

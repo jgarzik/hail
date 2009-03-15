@@ -1,5 +1,5 @@
 #define _GNU_SOURCE
-#include "storaged-config.h"
+#include "chunkd-config.h"
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <stdlib.h>
@@ -12,7 +12,7 @@
 #include <stdio.h>
 #include <openssl/hmac.h>
 #include <glib.h>
-#include "storaged.h"
+#include "chunkd.h"
 
 size_t strlist_len(GList *l)
 {
@@ -202,7 +202,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 	struct stat st;
 
 	if (!strcmp(element_name, "PID") && cfg_context.text) {
-		storaged_srv.pid_file = cfg_context.text;
+		chunkd_srv.pid_file = cfg_context.text;
 		cfg_context.text = NULL;
 	}
 
@@ -219,7 +219,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 			return;
 		}
 
-		storaged_srv.data_dir = cfg_context.text;
+		chunkd_srv.data_dir = cfg_context.text;
 		cfg_context.text = NULL;
 	}
 
@@ -227,7 +227,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		cfg_context.in_vol = false;
 		if (cfg_context.tmp_vol->name &&
 		    cfg_context.tmp_vol->path)
-			g_hash_table_replace(storaged_srv.volumes,
+			g_hash_table_replace(chunkd_srv.volumes,
 				cfg_context.tmp_vol->name,
 				cfg_context.tmp_vol);
 		else
@@ -316,8 +316,8 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		}
 
 		memcpy(cfg, &cfg_context.tmp_listen, sizeof(*cfg));
-		storaged_srv.listeners =
-			g_list_append(storaged_srv.listeners, cfg);
+		chunkd_srv.listeners =
+			g_list_append(chunkd_srv.listeners, cfg);
 	}
 
 	else if (cfg_context.in_listen && cfg_context.text &&
@@ -366,16 +366,16 @@ void read_config(void)
 	char *text;
 	gsize len;
 
-	storaged_srv.volumes = g_hash_table_new_full(
+	chunkd_srv.volumes = g_hash_table_new_full(
 		g_str_hash, g_str_equal, NULL, __free_server_volume);
-	if (!storaged_srv.volumes) {
+	if (!chunkd_srv.volumes) {
 		syslog(LOG_ERR, "OOM in read_config");
 		exit(1);
 	}
 
-	if (!g_file_get_contents(storaged_srv.config, &text, &len, NULL)) {
+	if (!g_file_get_contents(chunkd_srv.config, &text, &len, NULL)) {
 		syslog(LOG_ERR, "failed to read config file %s",
-			storaged_srv.config);
+			chunkd_srv.config);
 		exit(1);
 	}
 	
@@ -393,12 +393,12 @@ void read_config(void)
 	g_markup_parse_context_free(parser);
 	free(text);
 
-	if (!storaged_srv.volumes) {
+	if (!chunkd_srv.volumes) {
 		syslog(LOG_ERR, "error: no volumes defined in cfg file");
 		exit(1);
 	}
 
-	if (!storaged_srv.data_dir) {
+	if (!chunkd_srv.data_dir) {
 		syslog(LOG_ERR, "error: no database dir defined in cfg file");
 		exit(1);
 	}
@@ -412,7 +412,7 @@ void read_config(void)
 		exit(1);
 	}
 
-	if (!storaged_srv.listeners) {
+	if (!chunkd_srv.listeners) {
 		syslog(LOG_ERR, "error: no listen addresses specified");
 		exit(1);
 	}
