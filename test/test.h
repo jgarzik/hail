@@ -1,6 +1,8 @@
 #ifndef __TABLED_TEST_H__
 #define __TABLED_TEST_H__
 
+#include <stdint.h>
+#include <sys/time.h>
 #include <stdlib.h>
 #include <stdio.h>
 
