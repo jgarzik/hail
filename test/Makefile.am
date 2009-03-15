@@ -30,11 +30,16 @@ check_PROGRAMS		= basic-object it-works large-object \
 
 TESTLDADD		= ../lib/libstc.a	\
 			  ../lib/libchunksrv.a	\
+			  libtest.a		\
 			  @GLIB_LIBS@ @CRYPTO_LIBS@ \
 			  @XML_LIBS@ @SSL_LIBS@
 basic_object_LDADD	= $(TESTLDADD)
 it_works_LDADD		= $(TESTLDADD)
 large_object_LDADD	= $(TESTLDADD)
 lotsa_objects_LDADD	= $(TESTLDADD)
+
+noinst_LIBRARIES	= libtest.a
+
+libtest_a_SOURCES	= libtest.c
 
 TESTS_ENVIRONMENT=top_srcdir=$(top_srcdir)
