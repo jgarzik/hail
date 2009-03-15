@@ -1,144 +1,20 @@
 
 Interface overview, in a nutshell
 =================================
-        PUT $URL/$VOLUME/$COOKIE
+        PUT $COOKIE
                 <- (len, data)
                 -> (sha-1 hash)
 
-        GET $URL/$VOLUME/$COOKIE
+        GET $COOKIE
                 -> (len, sha-1 hash, data)
 
-        DELETE $URL/$VOLUME/$COOKIE
+        DELETE $COOKIE
 
 There are no provisions for updating objects.  An update is accomplished via
 GET+DELETE+PUT.
 
+See include/chunk_msg.h for full network protocol specification in C.
 
-HTTP Request headers common to all requests
-===========================================
-Host
-Authorization
-Date
-
-
-HTTP Response headers common to all responses
-=============================================
-Server
-Date
-
-
-Operation: list volumes
-=======================
-Request URI:	GET http://hostname:port/
-
-Response headers:
-	Content-type: application/xml
-	Content-length
-
-Response XML example:
-<?xml version="1.0" encoding="UTF-8"?>
-<ListAllMyVolumesResult xmlns="http://indy.yyz.us/doc/2006-03-01/">
-  <Owner>AUTHENTICATED USERNAME</Owner>
-  <Volumes>
-    <Volume>
-      <Name>VOLUME NAME FROM CONFIG FILE</Name>
-    </Volume>
-  </Volumes>
-</ListAllMyVolumesResult>
-
-
-Operation: list objects in volume
-=================================
-WARNING:  this produces output for EVERY object.  the returned data may be
-large if you have millions of objects in a single volume.
-
-Request URI:	GET http://hostname:port/$VOLUME/
-
-Response headers:
-	Content-type: application/xml
-	Content-length
-
-Response XML example:
-<?xml version="1.0" encoding="UTF-8"?>
-<ListVolumeResult xmlns="http://indy.yyz.us/doc/2006-03-01/">
-  <Name>VOLUME NAME FROM CONFIG FILE</Name>
-
-  (one Contents record for each object...)
-
-  <Contents>
-    <Name>COOKIE</Name>
-    <LastModified>LAST-MOD DATE IN RFC FORMAT</LastModified>
-    <ETag>HASH (currently SHA-1)</ETag>
-    <Size>SIZE, in octets</Size>
-    <Owner>AUTHENTICATED USERNAME</Owner>
-
-	WARNING:  Owner will return the currently authenticated user,
-	if the storage backend has no way to differentiate between users
-	(purely from looking at stored object data and metadata).
-
-  </Contents>
-</ListVolumeResult>
-
-
-Operation: store object
-=======================
-Request URI:	PUT http://hostname:port/$VOLUME/$COOKIE
-
-Request headers:
-	Expect
-	Content-length	(required)
-	X-Data-Sync	(if present, wait for data ack from storage dev)
-
-Response headers:
-	Content-length: 0
-	ETag: "HASH"
-	X-Volume-Key: COOKIE
-
-
-Operation: retrieve object
-==========================
-Request URI:			GET http://hostname:port/$VOLUME/$COOKIE
-Request URI (metadata only):	HEAD http://hostname:port/$VOLUME/$COOKIE
-
-Request headers:
-	If-Match
-	If-None-Match
-	If-Modified-Since
-	If-Unmodified-Since
-
-Response headers:
-	Content-length
-	ETag
-	Last-Modified
-
-
-Operation: delete object
-========================
-Request URI:			DELETE http://hostname:port/$VOLUME/$COOKIE
-
-Response headers:
-	Content-length: 0
-
-
-
-Special note about Host header and volume names
-===============================================
-Rather than specifying the volume name in the URI, you may add it to the
-hostname (provided that the site's DNS has set up a wildcard entry for this
-service).
-
-Example:
-
-	Volume name in URI:
-		GET /test_volume/1234abcd
-		Host: localhost
-
-	Equivalent, with volume name now in Host:
-		GET /1234abcd
-		Host: test_volume.localhost
-
-This behavior applies to all requests (although service-list operation is an
-exception because it does not involve a volume name, obviously).
 
 
 Special note about COOKIE strings
@@ -155,12 +31,6 @@ Each cookie must be at least 7 characters.
 
 Authentication and access control
 =================================
-Primarily because it was easy and useful, chunkd follows the
-specification for Amazon S3's Authorization header, with the exception
-that 'AWS' prefix is replaced with 'STOR'.  Please refer to the S3
-public docs for specific details of construction of the Authorization
-header.
-
 At present, the header signature is verified, but we merely verify that
 username==password, the minimum level of authentication necessary to prove
 that it works.  It does not yet actually authenticate against any password

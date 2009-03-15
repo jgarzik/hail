@@ -6,17 +6,13 @@
 2) (placeholder)
 
 
-3) create one or more volumes (directories that store data):
+3) create a volume (directory that stores data):
 
-	mkdir -p \
-		/disk1/chunkd   \
-		/disk2/chunkd   \
-		/disk3/chunkd
+	mkdir -p /disk1/chunkd
 
 4) create XML-like configuration file (filled in, in the following steps)
 
-5) choose TCP listen port for HTTP server.  recommend something other
-   than port 80, since this is a non-standard service.
+5) choose TCP listen port for server.
 
 	<Listen>
 		<Port>18080</Port>
@@ -33,29 +29,7 @@
 
 8) create one volume entry for each volume, from step #3:
 
-	<Volume>
-		<Name>replica1</Name>
-		<Path>/disk1/chunkd</Path>
-		<Method>fs</Method>
-	</Volume>
-
-	<Volume>
-		<Name>replica2</Name>
-		<Path>/disk2/chunkd</Path>
-		<Method>fs</Method>
-	</Volume>
-
-	<Volume>
-		<Name>spare</Name>
-		<Path>/disk3/chunkd</Path>
-		<Method>fs</Method>
-	</Volume>
-
-NOTE: The <Name> entry is a short name, chosen by you to represent the storage
-volume.  It intentionally conforms to DNS-style rules (no more than 63 chars,
-printable ASCII with many exceptions, etc.), because the user may choose to
-specify the volume via the HTTP 'Host' header and DNS, rather than as the
-first component of the URI. 
+	<Path>/disk1/chunkd</Path>
 
 9) configure SSL if desired, by providing private key and certificate
 

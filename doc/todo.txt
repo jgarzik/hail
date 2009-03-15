@@ -7,15 +7,3 @@ general:
 	- invalid cookie (not 100% hex digits) should return
 	  a better error than InternalError
 
-storage backends:
-	- support for "one big file" (or blk device) storage backend
-
-test suite:
-	- fine-grained HTTP header tests
-		- if-*
-		- date missing
-		- etc.
-
-network:
-	- BUG: make MY_ENDPOINT a cfgfile option, not compile-time option
-

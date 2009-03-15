@@ -1,22 +1,4 @@
-Version 0.2 - March 7, 2009
-
-- lots of internal bug fixes
-- SSL support
-- API change:  PUT (see doc/api.txt)
-- improved volume support
-- support multiple server listen addresses
-- IPv6 support
-- more tests
-- API change:  X-Data-Sync header
-- Client lib API change: stc_new() args changed
-- build on FreeBSD 7.1
-- use libevent rather than hand-rolled epoll
-- explicitly note we are GPLv2 via COPYING, rather than letting
-  autotools copy in the file into the current dir via autogen.sh
-- remove SQLite usage, rewrite metadata portion of backend
-- optimize file data storage (into sub-dirs on local fs)
-
-Version 0.1 - April 14, 2008
+Version 0.1 - March 15, 2009
 
 - initial release
 
