@@ -19,7 +19,6 @@
 #include <argp.h>
 #include <errno.h>
 #include <time.h>
-#include <pcre.h>
 #include <sys/types.h>
 #include <glib.h>
 #include <openssl/hmac.h>
@@ -71,16 +70,15 @@ struct server chunkd_srv = {
 	.pid_file		= "/spare/tmp/chunkd/run/chunkd.pid",
 };
 
-struct compiled_pat patterns[] = {
-	[pat_auth] =
-	{ "^STOR (\\w+):(\\S+)", 0, },
-};
-
 static struct {
 	const char	*code;
 	int		status;
 	const char	*msg;
 } err_info[] = {
+	[Success] =
+	{ "Success", 200,
+	  "Success" },
+
 	[AccessDenied] =
 	{ "AccessDenied", 403,
 	  "Access denied" },
@@ -210,8 +208,6 @@ static void cli_free(struct client *cli)
 		close(cli->fd);
 	}
 
-	req_free(&cli->req);
-
 	if (debugging)
 		syslog(LOG_DEBUG, "client %s ended", cli->addr_host);
 
@@ -224,18 +220,11 @@ static void cli_free(struct client *cli)
 static struct client *cli_alloc(bool encrypt)
 {
 	struct client *cli;
-	const int skip_set =
-		CLI_REQ_BUF_SZ + CLI_DATA_BUF_SZ + CLI_DATA_BUF_SZ;
 
 	/* alloc and init client info */
-	cli = malloc(sizeof(*cli));
+	cli = calloc(1, sizeof(*cli));
 	if (!cli)
 		return NULL;
-
-	/* avoid large and unnecessary memset of network buffers
-	 * found at tail end of struct client
-	 */
-	memset(cli, 0, sizeof(*cli) - skip_set);
 
 	if (encrypt) {
 		cli->ssl = SSL_new(ssl_ctx);
@@ -248,8 +237,7 @@ static struct client *cli_alloc(bool encrypt)
 
 	cli->state = evt_read_req;
 	INIT_LIST_HEAD(&cli->write_q);
-	cli->req_ptr = cli->req_buf;
-	memset(&cli->req, 0, sizeof(cli->req) - sizeof(cli->req.hdr));
+	cli->req_ptr = &cli->creq;
 
 	return cli;
 }
@@ -267,27 +255,9 @@ static bool cli_evt_dispose(struct client *cli, unsigned int events)
 
 static bool cli_evt_recycle(struct client *cli, unsigned int events)
 {
-	unsigned int slop;
-
-	req_free(&cli->req);
-
-	cli->hdr_start = NULL;
-	cli->hdr_end = NULL;
-
-	slop = cli_req_avail(cli);
-	if (slop) {
-		memmove(cli->req_buf, cli->req_ptr, slop);
-		cli->req_used = slop;
-
-		cli->state = evt_parse_hdr;
-	} else {
-		cli->req_used = 0;
-
-		cli->state = evt_read_req;
-	}
-	cli->req_ptr = cli->req_buf;
-
-	memset(&cli->req, 0, sizeof(cli->req));
+	cli->req_ptr = &cli->creq;
+	cli->req_used = 0;
+	cli->state = evt_read_req;
 
 	return true;
 }
@@ -457,15 +427,17 @@ int cli_writeq(struct client *cli, const void *buf, unsigned int buflen,
 	return 0;
 }
 
-static int cli_read(struct client *cli)
+static int cli_read_data(struct client *cli, void *buf, size_t buflen)
 {
 	ssize_t rc;
+
+	if (!buflen)
+		return 0;
 
 	/* read into remaining free space in buffer */
 do_read:
 	if (cli->ssl) {
-		rc = SSL_read(cli->ssl, cli->req_buf + cli->req_used,
-			      (CLI_REQ_BUF_SZ - 1) - cli->req_used);
+		rc = SSL_read(cli->ssl, buf, buflen);
 		if (rc <= 0) {
 			if (rc == 0)
 				return -EPIPE;
@@ -481,8 +453,7 @@ do_read:
 			return -EIO;
 		}
 	} else {
-		rc = read(cli->fd, cli->req_buf + cli->req_used,
-		  	  (CLI_REQ_BUF_SZ - 1) - cli->req_used);
+		rc = read(cli->fd, buf, buflen);
 		if (rc <= 0) {
 			if (rc == 0)
 				return -EPIPE;
@@ -494,19 +465,7 @@ do_read:
 		}
 	}
 
-	cli->req_used += rc;
-
-	/* if buffer is full, assume that data will continue
-	 * to be received (by a malicious or broken client),
-	 * so stop reading now and return an error.
-	 *
-	 * Therefore, it can be said that the maximum size of a
-	 * request to this HTTP server is CLI_REQ_BUF_SZ-1.
-	 */
-	if (cli->req_used == CLI_REQ_BUF_SZ)
-		return -ENOSPC;
-
-	return 0;
+	return rc;
 }
 
 bool cli_cb_free(struct client *cli, struct client_write *wr,
@@ -541,83 +500,54 @@ out:
 bool cli_err(struct client *cli, enum errcode code)
 {
 	int rc;
-	char timestr[50], *hdr = NULL, *content = NULL;
+	struct chunksrv_req *resp = NULL;
 
 	syslog(LOG_INFO, "client %s error %s",
 	       cli->addr_host, err_info[code].code);
 
-	if (asprintf(&content,
-"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
-"<Error>\r\n"
-"  <Code>%s</Code>\r\n"
-"  <Message>%s</Message>\r\n"
-"</Error>\r\n",
-		     err_info[code].code,
-		     err_info[code].msg) < 0)
-		return false;
-
-	if (asprintf(&hdr,
-"HTTP/%d.%d %d x\r\n"
-"Content-Type: application/xml\r\n"
-"Content-Length: %zu\r\n"
-"Date: %s\r\n"
-"Connection: close\r\n"
-"Server: " PACKAGE_STRING "\r\n"
-"\r\n",
-		     cli->req.major,
-		     cli->req.minor,
-		     err_info[code].status,
-		     strlen(content),
-		     time2str(timestr, time(NULL))) < 0) {
-		free(content);
-		return false;
+	resp = malloc(sizeof(*resp));
+	if (!resp) {
+		cli->state = evt_dispose;
+		return true;
 	}
+
+	memcpy(resp, &cli->creq, sizeof(cli->creq));
+
+	resp->resp_code = code;
 
 	cli->state = evt_dispose;
 
-	rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
-	if (rc)
+	rc = cli_writeq(cli, resp, sizeof(*resp), cli_cb_free, resp);
+	if (rc) {
+		free(resp);
 		return true;
-	rc = cli_writeq(cli, content, strlen(content), cli_cb_free, content);
-	if (rc)
-		return true;
+	}
 
 	return cli_write_start(cli);
 }
 
-bool cli_resp_xml(struct client *cli, int http_status,
-			 GList *content)
+static bool cli_resp_xml(struct client *cli, GList *content)
 {
 	int rc;
-	char *hdr, timestr[50];
-	bool rcb, cxn_close = !cli->req.pipeline;
+	bool rcb;
+	int content_len = strlist_len(content);
+	struct chunksrv_req *resp = NULL;
 
-	if (asprintf(&hdr,
-"HTTP/%d.%d %d x\r\n"
-"Content-Type: application/xml\r\n"
-"Content-Length: %zu\r\n"
-"Date: %s\r\n"
-"%s"
-"Server: " PACKAGE_STRING "\r\n"
-"\r\n",
-		     cli->req.major,
-		     cli->req.minor,
-		     http_status,
-		     strlist_len(content),
-		     time2str(timestr, time(NULL)),
-		     cxn_close ? "Connection: close\r\n" : "") < 0) {
-		__strlist_free(content);
-		return false;
+	resp = malloc(sizeof(*resp));
+	if (!resp) {
+		cli->state = evt_dispose;
+		return true;
 	}
 
-	if (cxn_close)
-		cli->state = evt_dispose;
-	else
-		cli->state = evt_recycle;
+	memcpy(resp, &cli->creq, sizeof(cli->creq));
 
-	rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
+	resp->data_len = GUINT64_TO_LE(content_len);
+
+	cli->state = evt_recycle;
+
+	rc = cli_writeq(cli, resp, sizeof(*resp), cli_cb_free, resp);
 	if (rc) {
-		free(hdr);
+		free(resp);
 		cli->state = evt_dispose;
 		return true;
 	}
@@ -636,128 +566,146 @@ bool cli_resp_xml(struct client *cli, int http_status,
 	return rcb;
 }
 
-static bool cli_evt_http_req(struct client *cli, unsigned int events)
+static bool volume_list(struct client *cli)
 {
-	int captured[16];
-	struct http_req *req = &cli->req;
-	char *host, *auth, *content_len_str, *cxn_str;
-	char *path = NULL;
-	char *user = NULL;
-	char *key = NULL;
-	char *method = req->method;
-	bool rcb, pslash;
-	bool expect_cont = false;
-	bool force_close = false;
-	bool sync_data;
-	enum errcode err;
+	const char *user = cli->creq.user;
+	enum errcode err = InternalError;
+	char *s;
+	GList *content, *tmpl;
+	bool rcb;
+	GList *res = NULL;
 
-	/* grab useful headers */
-	host = req_hdr(req, "host");
-	content_len_str = req_hdr(req, "content-length");
-	auth = req_hdr(req, "authorization");
-	cxn_str = req_hdr(req, "connection");
-	sync_data = req_hdr(req, "x-data-sync") ? true : false;
-	if (req->major > 1 || req->minor > 0) {
-		char *expect = req_hdr(req, "expect");
-		if (expect && strcasestr(expect, "100-continue"))
-			expect_cont = true;
-	}
-
-	if (cxn_str && strcasestr(cxn_str, "close"))
-		force_close = true;
-	if (http11(req) && !force_close)
-		req->pipeline = true;
-
-	path = g_strndup(req->uri.path, req->uri.path_len);
-
-	pslash = (strcmp(path, "/") == 0);
-	if ((strlen(path) > 1) && (*path == '/'))
-		key = path + 1;
-
-	if (debugging)
-		syslog(LOG_DEBUG, "%s: method %s, path '%s'",
-		       cli->addr_host, method, path);
-
-	/* parse Authentication header */
-	if (auth) {
-		char b64sig[64];
-		int usiglen, rc;
-
-		if (pcre_exec(patterns[pat_auth].re, NULL,
-			      auth, strlen(auth), 0, 0,
-			      captured, 16) != 3) {
-			syslog(LOG_INFO, "%s: Authorization header parse fail",
-			       cli->addr_host);
-			err = InvalidArgument;
-			goto err_out;
-		}
-
-		user = g_strndup(auth + captured[2], captured[3] - captured[2]);
-		usiglen = captured[5] - captured[4];
-
-		req_sign(&cli->req, "volume", user, b64sig);
-
-		rc = strncmp(b64sig, auth + captured[4], usiglen);
-
-		if (rc) {
-			err = SignatureDoesNotMatch;
-			goto err_out;
-		}
-	}
-
-	if (!auth) {
+	/* verify READ access */
+	if (!user) {
 		err = AccessDenied;
 		goto err_out;
 	}
 
-	/* no matter whether error or not, this is our next state.
-	 * the main question is whether or not we will go immediately
-	 * into it (return true) or wait for writes to complete (return
-	 * false).
-	 *
-	 * the operations below may override this next-state setting,
-	 * however.
-	 */
-	if (req->pipeline)
-		cli->state = evt_recycle;
-	else
-		cli->state = evt_dispose;
+	res = fs_list_objs();
+
+	asprintf(&s,
+"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
+"<ListVolumeResult xmlns=\"http://indy.yyz.us/doc/2006-03-01/\">\r\n"
+"  <Name>%s</Name>\r\n",
+
+		 "volume");
+
+	content = g_list_append(NULL, s);
+
+	tmpl = res;
+	while (tmpl) {
+		char *hash;
+		char *fn, *name, timestr[50];
+		struct stat st;
+
+		name = tmpl->data;
+		tmpl = tmpl->next;
+
+		hash = tmpl->data;
+		tmpl = tmpl->next;
+
+		fn = fs_obj_pathname(name);
+		if (!fn)
+			goto do_next;
+
+		if (stat(fn, &st) < 0) {
+			syslog(LOG_ERR, "blist stat(%s) failed: %s",
+				fn, strerror(errno));
+			st.st_mtime = 0;
+			st.st_size = 0;
+		} else
+			st.st_size -= sizeof(struct be_fs_obj_hdr);
+
+		asprintf(&s,
+                         "  <Contents>\r\n"
+			 "    <Name>%s</Name>\r\n"
+                         "    <LastModified>%s</LastModified>\r\n"
+                         "    <ETag>%s</ETag>\r\n"
+                         "    <Size>%llu</Size>\r\n"
+                         "    <Owner>%s</Owner>\r\n"
+                         "  </Contents>\r\n",
+
+			 name,
+			 time2str(timestr, st.st_mtime),
+			 hash,
+			 (unsigned long long) st.st_size,
+			 user);
+
+		content = g_list_append(content, s);
+
+do_next:
+		free(name);
+		free(hash);
+		free(fn);
+	}
+
+	g_list_free(res);
+
+	s = strdup("</ListVolumeResult>\r\n");
+	content = g_list_append(content, s);
+
+	rcb = cli_resp_xml(cli, content);
+
+	g_list_free(content);
+
+	return rcb;
+
+err_out:
+	return cli_err(cli, err);
+}
+
+static bool valid_req_hdr(const struct chunksrv_req *req)
+{
+	if (memcmp(req->magic, CHUNKD_MAGIC, CHD_MAGIC_SZ))
+		return false;
+	if (strnlen(req->user, sizeof(req->user)) == sizeof(req->user))
+		return false;
+	if (strnlen(req->key, sizeof(req->key)) == sizeof(req->key))
+		return false;
+
+	return true;
+}
+
+static bool cli_evt_exec_req(struct client *cli, unsigned int events)
+{
+	struct chunksrv_req *req = &cli->creq;
+	bool rcb;
+	enum errcode err = InternalError;
+
+	/* validate request header */
+	if (!valid_req_hdr(req))
+		goto err_out;
+
+	cli->state = evt_recycle;
 
 	/*
 	 * operations on objects
 	 */
-	if (!pslash && !strcmp(method, "HEAD"))
-		rcb = object_get(cli, user, key, false);
-	else if (!pslash && !strcmp(method, "GET"))
-		rcb = object_get(cli, user, key, true);
-	else if (!pslash && !strcmp(method, "PUT")) {
-		long content_len;
-
-		if (!content_len_str) {
-			err = MissingContentLength;
-			goto err_out;
-		}
-
-		content_len = atol(content_len_str);
-
-		rcb = object_put(cli, user, key, content_len, expect_cont,
-				 sync_data);
-	} else if (!pslash && !strcmp(method, "DELETE"))
-		rcb = object_del(cli, user, key);
-
-	/*
-	 * operations on volumes
-	 */
-	else if (pslash && !strcmp(method, "GET")) {
-		rcb = volume_list(cli, user);
+	switch (req->op) {
+	case CHO_NOP:
+		err = Success;
+		goto err_out;
+	case CHO_GET:
+		rcb = object_get(cli, true);
+		break;
+	case CHO_GET_META:
+		rcb = object_get(cli, false);
+		break;
+	case CHO_PUT:
+		rcb = object_put(cli);
+		break;
+	case CHO_DEL:
+		rcb = object_del(cli);
+		break;
+	case CHO_LIST:
+		rcb = volume_list(cli);
+		break;
+	default:
+		rcb = cli_err(cli, InvalidURI);
+		break;
 	}
 
-	else
-		rcb = cli_err(cli, InvalidURI);
-
 out:
-	free(path);
-	free(user);
 	return rcb;
 
 err_out:
@@ -765,249 +713,22 @@ err_out:
 	goto out;
 }
 
-int cli_req_avail(struct client *cli)
-{
-	int skip_len = cli->req_ptr - cli->req_buf;
-	int search_len = cli->req_used - skip_len;
-
-	return search_len;
-}
-
-static char *cli_req_eol(struct client *cli)
-{
-	/* find newline in unconsumed portion of buffer */
-	return memchr(cli->req_ptr, '\n', cli_req_avail(cli));
-}
-
-static char *cli_req_line(struct client *cli)
-{
-	/* get start and end of line */
-	char *buf_start = cli->req_ptr;
-	char *buf_eol = cli_req_eol(cli);
-	if (!buf_eol)
-		return NULL;
-
-	/* nul-terminate line, if found */
-	*buf_eol = 0;
-	cli->req_ptr = buf_eol + 1;
-
-	/* chomp CR, if present */
-	if (buf_eol != buf_start) {
-		char *buf_cr = buf_eol - 1;
-		if (*buf_cr == '\r')
-			*buf_cr = 0;
-	}
-
-	/* return saved start-of-line */
-	return buf_start;
-}
-
-static bool cli_hdr_flush(struct client *cli, bool *loop_state)
-{
-	char *tmp;
-	enum errcode err_resp;
-
-	if (!cli->hdr_start)
-		return false;
-
-	/* null terminate entire string (key+value) */
-	*cli->hdr_end = 0;
-
-	/* find end of key; ensure no whitespace in key */
-	tmp = cli->hdr_start;
-	while (*tmp) {
-		if (isspace(*tmp)) {
-			syslog(LOG_WARNING, "whitespace in header key");
-			err_resp = InvalidArgument;
-			goto err_out;
-		}
-		if (*tmp == ':')
-			break;
-		tmp++;
-	}
-	if (*tmp != ':') {
-		err_resp = InvalidArgument;
-		goto err_out;
-	}
-
-	/* null terminate key */
-	*tmp = 0;
-
-	/* add to list of headers */
-	if (req_hdr_push(&cli->req, cli->hdr_start, tmp + 1)) {
-		syslog(LOG_WARNING, "cannot add to list of headers");
-		err_resp = InvalidArgument;
-		goto err_out;
-	}
-
-	/* reset accumulation state */
-	cli->hdr_start = NULL;
-	cli->hdr_end = NULL;
-
-	return false;
-
-err_out:
-	*loop_state = cli_err(cli, err_resp);
-	return true;
-}
-
-static bool cli_evt_parse_hdr(struct client *cli, unsigned int events)
-{
-	char *buf, *buf_eol;
-	bool eoh = false;
-
-	/* get pointer to end-of-line */
-	buf_eol = cli_req_eol(cli);
-	if (!buf_eol) {
-		cli->state = evt_read_hdr;
-		return false;
-	}
-
-	/* mark data as consumed */
-	buf = cli->req_ptr;
-	cli->req_ptr = buf_eol + 1;
-
-	/* convert newline into spaces, for continued header lines */
-	*buf_eol = ' ';
-
-	/* chomp CR, if present */
-	if (buf_eol != buf) {
-		char *buf_cr = buf_eol - 1;
-		if (*buf_cr == '\r') {
-			*buf_cr = ' ';
-			buf_eol--;
-		}
-	}
-
-	/* if beginning of line and buf_eol (beginning of \r\n) are
-	 * the same, its a blank line, signalling end of headers
-	 */
-	if (buf == buf_eol)
-		eoh = true;
-
-	/* check need to flush accumulated header data */
-	if (eoh || (!isspace(buf[0]))) {
-		bool sent_resp, loop;
-
-		sent_resp = cli_hdr_flush(cli, &loop);
-		if (sent_resp)
-			return loop;
-	}
-
-	/* if we have reached end of headers, deliver HTTP request */
-	if (eoh) {
-		cli->state = evt_http_req;
-		return true;
-	}
-
-	/* otherwise, continue accumulating header data */
-	if (!cli->hdr_start)
-		cli->hdr_start = buf;
-	cli->hdr_end = buf_eol;
-
-	return true;
-}
-
-static bool cli_evt_read_hdr(struct client *cli, unsigned int events)
-{
-	int rc = cli_read(cli);
-	if (rc < 0) {
-		if (rc == -ENOSPC) {
-			syslog(LOG_WARNING, "too much invalid header data");
-			return cli_err(cli, InvalidArgument);
-		}
-
-		cli->state = evt_dispose;
-	} else
-		cli->state = evt_parse_hdr;
-
-	return true;
-}
-
-static bool cli_evt_parse_req(struct client *cli, unsigned int events)
-{
-	char *sp1, *sp2, *buf;
-	enum errcode err_resp;
-	int len;
-
-	/* get pointer to nul-terminated line received */
-	buf = cli_req_line(cli);
-	if (!buf) {
-		cli->state = evt_read_req;
-		return false;
-	}
-
-	len = strlen(buf);
-
-	/* locate the first and second spaces, additionally ensuring
-	 * that the first and second tokens are non-empty
-	 */
-	if (*buf == ' ') {
-		syslog(LOG_WARNING, "parse req 1 failed");
-		err_resp = InvalidArgument;
-		goto err_out;
-	}
-	sp1 = strchr(buf, ' ');
-	if ((!sp1) || (*(sp1 + 1) == ' ')) {
-		syslog(LOG_WARNING, "parse req 2 failed");
-		err_resp = InvalidArgument;
-		goto err_out;
-	}
-	sp2 = strchr(sp1 + 1, ' ');
-	if (!sp2) {
-		syslog(LOG_WARNING, "parse req 3 failed");
-		err_resp = InvalidArgument;
-		goto err_out;
-	}
-
-	/* convert the two spaces to nuls, thereby creating three
-	 * nul-terminated strings for the three pieces we desire
-	 */
-	*sp1 = 0;
-	*sp2 = 0;
-
-	/* method is the first token, at the beginning of the buffer */
-	cli->req.method = buf;
-	strup(cli->req.method);
-
-	/* URI is the second token, immediately following the first space */
-	if (!uri_parse(&cli->req.uri, sp1 + 1)) {
-		err_resp = InvalidURI;
-		goto err_out;
-	}
-
-	cli->req.orig_path = g_strndup(cli->req.uri.path, cli->req.uri.path_len);
-
-	cli->req.uri.path_len = field_unescape(cli->req.uri.path,
-					       cli->req.uri.path_len);
-
-	/* HTTP version is the final token, following second space */
-	if ((sscanf(sp2 + 1, "HTTP/%d.%d", &cli->req.major, &cli->req.minor) != 2) ||
-	    (cli->req.major != 1) || (cli->req.minor < 0) || (cli->req.minor > 1)) {
-		syslog(LOG_INFO, "%s: invalid HTTP version", cli->addr_host);
-		err_resp = InvalidArgument;
-		goto err_out;
-	}
-
-	cli->state = evt_parse_hdr;
-	return true;
-
-err_out:
-	return cli_err(cli, err_resp);
-}
-
 static bool cli_evt_read_req(struct client *cli, unsigned int events)
 {
-	int rc = cli_read(cli);
+	int rc = cli_read_data(cli, cli->req_ptr,
+			       sizeof(cli->creq) - cli->req_used);
 	if (rc < 0) {
-		if (rc == -ENOSPC) {
-			syslog(LOG_WARNING, "too much invalid header data 1");
-			return cli_err(cli, InvalidArgument);
-		}
-
 		cli->state = evt_dispose;
-	} else
-		cli->state = evt_parse_req;
+		return true;
+	}
+	
+	cli->req_ptr += rc;
+	cli->req_used += rc;
+
+	if (cli->req_used < sizeof(cli->creq))
+		return false;
+
+	cli->state = evt_exec_req;
 
 	return true;
 }
@@ -1041,11 +762,8 @@ out:
 
 static cli_evt_func state_funcs[] = {
 	[evt_read_req]		= cli_evt_read_req,
-	[evt_parse_req]		= cli_evt_parse_req,
-	[evt_read_hdr]		= cli_evt_read_hdr,
-	[evt_parse_hdr]		= cli_evt_parse_hdr,
-	[evt_http_req]		= cli_evt_http_req,
-	[evt_http_data_in]	= cli_evt_http_data_in,
+	[evt_exec_req]		= cli_evt_exec_req,
+	[evt_data_in]		= cli_evt_data_in,
 	[evt_dispose]		= cli_evt_dispose,
 	[evt_recycle]		= cli_evt_recycle,
 	[evt_ssl_accept]	= cli_evt_ssl_accept,
@@ -1278,25 +996,6 @@ err_out:
 	return rc;
 }
 
-static void compile_patterns(void)
-{
-	int i;
-	const char *error = NULL;
-	int erroffset = -1;
-	pcre *re;
-
-	for (i = 0; i < ARRAY_SIZE(patterns); i++) {
-		re = pcre_compile(patterns[i].str, patterns[i].options,
-				  &error, &erroffset, NULL);
-		if (!re) {
-			syslog(LOG_ERR, "BUG: pattern compile %d failed", i);
-			exit(1);
-		}
-
-		patterns[i].re = re;
-	}
-}
-
 int main (int argc, char *argv[])
 {
 	error_t aprc;
@@ -1327,8 +1026,6 @@ int main (int argc, char *argv[])
 
 	g_thread_init(NULL);
 	SSL_library_init();
-
-	compile_patterns();
 
 	/* init SSL */
 	SSL_load_error_strings();

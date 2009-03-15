@@ -1,6 +1,6 @@
 
 INCLUDES	= -I$(top_srcdir)/include	\
-		  @LIBCURL_CPPFLAGS@ @GLIB_CFLAGS@ @XML_CPPFLAGS@
+		  @GLIB_CFLAGS@ @XML_CPPFLAGS@
 
 EXTRA_DIST =			\
 	test.h			\
@@ -29,8 +29,7 @@ check_PROGRAMS		= basic-object it-works large-object \
 			  lotsa-objects
 
 TESTLDADD		= ../lib/libstc.a	\
-			  ../lib/libhttputil.a	\
-			  @PCRE_LIBS@ @LIBCURL@ @GLIB_LIBS@ @CRYPTO_LIBS@ \
+			  @GLIB_LIBS@ @CRYPTO_LIBS@ \
 			  @XML_LIBS@
 basic_object_LDADD	= $(TESTLDADD)
 it_works_LDADD		= $(TESTLDADD)

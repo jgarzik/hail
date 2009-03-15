@@ -1,15 +1,17 @@
 
 #define _GNU_SOURCE
 #include "chunkd-config.h"
+#include <sys/types.h>
+#include <sys/socket.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <string.h>
-#include <curl/curl.h>
 #include <openssl/hmac.h>
 #include <libxml/tree.h>
 #include <glib.h>
 #include <stc.h>
-#include <httputil.h>
-#include <pcre.h>
+#include <netdb.h>
+#include <chunk_msg.h>
 
 #if 0
 static int _strcasecmp(const unsigned char *a, const char *b)
@@ -25,15 +27,15 @@ static int _strcmp(const unsigned char *a, const char *b)
 
 void stc_free(struct st_client *stc)
 {
-	if (stc->curl)
-		curl_easy_cleanup(stc->curl);
+	if (!stc)
+		return;
+
+	if (stc->fd >= 0)
+		close(stc->fd);
 	free(stc->host);
 	free(stc->user);
 	free(stc->key);
-	free(stc->url);
 	free(stc);
-
-	curl_global_cleanup();
 }
 
 struct st_client *stc_new(const char *service_host, int port,
@@ -41,29 +43,52 @@ struct st_client *stc_new(const char *service_host, int port,
 			  bool encrypt)
 {
 	struct st_client *stc;
+	struct addrinfo hints, *res = NULL, *rp;
+	int rc, fd;
+	char port_str[32];
+
+	sprintf(port_str, "%d", port);
+
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+
+	rc = getaddrinfo(service_host, port_str, &hints, &res);
+	if (rc) {
+		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rc));
+		return NULL;
+	}
+
+	for (rp = res; rp != NULL; rp = rp->ai_next) {
+		fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+		if (fd < 0) {
+			perror("socket");
+			continue;
+		}
+
+		if (connect(fd, rp->ai_addr, rp->ai_addrlen) != -1)
+			break;
+
+		perror("connect");
+		close(fd);
+	}
+
+	freeaddrinfo(res);
+
+	if (!rp)
+		return NULL;
 
 	stc = calloc(1, sizeof(struct st_client));
 	if (!stc)
 		return NULL;
 
+	stc->fd = fd;
 	stc->ssl = encrypt;
 	stc->host = strdup(service_host);
 	stc->user = strdup(user);
 	stc->key = strdup(secret_key);
 
-	asprintf(&stc->url, "http%s://%s:%d",
-		 encrypt ? "s" : "",
-		 service_host,
-		 port);
-
-	if (!stc->host || !stc->user || !stc->key || !stc->url)
-		goto err_out;
-
-	if (curl_global_init(CURL_GLOBAL_ALL))
-		goto err_out;
-
-	stc->curl = curl_easy_init();
-	if (!stc->curl)
+	if (!stc->host || !stc->user || !stc->key)
 		goto err_out;
 
 	return stc;
@@ -87,53 +112,64 @@ bool stc_get(struct st_client *stc, const char *key,
 	     size_t (*write_cb)(void *, size_t, size_t, void *),
 	     void *user_data, bool want_headers)
 {
-	struct http_req req;
-	char datestr[80], timestr[64], hmac[64], auth[128], host[80],
-		url[80], *orig_path, *stmp;
-	struct curl_slist *headers = NULL;
-	int rc;
+	char netbuf[4096];
+	ssize_t xrc;
+	struct chunksrv_req req;
+	struct chunksrv_resp_get resp;
+	uint64_t content_len;
 
-	if (asprintf(&stmp, "/%s", key) < 0)
-		return false;
-
-	orig_path = field_escape(stmp, PATH_ESCAPE_MASK);
-
+	/* initialize request */
 	memset(&req, 0, sizeof(req));
-	req.method = "GET";
-	req.orig_path = orig_path;
+	memcpy(req.magic, CHUNKD_MAGIC, CHD_MAGIC_SZ);
+	req.op = CHO_GET;
+	strcpy(req.user, stc->user);
+	strcpy(req.key, key);
 
-	sprintf(datestr, "Date: %s", time2str(timestr, time(NULL)));
+	/* write request */
+	xrc = write(stc->fd, &req, sizeof(req));
+	if (xrc != sizeof(req)) {
+		perror("write req");
+		return false;
+	}
 
-	req_hdr_push(&req, "Date", timestr);
+	/* read response header */
+	xrc = read(stc->fd, &resp, sizeof(resp.req));
+	if (xrc != sizeof(resp.req)) {
+		perror("read hdr");
+		return false;
+	}
 
-	req_sign(&req, "volume", stc->key, hmac);
+	/* check response code */
+	if (resp.req.resp_code != Success) {
+		fprintf(stderr, "get resp code: %d\n", resp.req.resp_code);
+		return false;
+	}
 
-	sprintf(auth, "Authorization: STOR %s:%s", stc->user, hmac);
-	sprintf(host, "Host: %s", stc->host);
-	sprintf(url, "%s%s", stc->url, orig_path);
+	/* read rest of response header */
+	xrc = read(stc->fd, &resp.mtime, sizeof(resp) - sizeof(resp.req));
+	if (xrc != (sizeof(resp) - sizeof(resp.req))) {
+		perror("read rest");
+		return false;
+	}
 
-	headers = curl_slist_append(headers, host);
-	headers = curl_slist_append(headers, datestr);
-	headers = curl_slist_append(headers, auth);
+	content_len = GUINT64_FROM_LE(resp.req.data_len);
 
-	curl_easy_reset(stc->curl);
-	if (stc->verbose)
-		curl_easy_setopt(stc->curl, CURLOPT_VERBOSE, 1);
-	curl_easy_setopt(stc->curl, CURLOPT_SSL_VERIFYPEER, 0);
-	curl_easy_setopt(stc->curl, CURLOPT_URL, url);
-	curl_easy_setopt(stc->curl, CURLOPT_HEADER, want_headers ? 1 : 0);
-	curl_easy_setopt(stc->curl, CURLOPT_HTTPHEADER, headers);
-	curl_easy_setopt(stc->curl, CURLOPT_ENCODING, "");
-	curl_easy_setopt(stc->curl, CURLOPT_FAILONERROR, 1);
-	curl_easy_setopt(stc->curl, CURLOPT_WRITEFUNCTION, write_cb);
-	curl_easy_setopt(stc->curl, CURLOPT_WRITEDATA, user_data);
+	/* read response data */
+	while (content_len) {
+		int xfer_len;
 
-	rc = curl_easy_perform(stc->curl);
+		xfer_len = MIN(content_len, sizeof(netbuf));
+		xrc = read(stc->fd, netbuf, xfer_len);
+		if (xrc != xfer_len) {
+			perror("read netbuf");
+			return false;
+		}
 
-	curl_slist_free_all(headers);
-	free(orig_path);
+		write_cb(netbuf, xrc, 1, user_data);
+		content_len -= xrc;
+	}
 
-	return (rc == 0);
+	return true;
 }
 
 void *stc_get_inline(struct st_client *stc, const char *key,
@@ -166,65 +202,62 @@ bool stc_put(struct st_client *stc, const char *key,
 	     size_t (*read_cb)(void *, size_t, size_t, void *),
 	     uint64_t len, void *user_data)
 {
-	struct http_req req;
-	char datestr[80], timestr[64], hmac[64], auth[128], host[80];
-	char url[80], *orig_path, *stmp;
-	struct curl_slist *headers = NULL;
-	int rc;
 	GByteArray *all_data;
+	char netbuf[4096];
+	ssize_t xrc;
+	struct chunksrv_req req;
+	struct chunksrv_req resp;
+	uint64_t content_len = len;
 
-	if (asprintf(&stmp, "/%s", key) < 0)
-		return false;
+	/* initialize request */
+	memset(&req, 0, sizeof(req));
+	memcpy(req.magic, CHUNKD_MAGIC, CHD_MAGIC_SZ);
+	req.op = CHO_PUT;
+	req.data_len = GUINT64_TO_LE(content_len);
+	strcpy(req.user, stc->user);
+	strcpy(req.key, key);
 
 	all_data = g_byte_array_new();
-	if (!all_data) {
-		free(stmp);
+	if (!all_data)
 		return false;
+
+	/* write request */
+	xrc = write(stc->fd, &req, sizeof(req));
+	if (xrc != sizeof(req)) {
+		perror("write req");
+		goto err_out;
 	}
 
-	orig_path = field_escape(stmp, PATH_ESCAPE_MASK);
+	while (content_len) {
+		size_t rrc;
+		int xfer_len;
 
-	memset(&req, 0, sizeof(req));
-	req.method = "PUT";
-	req.orig_path = orig_path;
+		xfer_len = MIN(content_len, sizeof(netbuf));
+		rrc = read_cb(netbuf, xfer_len, 1, user_data);
+		if (rrc < 1)
+			goto err_out;
 
-	sprintf(datestr, "Date: %s", time2str(timestr, time(NULL)));
+		content_len -= rrc;
 
-	req_hdr_push(&req, "Date", timestr);
+		xrc = write(stc->fd, netbuf, rrc);
+		if (xrc != rrc) {
+			perror("write netbuf");
+			goto err_out;
+		}
+	}
 
-	req_sign(&req, "volume", stc->key, hmac);
-
-	sprintf(auth, "Authorization: STOR %s:%s", stc->user, hmac);
-	sprintf(host, "Host: %s", stc->host);
-	sprintf(url, "%s%s", stc->url, orig_path);
-
-	headers = curl_slist_append(headers, host);
-	headers = curl_slist_append(headers, datestr);
-	headers = curl_slist_append(headers, auth);
-
-	curl_easy_reset(stc->curl);
-	if (stc->verbose)
-		curl_easy_setopt(stc->curl, CURLOPT_VERBOSE, 1);
-	curl_easy_setopt(stc->curl, CURLOPT_SSL_VERIFYPEER, 0);
-	curl_easy_setopt(stc->curl, CURLOPT_URL, url);
-	curl_easy_setopt(stc->curl, CURLOPT_HTTPHEADER, headers);
-	curl_easy_setopt(stc->curl, CURLOPT_FAILONERROR, 1);
-	curl_easy_setopt(stc->curl, CURLOPT_READFUNCTION, read_cb);
-	curl_easy_setopt(stc->curl, CURLOPT_READDATA, user_data);
-	curl_easy_setopt(stc->curl, CURLOPT_CUSTOMREQUEST, req.method);
-	curl_easy_setopt(stc->curl, CURLOPT_WRITEFUNCTION, all_data_cb);
-	curl_easy_setopt(stc->curl, CURLOPT_WRITEDATA, all_data);
-	curl_easy_setopt(stc->curl, CURLOPT_UPLOAD, 1);
-	curl_easy_setopt(stc->curl, CURLOPT_HEADER, 1);
-	curl_easy_setopt(stc->curl, CURLOPT_INFILESIZE_LARGE, len);
-
-	rc = curl_easy_perform(stc->curl);
-
-	curl_slist_free_all(headers);
-	free(orig_path);
-
-	if (rc)
+	/* read response header */
+	xrc = read(stc->fd, &resp, sizeof(resp));
+	if (xrc != sizeof(resp)) {
+		perror("read hdr");
 		goto err_out;
+	}
+
+	/* check response code */
+	if (resp.resp_code != Success) {
+		fprintf(stderr, "put resp code: %d\n", resp.resp_code);
+		goto err_out;
+	}
 
 	g_byte_array_free(all_data, TRUE);
 	return true;
@@ -265,50 +298,38 @@ bool stc_put_inline(struct st_client *stc, const char *key,
 
 bool stc_del(struct st_client *stc, const char *key)
 {
-	struct http_req req;
-	char datestr[80], timestr[64], hmac[64], auth[128], host[80],
-		url[80], *orig_path, *stmp;
-	struct curl_slist *headers = NULL;
-	int rc;
+	ssize_t xrc;
+	struct chunksrv_req req;
+	struct chunksrv_resp_get resp;
 
-	if (asprintf(&stmp, "/%s", key) < 0)
-		return false;
-
-	orig_path = field_escape(stmp, PATH_ESCAPE_MASK);
-
+	/* initialize request */
 	memset(&req, 0, sizeof(req));
-	req.method = "DELETE";
-	req.orig_path = orig_path;
+	memcpy(req.magic, CHUNKD_MAGIC, CHD_MAGIC_SZ);
+	req.op = CHO_DEL;
+	strcpy(req.user, stc->user);
+	strcpy(req.key, key);
 
-	sprintf(datestr, "Date: %s", time2str(timestr, time(NULL)));
+	/* write request */
+	xrc = write(stc->fd, &req, sizeof(req));
+	if (xrc != sizeof(req)) {
+		perror("write req");
+		return false;
+	}
 
-	req_hdr_push(&req, "Date", timestr);
+	/* read response header */
+	xrc = read(stc->fd, &resp, sizeof(resp.req));
+	if (xrc != sizeof(resp.req)) {
+		perror("read hdr");
+		return false;
+	}
 
-	req_sign(&req, "volume", stc->key, hmac);
+	/* check response code */
+	if (resp.req.resp_code != Success) {
+		fprintf(stderr, "del resp code: %d\n", resp.req.resp_code);
+		return false;
+	}
 
-	sprintf(auth, "Authorization: STOR %s:%s", stc->user, hmac);
-	sprintf(host, "Host: %s", stc->host);
-	sprintf(url, "%s%s", stc->url, orig_path);
-
-	headers = curl_slist_append(headers, host);
-	headers = curl_slist_append(headers, datestr);
-	headers = curl_slist_append(headers, auth);
-
-	curl_easy_reset(stc->curl);
-	if (stc->verbose)
-		curl_easy_setopt(stc->curl, CURLOPT_VERBOSE, 1);
-	curl_easy_setopt(stc->curl, CURLOPT_SSL_VERIFYPEER, 0);
-	curl_easy_setopt(stc->curl, CURLOPT_URL, url);
-	curl_easy_setopt(stc->curl, CURLOPT_HTTPHEADER, headers);
-	curl_easy_setopt(stc->curl, CURLOPT_FAILONERROR, 1);
-	curl_easy_setopt(stc->curl, CURLOPT_CUSTOMREQUEST, req.method);
-
-	rc = curl_easy_perform(stc->curl);
-
-	curl_slist_free_all(headers);
-	free(orig_path);
-
-	return (rc == 0);
+	return true;
 }
 
 void stc_free_object(struct st_object *obj)
@@ -395,68 +416,63 @@ static void stc_parse_key(xmlDocPtr doc, xmlNode *node,
 
 struct st_keylist *stc_keys(struct st_client *stc)
 {
-	struct http_req req;
-	char datestr[80], timestr[64], hmac[64], auth[128], host[80];
-	char orig_path[1 + 8];
-	struct curl_slist *headers = NULL;
 	struct st_keylist *keylist;
 	xmlDocPtr doc;
 	xmlNode *node;
 	xmlChar *xs;
 	GByteArray *all_data;
-	GString *url;
-	int rc;
+	char netbuf[4096];
+	ssize_t xrc;
+	struct chunksrv_req req;
+	struct chunksrv_resp_get resp;
+	uint64_t content_len;
+
+	/* initialize request */
+	memset(&req, 0, sizeof(req));
+	memcpy(req.magic, CHUNKD_MAGIC, CHD_MAGIC_SZ);
+	req.op = CHO_LIST;
+	strcpy(req.user, stc->user);
+
+	/* write request */
+	xrc = write(stc->fd, &req, sizeof(req));
+	if (xrc != sizeof(req)) {
+		perror("write req");
+		return false;
+	}
+
+	/* read response header */
+	xrc = read(stc->fd, &resp, sizeof(resp.req));
+	if (xrc != sizeof(resp.req)) {
+		perror("read hdr");
+		return false;
+	}
+
+	/* check response code */
+	if (resp.req.resp_code != Success) {
+		fprintf(stderr, "get resp code: %d\n", resp.req.resp_code);
+		return false;
+	}
 
 	all_data = g_byte_array_new();
 	if (!all_data)
 		return NULL;
 
-	strcpy(orig_path, "/");
+	content_len = GUINT64_FROM_LE(resp.req.data_len);
 
-	memset(&req, 0, sizeof(req));
-	req.method = "GET";
-	req.orig_path = orig_path;
+	/* read response data */
+	while (content_len) {
+		int xfer_len;
 
-	sprintf(datestr, "Date: %s", time2str(timestr, time(NULL)));
+		xfer_len = MIN(content_len, sizeof(netbuf));
+		xrc = read(stc->fd, netbuf, xfer_len);
+		if (xrc != xfer_len) {
+			perror("read netbuf");
+			goto err_out;
+		}
 
-	req_hdr_push(&req, "Date", timestr);
-
-	req_sign(&req, "volume", stc->key, hmac);
-
-	sprintf(auth, "Authorization: STOR %s:%s", stc->user, hmac);
-	sprintf(host, "Host: %s", stc->host);
-
-	headers = curl_slist_append(headers, host);
-	headers = curl_slist_append(headers, datestr);
-	headers = curl_slist_append(headers, auth);
-
-	url = g_string_sized_new(256);
-	if (!url) {
-		curl_slist_free_all(headers);
-		goto err_out;
+		g_byte_array_append(all_data, (unsigned char *)netbuf, xrc);
+		content_len -= xrc;
 	}
-
-	url = g_string_append(url, stc->url);
-	url = g_string_append(url, orig_path);
-
-	curl_easy_reset(stc->curl);
-	if (stc->verbose)
-		curl_easy_setopt(stc->curl, CURLOPT_VERBOSE, 1);
-	curl_easy_setopt(stc->curl, CURLOPT_SSL_VERIFYPEER, 0);
-	curl_easy_setopt(stc->curl, CURLOPT_URL, url->str);
-	curl_easy_setopt(stc->curl, CURLOPT_HTTPHEADER, headers);
-	curl_easy_setopt(stc->curl, CURLOPT_ENCODING, "");
-	curl_easy_setopt(stc->curl, CURLOPT_FAILONERROR, 1);
-	curl_easy_setopt(stc->curl, CURLOPT_WRITEFUNCTION, all_data_cb);
-	curl_easy_setopt(stc->curl, CURLOPT_WRITEDATA, all_data);
-
-	rc = curl_easy_perform(stc->curl);
-
-	g_string_free(url, TRUE);
-	curl_slist_free_all(headers);
-
-	if (rc)
-		goto err_out;
 
 	doc = xmlReadMemory((char *) all_data->data, all_data->len,
 			    "foo.xml", NULL, 0);

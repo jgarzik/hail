@@ -11,35 +11,29 @@
 #include <openssl/sha.h>
 #include "chunkd.h"
 
-bool object_del(struct client *cli, const char *user,
-		const char *basename)
+bool object_del(struct client *cli)
 {
-	char timestr[50], *hdr;
+	const char *basename = cli->creq.key;
 	int rc;
 	enum errcode err = InternalError;
 	bool rcb;
+	struct chunksrv_req *resp = NULL;
 
-	if (!user)
-		return cli_err(cli, AccessDenied);
+	resp = malloc(sizeof(*resp));
+	if (!resp) {
+		cli->state = evt_dispose;
+		return true;
+	}
+
+	memcpy(resp, &cli->creq, sizeof(cli->creq));
 
 	rcb = fs_obj_delete(basename, &err);
 	if (!rcb)
 		return cli_err(cli, err);
 
-	if (asprintf(&hdr,
-"HTTP/%d.%d 204 x\r\n"
-"Content-Length: 0\r\n"
-"Date: %s\r\n"
-"Server: " PACKAGE_STRING "\r\n"
-"\r\n",
-		     cli->req.major,
-		     cli->req.minor,
-		     time2str(timestr, time(NULL))) < 0)
-		return cli_err(cli, InternalError);
-
-	rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
+	rc = cli_writeq(cli, resp, sizeof(*resp), cli_cb_free, resp);
 	if (rc) {
-		free(hdr);
+		free(resp);
 		return true;
 	}
 
@@ -63,16 +57,21 @@ void cli_out_end(struct client *cli)
 static bool object_put_end(struct client *cli)
 {
 	unsigned char md[SHA_DIGEST_LENGTH];
-	char hashstr[50], timestr[50];
-	char *hdr;
+	char hashstr[50];
 	int rc;
 	enum errcode err = InternalError;
 	bool rcb;
+	struct chunksrv_req *resp = NULL;
 
-	if (cli->req.pipeline)
-		cli->state = evt_recycle;
-	else
+	resp = malloc(sizeof(*resp));
+	if (!resp) {
 		cli->state = evt_dispose;
+		return true;
+	}
+
+	memcpy(resp, &cli->creq, sizeof(cli->creq));
+
+	cli->state = evt_recycle;
 
 	SHA1_Final(md, &cli->out_hash);
 	shastr(md, hashstr);
@@ -82,39 +81,26 @@ static bool object_put_end(struct client *cli)
 	if (!rcb)
 		goto err_out;
 
-	if (asprintf(&hdr,
-"HTTP/%d.%d 200 x\r\n"
-"Content-Length: 0\r\n"
-"ETag: \"%s\"\r\n"
-"X-Volume-Key: %s\r\n"
-"Date: %s\r\n"
-"Server: " PACKAGE_STRING "\r\n"
-"\r\n",
-		     cli->req.major,
-		     cli->req.minor,
-		     hashstr,
-		     cli->out_bo->cookie,
-		     time2str(timestr, time(NULL))) < 0) {
-		syslog(LOG_ERR, "OOM in object_put_end");
-		goto err_out;
-	}
+	memcpy(resp->checksum, hashstr, sizeof(hashstr));
+	resp->checksum[sizeof(hashstr)] = 0;
 
 	cli_out_end(cli);
 
-	rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
+	rc = cli_writeq(cli, resp, sizeof(*resp), cli_cb_free, resp);
 	if (rc) {
-		free(hdr);
+		free(resp);
 		return true;
 	}
 
 	return cli_write_start(cli);
 
 err_out:
+	free(resp);
 	cli_out_end(cli);
 	return cli_err(cli, err);
 }
 
-bool cli_evt_http_data_in(struct client *cli, unsigned int events)
+bool cli_evt_data_in(struct client *cli, unsigned int events)
 {
 	char *p = cli->netbuf;
 	ssize_t avail, bytes;
@@ -183,12 +169,11 @@ bool cli_evt_http_data_in(struct client *cli, unsigned int events)
 	return true;
 }
 
-bool object_put(struct client *cli, const char *user,
-		const char *key,
-		long content_len, bool expect_cont, bool sync_data)
+bool object_put(struct client *cli)
 {
-	long avail;
-	bool start_write = false;
+	const char *user = cli->creq.user;
+	const char *key = cli->creq.key;
+	uint64_t content_len = GUINT64_FROM_LE(cli->creq.data_len);
 
 	if (!user)
 		return cli_err(cli, AccessDenied);
@@ -200,49 +185,14 @@ bool object_put(struct client *cli, const char *user,
 	SHA1_Init(&cli->out_hash);
 	cli->out_len = content_len;
 	cli->out_user = strdup(user);
-	cli->out_sync = sync_data;
-
-	/* handle Expect: 100-continue header, by unconditionally
-	 * requesting that they continue.  At this point, the storage
-	 * backend has verified that we may proceed.
-	 */
-	if (expect_cont) {
-		char *cont;
-
-		/* FIXME check for err */
-		asprintf(&cont, "HTTP/%d.%d 100 Continue\r\n\r\n",
-			 cli->req.major, cli->req.minor);
-		cli_writeq(cli, cont, strlen(cont), cli_cb_free, cont);
-		start_write = true;
-	}
-
-	avail = MIN(cli_req_avail(cli), content_len);
-	if (avail) {
-		ssize_t bytes;
-
-		while (avail > 0) {
-			bytes = fs_obj_write(cli->out_bo, cli->req_ptr, avail);
-			if (bytes < 0) {
-				cli_out_end(cli);
-				syslog(LOG_ERR, "write(2) error in object_put: %s",
-					strerror(errno));
-				return cli_err(cli, InternalError);
-			}
-
-			SHA1_Update(&cli->out_hash, cli->req_ptr, bytes);
-
-			cli->out_len -= bytes;
-			cli->req_ptr += bytes;
-			avail -= bytes;
-		}
-	}
+	cli->out_sync = true;
 
 	if (!cli->out_len)
 		return object_put_end(cli);
 
-	cli->state = evt_http_data_in;
+	cli->state = evt_data_in;
 
-	return start_write ? cli_write_start(cli) : true;
+	return true;
 }
 
 void cli_in_end(struct client *cli)
@@ -289,92 +239,38 @@ err_out_buf:
 	return false;
 }
 
-bool object_get(struct client *cli, const char *user,
-		const char *basename, bool want_body)
+bool object_get(struct client *cli, bool want_body)
 {
-	char timestr[50], modstr[50], *hdr;
+	const char *basename = cli->creq.key;
 	int rc;
 	enum errcode err = InternalError;
 	ssize_t bytes;
-	bool modified = true;
 	struct backend_obj *obj;
+	struct chunksrv_resp_get *resp = NULL;
 
-	if (!user) {
-		err = AccessDenied;
-		goto err_out;
+	resp = malloc(sizeof(*resp));
+	if (!resp) {
+		cli->state = evt_dispose;
+		return true;
 	}
+
+	memcpy(resp, &cli->creq, sizeof(cli->creq));
 
 	obj = fs_obj_open(basename, &err);
 	if (!obj)
 		goto err_out;
 
-	hdr = req_hdr(&cli->req, "if-match");
-	if (hdr && strcmp(obj->hashstr, hdr)) {
-		err = PreconditionFailed;
-		goto err_out_obj;
-	}
-
-	hdr = req_hdr(&cli->req, "if-unmodified-since");
-	if (hdr) {
-		time_t t;
-
-		t = str2time(hdr);
-		if (!t) {
-			err = InvalidArgument;
-			goto err_out_obj;
-		}
-
-		if (obj->mtime > t) {
-			err = PreconditionFailed;
-			goto err_out_obj;
-		}
-	}
-
-	hdr = req_hdr(&cli->req, "if-modified-since");
-	if (hdr) {
-		time_t t;
-
-		t = str2time(hdr);
-		if (!t) {
-			err = InvalidArgument;
-			goto err_out_obj;
-		}
-
-		if (obj->mtime <= t) {
-			modified = false;
-			want_body = false;
-		}
-	}
-
-	hdr = req_hdr(&cli->req, "if-none-match");
-	if (hdr && (!strcmp(obj->hashstr, hdr))) {
-		modified = false;
-		want_body = false;
-	}
-
-	if (asprintf(&hdr,
-"HTTP/%d.%d %d x\r\n"
-"Content-Length: %llu\r\n"
-"ETag: \"%s\"\r\n"
-"Date: %s\r\n"
-"Last-Modified: %s\r\n"
-"Server: " PACKAGE_STRING "\r\n"
-"\r\n",
-		     cli->req.major,
-		     cli->req.minor,
-		     modified ? 200 : 304,
-		     (unsigned long long) obj->size,
-		     obj->hashstr,
-		     time2str(timestr, time(NULL)),
-		     time2str(modstr, obj->mtime)) < 0)
-		goto err_out_obj;
+	resp->req.data_len = GUINT32_TO_LE(obj->size);
+	memcpy(resp->req.checksum, obj->hashstr, sizeof(obj->hashstr));
+	resp->req.checksum[sizeof(obj->hashstr)] = 0;
+	resp->mtime = GUINT64_TO_LE(obj->mtime);
 
 	if (!want_body) {
 		cli_in_end(cli);
 
-		rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
+		rc = cli_writeq(cli, resp, sizeof(*resp), cli_cb_free, resp);
 		if (rc) {
-			free(hdr);
+			free(resp);
 			return true;
 		}
 		goto start_write;
@@ -395,9 +291,9 @@ bool object_get(struct client *cli, const char *user,
 	if (!cli->in_len)
 		cli_in_end(cli);
 
-	rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
+	rc = cli_writeq(cli, resp, sizeof(*resp), cli_cb_free, resp);
 	if (rc) {
-		free(hdr);
+		free(resp);
 		return true;
 	}
 
@@ -411,6 +307,7 @@ start_write:
 err_out_obj:
 	cli_in_end(cli);
 err_out:
+	free(resp);
 	return cli_err(cli, err);
 }
 

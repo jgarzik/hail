@@ -42,7 +42,6 @@ dnl AC_TYPE_PID_T
 dnl -----------------------------
 dnl Checks for required libraries
 dnl -----------------------------
-AC_CHECK_LIB(pcre, pcre_compile, PCRE_LIBS=-lpcre)
 AC_CHECK_LIB(crypto, MD5_Init, CRYPTO_LIBS=-lcrypto)
 AC_CHECK_LIB(ssl, SSL_new, SSL_LIBS=-lssl)
 AC_CHECK_LIB(event, event_base_new, EVENT_LIBS=-levent, exit 1)
@@ -62,9 +61,7 @@ dnl --------------------------
 
 AM_PATH_GLIB_2_0(2.0.0, , exit 1, gthread)
 AM_PATH_XML2(2.6.0, , exit 1)
-LIBCURL_CHECK_CONFIG(, 7.10.1, , exit 1)
 
-AC_SUBST(PCRE_LIBS)
 AC_SUBST(CRYPTO_LIBS)
 AC_SUBST(SSL_LIBS)
 AC_SUBST(EVENT_LIBS)

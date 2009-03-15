@@ -3,9 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <curl/curl.h>
 #include <glib.h>
-#include <pcre.h>
 
 struct st_object {
 	char		*name;
@@ -21,14 +19,12 @@ struct st_keylist {
 };
 
 struct st_client {
-	CURL		*curl;
 	char		*host;
 	char		*user;
 	char		*key;
 	bool		verbose;
 	bool		ssl;
-
-	char		*url;
+	int		fd;
 };
 
 extern void stc_free(struct st_client *stc);
