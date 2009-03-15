@@ -54,6 +54,8 @@ static void test(bool encrypt)
 		      TEST_USER, TEST_USER_KEY, encrypt);
 	OK(stc);
 
+	sync();
+
 	gettimeofday(&ta, NULL);
 
 	/* store object */
@@ -64,6 +66,8 @@ static void test(bool encrypt)
 
 	printdiff(&ta, &tb, N_BUFS,
 		  encrypt ? "large-object SSL PUT" : "large-object PUT", "MB");
+
+	sync();
 
 	/* make sure object appears in list of volume keys */
 	klist = stc_keys(stc);

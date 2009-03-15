@@ -11,7 +11,7 @@
 #include "test.h"
 
 enum {
-	N_TEST_OBJS		= 2000,
+	N_TEST_OBJS		= 10000,
 };
 
 static void test(int n_objects, bool encrypt)
@@ -30,11 +30,13 @@ static void test(int n_objects, bool encrypt)
 		      TEST_USER, TEST_USER_KEY, encrypt);
 	OK(stc);
 
+	sync();
+
 	gettimeofday(&ta, NULL);
 
 	/* store object */
 	for (i = 0; i < n_objects; i++) {
-		sprintf(key, "%08x", i);
+		sprintf(key, "%x000000", i);
 		rcb = stc_put_inline(stc, key, val, strlen(val));
 		OK(rcb);
 
@@ -45,6 +47,9 @@ static void test(int n_objects, bool encrypt)
 
 	printdiff(&ta, &tb, n_objects,
 		  encrypt ? "lotsa-objects SSL PUT": "lotsa-objects PUT", "ops");
+
+	fprintf(stderr, "      lotsa-objects syncing...\n");
+	sync();
 
 	gettimeofday(&ta, NULL);
 
@@ -107,6 +112,9 @@ static void test(int n_objects, bool encrypt)
 
 	printdiff(&ta, &tb, n_objects,
 		  encrypt ? "lotsa-objects SSL DELETE": "lotsa-objects DELETE", "ops");
+
+	fprintf(stderr, "      lotsa-objects syncing...\n");
+	sync();
 
 	g_list_free(keys);
 
