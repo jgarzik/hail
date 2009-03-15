@@ -569,17 +569,10 @@ static bool cli_resp_xml(struct client *cli, GList *content)
 static bool volume_list(struct client *cli)
 {
 	const char *user = cli->creq.user;
-	enum errcode err = InternalError;
 	char *s;
 	GList *content, *tmpl;
 	bool rcb;
 	GList *res = NULL;
-
-	/* verify READ access */
-	if (!user) {
-		err = AccessDenied;
-		goto err_out;
-	}
 
 	res = fs_list_objs();
 
@@ -649,9 +642,6 @@ do_next:
 	g_list_free(content);
 
 	return rcb;
-
-err_out:
-	return cli_err(cli, err);
 }
 
 static bool valid_req_hdr(const struct chunksrv_req *req)
@@ -670,11 +660,13 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 {
 	struct chunksrv_req *req = &cli->creq;
 	bool rcb;
-	enum errcode err = InternalError;
+	enum errcode err;
 
 	/* validate request header */
-	if (!valid_req_hdr(req))
+	if (!valid_req_hdr(req)) {
+		err = InvalidArgument;
 		goto err_out;
+	}
 
 	cli->state = evt_recycle;
 
@@ -683,8 +675,8 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 	 */
 	switch (req->op) {
 	case CHO_NOP:
-		err = Success;
-		goto err_out;
+		rcb = cli_err(cli, Success);
+		break;
 	case CHO_GET:
 		rcb = object_get(cli, true);
 		break;
