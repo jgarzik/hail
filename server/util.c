@@ -370,3 +370,19 @@ char *time2str(char *strbuf, time_t time)
 	return strbuf;
 }
 
+#ifndef HAVE_STRNLEN
+size_t strnlen(const char *s, size_t maxlen)
+{
+	int len = 0;
+
+	if (!s)
+		return 0;
+
+	while ((len < maxlen) && (*s)) {
+		s++;
+		len++;
+	}
+
+	return len;
+}
+#endif

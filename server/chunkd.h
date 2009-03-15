@@ -196,4 +196,17 @@ extern bool cli_write_start(struct client *cli);
 extern int cli_req_avail(struct client *cli);
 extern int cli_poll_mod(struct client *cli);
 
+static inline bool use_sendfile(struct client *cli)
+{
+#if defined(HAVE_SENDFILE) && defined(HAVE_SYS_SENDFILE_H)
+	return cli->ssl ? false : true;
+#else
+	return false;
+#endif
+}
+
+#ifndef HAVE_STRNLEN
+extern size_t strnlen(const char *s, size_t maxlen);
+#endif
+
 #endif /* __STORAGED_H__ */

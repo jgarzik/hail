@@ -32,8 +32,8 @@ AC_PROG_RANLIB
 AC_PROG_GCC_TRADITIONAL
 
 dnl Checks for header files.
-dnl AC_HEADER_STDC
-dnl AC_CHECK_HEADERS(sys/ioctl.h unistd.h)
+AC_HEADER_STDC
+AC_CHECK_HEADERS(sys/sendfile.h)
 
 dnl Checks for typedefs, structures, and compiler characteristics.
 dnl AC_TYPE_SIZE_T
@@ -50,6 +50,7 @@ AC_CHECK_LIB(argp, argp_parse, ARGP_LIBS=-largp)
 dnl -------------------------------------
 dnl Checks for optional library functions
 dnl -------------------------------------
+AC_CHECK_FUNCS(sendfile strnlen)
 
 dnl -----------------
 dnl Configure options

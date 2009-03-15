@@ -3,7 +3,9 @@
 #include "chunkd-config.h"
 #include <sys/types.h>
 #include <sys/stat.h>
+#if defined(HAVE_SENDFILE) && defined(HAVE_SYS_SENDFILE_H)
 #include <sys/sendfile.h>
+#endif
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -281,6 +283,8 @@ ssize_t fs_obj_write(struct backend_obj *bo, const void *ptr, size_t len)
 	return rc;
 }
 
+#if defined(HAVE_SENDFILE) && defined(HAVE_SYS_SENDFILE_H)
+
 ssize_t fs_obj_sendfile(struct backend_obj *bo, int out_fd, size_t len)
 {
 	struct fs_obj *obj = bo->private;
@@ -293,6 +297,16 @@ ssize_t fs_obj_sendfile(struct backend_obj *bo, int out_fd, size_t len)
 
 	return rc;
 }
+
+#else
+
+ssize_t fs_obj_sendfile(struct backend_obj *bo, int out_fd, size_t len)
+{
+	syslog(LOG_ERR, "BUG: sendfile used but not supported");
+	return -EOPNOTSUPP;
+}
+
+#endif /* HAVE_SENDFILE && HAVE_SYS_SENDFILE_H */
 
 bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 				const char *hashstr, bool sync_data)

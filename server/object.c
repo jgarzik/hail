@@ -211,9 +211,7 @@ void cli_in_end(struct client *cli)
 
 static bool object_read_bytes(struct client *cli)
 {
-	bool use_sendfile = cli->ssl ? false : true;
-
-	if (use_sendfile) {
+	if (use_sendfile(cli)) {
 		if (!cli_wr_sendfile(cli, object_get_more))
 			return false;
 	} else {
