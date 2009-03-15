@@ -287,27 +287,64 @@ static int SSL_writev(SSL *ssl, const struct iovec *iov, int iovcnt)
 	return bytes;
 }
 
+static int cli_wr_iov(struct client *cli, struct iovec *iov, int max_iov)
+{
+	struct client_write *tmp;
+	int n_iov = 0;
+
+	/* accumulate pending writes into iovec */
+	list_for_each_entry(tmp, &cli->write_q, node) {
+		if (n_iov >= max_iov)
+			break;
+		
+		iov[n_iov].iov_base = (void *) tmp->buf;
+		iov[n_iov].iov_len = tmp->len;
+
+		n_iov++;
+	}
+
+	return n_iov;
+}
+
+static void cli_wr_completed(struct client *cli, ssize_t rc, bool *more_work)
+{
+	struct client_write *tmp;
+
+	/* iterate through write queue, issuing completions based on
+	 * amount of data written
+	 */
+	while (rc > 0) {
+		int sz;
+
+		/* get pointer to first record on list */
+		tmp = list_entry(cli->write_q.next, struct client_write, node);
+
+		/* mark data consumed by decreasing tmp->len */
+		sz = (tmp->len < rc) ? tmp->len : rc;
+		tmp->len -= sz;
+		tmp->buf += sz;
+		rc -= sz;
+
+		/* if tmp->len reaches zero, write is complete,
+		 * call callback and clean up
+		 */
+		if (tmp->len == 0)
+			if (cli_write_free(cli, tmp, true))
+				*more_work = true;
+	}
+}
+
 static void cli_writable(struct client *cli)
 {
 	unsigned int n_iov;
-	struct client_write *tmp;
 	ssize_t rc;
 	struct iovec iov[CLI_MAX_WR_IOV];
 	bool more_work;
 
 restart:
-	n_iov = 0;
 	more_work = false;
 
-	/* accumulate pending writes into iovec */
-	list_for_each_entry(tmp, &cli->write_q, node) {
-		/* bleh, struct iovec should declare iov_base const */
-		iov[n_iov].iov_base = (void *) tmp->buf;
-		iov[n_iov].iov_len = tmp->len;
-		n_iov++;
-		if (n_iov == CLI_MAX_WR_IOV)
-			break;
-	}
+	n_iov = cli_wr_iov(cli, iov, CLI_MAX_WR_IOV);
 
 	/* execute non-blocking write */
 do_write:
@@ -335,28 +372,7 @@ do_write:
 		}
 	}
 
-	/* iterate through write queue, issuing completions based on
-	 * amount of data written
-	 */
-	while (rc > 0) {
-		int sz;
-
-		/* get pointer to first record on list */
-		tmp = list_entry(cli->write_q.next, struct client_write, node);
-
-		/* mark data consumed by decreasing tmp->len */
-		sz = (tmp->len < rc) ? tmp->len : rc;
-		tmp->len -= sz;
-		tmp->buf += sz;
-		rc -= sz;
-
-		/* if tmp->len reaches zero, write is complete,
-		 * call callback and clean up
-		 */
-		if (tmp->len == 0)
-			if (cli_write_free(cli, tmp, true))
-				more_work = true;
-	}
+	cli_wr_completed(cli, rc, &more_work);
 
 	if (more_work)
 		goto restart;
@@ -812,13 +828,11 @@ static void tcp_cli_event(int fd, short events, void *userdata)
 	struct client *cli = userdata;
 	bool loop = false;
 
-	if (events & EV_READ) {
-		if (cli->write_want_read) {
-			cli->write_want_read = false;
-			cli_writable(cli);
-		} else
-			loop = true;
-	}
+	if (cli->write_want_read) {
+		cli->write_want_read = false;
+		cli_writable(cli);
+	} else
+		loop = true;
 
 	while (loop) {
 		loop = state_funcs[cli->state](cli, events);
