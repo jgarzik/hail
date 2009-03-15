@@ -1,6 +1,7 @@
 
 #include "chunkd-config.h"
 #include <sys/types.h>
+#include <sys/time.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <time.h>
@@ -10,8 +11,8 @@
 #include "test.h"
 
 enum {
-	N_BUFS		= 4000,
-	BUFSZ		= 4096,
+	N_BUFS		= 100,
+	BUFSZ		= 1024 * 1024,
 };
 
 static unsigned long read_offset;
@@ -44,6 +45,7 @@ static void test(bool encrypt)
 	size_t len = 0;
 	void *mem, *p;
 	char data[BUFSZ];
+	struct timeval ta, tb;
 	int i;
 
 	memset(data, 0xdeadbeef, sizeof(data));
@@ -52,9 +54,16 @@ static void test(bool encrypt)
 		      TEST_USER, TEST_USER_KEY, encrypt);
 	OK(stc);
 
+	gettimeofday(&ta, NULL);
+
 	/* store object */
 	rcb = stc_put(stc, key, read_cb, N_BUFS * BUFSZ, data);
 	OK(rcb);
+
+	gettimeofday(&tb, NULL);
+
+	printdiff(&ta, &tb, N_BUFS,
+		  encrypt ? "large-object SSL PUT" : "large-object PUT", "MB");
 
 	/* make sure object appears in list of volume keys */
 	klist = stc_keys(stc);
@@ -71,10 +80,17 @@ static void test(bool encrypt)
 	OK(obj->size == (N_BUFS * BUFSZ));
 	OK(obj->owner);
 
+	gettimeofday(&ta, NULL);
+
 	/* get object */
 	mem = stc_get_inline(stc, key, false, &len);
 	OK(mem);
 	OK(len == (N_BUFS * BUFSZ));
+
+	gettimeofday(&tb, NULL);
+
+	printdiff(&ta, &tb, N_BUFS,
+		  encrypt ? "large-object SSL GET" : "large-object GET", "MB");
 
 	/* verify object contents */
 	p = mem;

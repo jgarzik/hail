@@ -1,6 +1,7 @@
 
 #include "chunkd-config.h"
 #include <sys/types.h>
+#include <sys/time.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <time.h>
@@ -10,7 +11,7 @@
 #include "test.h"
 
 enum {
-	N_TEST_OBJS		= 1000,
+	N_TEST_OBJS		= 2000,
 };
 
 static void test(int n_objects, bool encrypt)
@@ -23,10 +24,13 @@ static void test(int n_objects, bool encrypt)
 	int i;
 	GList *keys = NULL, *tmpl;
 	char *k;
+	struct timeval ta, tb;
 
 	stc = stc_new(TEST_HOST, encrypt ? TEST_SSL_PORT : TEST_PORT,
 		      TEST_USER, TEST_USER_KEY, encrypt);
 	OK(stc);
+
+	gettimeofday(&ta, NULL);
 
 	/* store object */
 	for (i = 0; i < n_objects; i++) {
@@ -37,10 +41,22 @@ static void test(int n_objects, bool encrypt)
 		keys = g_list_prepend(keys, strdup(key));
 	}
 
+	gettimeofday(&tb, NULL);
+
+	printdiff(&ta, &tb, n_objects,
+		  encrypt ? "lotsa-objects SSL PUT": "lotsa-objects PUT", "ops");
+
+	gettimeofday(&ta, NULL);
+
 	/* verify keylist is received */
 	klist = stc_keys(stc);
 	OK(klist);
 	OK(klist->contents);
+
+	gettimeofday(&tb, NULL);
+
+	printdiff(&ta, &tb, n_objects,
+		  encrypt ? "lotsa-objects SSL Key list": "lotsa-objects Key list", "entries");
 
 	i = 0;
 	tmpl = klist->contents;
@@ -52,6 +68,8 @@ static void test(int n_objects, bool encrypt)
 	OK(i == n_objects);
 
 	stc_free_keylist(klist);
+
+	gettimeofday(&ta, NULL);
 
 	/* get objects */
 	for (tmpl = keys; tmpl; tmpl = tmpl->next) {
@@ -69,6 +87,13 @@ static void test(int n_objects, bool encrypt)
 		free(mem);
 	}
 
+	gettimeofday(&tb, NULL);
+
+	printdiff(&ta, &tb, n_objects,
+		  encrypt ? "lotsa-objects SSL GET": "lotsa-objects GET", "ops");
+
+	gettimeofday(&ta, NULL);
+
 	/* delete object */
 	for (tmpl = keys; tmpl; tmpl = tmpl->next) {
 		k = tmpl->data;
@@ -77,6 +102,11 @@ static void test(int n_objects, bool encrypt)
 
 		free(k);
 	}
+
+	gettimeofday(&tb, NULL);
+
+	printdiff(&ta, &tb, n_objects,
+		  encrypt ? "lotsa-objects SSL DELETE": "lotsa-objects DELETE", "ops");
 
 	g_list_free(keys);
 
