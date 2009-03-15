@@ -26,6 +26,7 @@ struct fs_obj {
 
 	int			in_fd;
 	char			*in_fn;
+	off_t			sendfile_ofs;
 };
 
 static struct fs_obj *fs_obj_alloc(void)
@@ -290,7 +291,10 @@ ssize_t fs_obj_sendfile(struct backend_obj *bo, int out_fd, size_t len)
 	struct fs_obj *obj = bo->private;
 	ssize_t rc;
 
-	rc = sendfile(out_fd, obj->in_fd, NULL, len);
+	if (obj->sendfile_ofs == 0)
+		obj->sendfile_ofs += sizeof(struct be_fs_obj_hdr);
+
+	rc = sendfile(out_fd, obj->in_fd, &obj->sendfile_ofs, len);
 	if (rc < 0)
 		syslog(LOG_ERR, "obj sendfile(%s) failed: %s",
 		       obj->in_fn, strerror(errno));
