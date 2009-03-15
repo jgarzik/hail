@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <openssl/hmac.h>
 #include <openssl/ssl.h>
 #include <libxml/tree.h>
@@ -112,7 +114,7 @@ struct st_client *stc_new(const char *service_host, int port,
 {
 	struct st_client *stc;
 	struct addrinfo hints, *res = NULL, *rp;
-	int rc, fd;
+	int rc, fd, on = 1;
 	char port_str[32];
 
 	sprintf(port_str, "%d", port);
@@ -144,6 +146,10 @@ struct st_client *stc_new(const char *service_host, int port,
 
 	if (!rp)
 		return NULL;
+
+	/* disable delay of small output packets */
+	if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &on, sizeof(on)) < 0)
+		perror("setsockopt(TCP_NODELAY)");
 
 	stc = calloc(1, sizeof(struct st_client));
 	if (!stc)
