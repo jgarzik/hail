@@ -185,7 +185,7 @@ bool object_put(struct client *cli)
 	SHA1_Init(&cli->out_hash);
 	cli->out_len = content_len;
 	cli->out_user = strdup(user);
-	cli->out_sync = true;
+	cli->out_sync = false;
 
 	if (!cli->out_len)
 		return object_put_end(cli);
