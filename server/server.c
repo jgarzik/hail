@@ -541,7 +541,10 @@ bool cli_err(struct client *cli, enum errcode code)
 
 	resp->resp_code = code;
 
-	cli->state = evt_dispose;
+	if (code == Success)
+		cli->state = evt_recycle;
+	else
+		cli->state = evt_dispose;
 
 	rc = cli_writeq(cli, resp, sizeof(*resp), cli_cb_free, resp);
 	if (rc) {
@@ -708,6 +711,24 @@ static bool valid_req_hdr(const struct chunksrv_req *req)
 	return true;
 }
 
+static const char *op2str(enum chunksrv_ops op)
+{
+	switch (op) {
+	case CHO_NOP:		return "CHO_NOP";
+	case CHO_GET:		return "CHO_GET";
+	case CHO_GET_META:	return "CHO_GET_META";
+	case CHO_PUT:		return "CHO_PUT";
+	case CHO_DEL:		return "CHO_DEL";
+	case CHO_LIST:		return "CHO_LIST";
+
+	default:
+		return "BUG/UNKNOWN!";
+	}
+
+	/* not reached */
+	return NULL;
+}
+
 static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 {
 	struct chunksrv_req *req = &cli->creq;
@@ -727,6 +748,12 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 	}
 
 	cli->state = evt_recycle;
+
+	if (debugging)
+		syslog(LOG_DEBUG, "REQ(op %s, key %s, user %s)",
+		       op2str(req->op),
+		       req->key,
+		       req->user);
 
 	/*
 	 * operations on objects
