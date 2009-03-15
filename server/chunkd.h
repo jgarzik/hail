@@ -27,6 +27,8 @@ enum {
 	STD_COOKIE_MIN		= 7,
 
 	STD_TRASH_MAX		= 1000,
+
+	CLI_MAX_SENDFILE_SZ	= 512 * 1024,
 };
 
 struct client;
@@ -41,6 +43,7 @@ struct client_write {
 	int			len;		/* write buffer length */
 	cli_write_func		cb;		/* callback */
 	void			*cb_data;	/* data passed to cb */
+	bool			sendfile;	/* using sendfile? */
 
 	struct list_head	node;
 };
@@ -157,6 +160,7 @@ extern bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 				const char *hashstr, bool sync_data);
 extern bool fs_obj_delete(const char *cookie, enum errcode *err_code);
 extern GList *fs_list_objs(void);
+extern ssize_t fs_obj_sendfile(struct backend_obj *bo, int out_fd, size_t len);
 
 /* object.c */
 extern bool object_del(struct client *cli);
@@ -185,6 +189,7 @@ extern struct server chunkd_srv;
 extern bool cli_err(struct client *cli, enum errcode code);
 extern int cli_writeq(struct client *cli, const void *buf, unsigned int buflen,
 		     cli_write_func cb, void *cb_data);
+extern bool cli_wr_sendfile(struct client *, cli_write_func);
 extern bool cli_cb_free(struct client *cli, struct client_write *wr,
 			bool done);
 extern bool cli_write_start(struct client *cli);

@@ -3,6 +3,7 @@
 #include "chunkd-config.h"
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/sendfile.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -276,6 +277,19 @@ ssize_t fs_obj_write(struct backend_obj *bo, const void *ptr, size_t len)
 	if (rc < 0)
 		syslog(LOG_ERR, "obj write(%s) failed: %s",
 		       obj->out_fn, strerror(errno));
+
+	return rc;
+}
+
+ssize_t fs_obj_sendfile(struct backend_obj *bo, int out_fd, size_t len)
+{
+	struct fs_obj *obj = bo->private;
+	ssize_t rc;
+
+	rc = sendfile(out_fd, obj->in_fd, NULL, len);
+	if (rc < 0)
+		syslog(LOG_ERR, "obj sendfile(%s) failed: %s",
+		       obj->in_fn, strerror(errno));
 
 	return rc;
 }

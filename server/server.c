@@ -314,17 +314,26 @@ static void cli_writable(struct client *cli)
 {
 	ssize_t rc;
 	bool more_work;
+	struct client_write *tmp;
 
 restart:
 	more_work = false;
 
+	/* we are guaranteed to have at least one entry in write_q */
+	tmp = list_entry(cli->write_q.next, struct client_write, node);
+
 	/* execute non-blocking write */
 do_write:
-	if (cli->ssl) {
-		struct client_write *tmp;
+	if (tmp->sendfile) {
+		rc = fs_obj_sendfile(cli->in_obj, cli->fd,
+				     MIN(cli->in_len, CLI_MAX_SENDFILE_SZ));
+		if (rc < 0) {
+			cli->state = evt_dispose;
+			return;
+		}
 
-		tmp = list_entry(cli->write_q.next, struct client_write, node);
-
+		cli->in_len -= rc;
+	} else if (cli->ssl) {
 		rc = SSL_write(cli->ssl, tmp->buf, tmp->len);
 		if (rc <= 0) {
 			rc = SSL_get_error(cli->ssl, rc);
@@ -417,10 +426,29 @@ int cli_writeq(struct client *cli, const void *buf, unsigned int buflen,
 	wr->len = buflen;
 	wr->cb = cb;
 	wr->cb_data = cb_data;
+	wr->sendfile = false;
 
 	list_add_tail(&wr->node, &cli->write_q);
 
 	return 0;
+}
+
+bool cli_wr_sendfile(struct client *cli, cli_write_func cb)
+{
+	struct client_write *wr;
+
+	wr = calloc(1, sizeof(struct client_write));
+	if (!wr)
+		return false;
+
+	wr->len = cli->in_len;
+	wr->cb = cb;
+	wr->sendfile = true;
+	INIT_LIST_HEAD(&wr->node);
+
+	list_add_tail(&wr->node, &cli->write_q);
+
+	return true;
 }
 
 static int cli_read_data(struct client *cli, void *buf, size_t buflen)

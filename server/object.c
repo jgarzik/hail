@@ -211,23 +211,30 @@ void cli_in_end(struct client *cli)
 
 static bool object_read_bytes(struct client *cli)
 {
-	ssize_t bytes;
+	bool use_sendfile = cli->ssl ? false : true;
 
-	bytes = fs_obj_read(cli->in_obj, cli->netbuf_out,
-			    MIN(cli->in_len, CLI_DATA_BUF_SZ));
-	if (bytes < 0)
-		return false;
-	if (bytes == 0 && cli->in_len != 0)
-		return false;
+	if (use_sendfile) {
+		if (!cli_wr_sendfile(cli, object_get_more))
+			return false;
+	} else {
+		ssize_t bytes;
 
-	cli->in_len -= bytes;
+		bytes = fs_obj_read(cli->in_obj, cli->netbuf_out,
+				    MIN(cli->in_len, CLI_DATA_BUF_SZ));
+		if (bytes < 0)
+			return false;
+		if (bytes == 0 && cli->in_len != 0)
+			return false;
 
-	if (!cli->in_len)
-		cli_in_end(cli);
+		cli->in_len -= bytes;
 
-	if (cli_writeq(cli, cli->netbuf_out, bytes,
-		       cli->in_len ? object_get_more : NULL, NULL))
-		return false;
+		if (!cli->in_len)
+			cli_in_end(cli);
+
+		if (cli_writeq(cli, cli->netbuf_out, bytes,
+			       cli->in_len ? object_get_more : NULL, NULL))
+			return false;
+	}
 
 	return true;
 }
@@ -239,7 +246,9 @@ static bool object_get_more(struct client *cli, struct client_write *wr,
 	if (!done)
 		goto err_out_buf;
 
-	if (!object_read_bytes(cli))
+	if (!cli->in_len)
+		cli_in_end(cli);
+	else if (!object_read_bytes(cli))
 		goto err_out;
 
 	return true;
