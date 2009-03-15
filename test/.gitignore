@@ -2,6 +2,7 @@ basic-object
 it-works
 large-object
 lotsa-objects
+nop
 
 libtest.a
 

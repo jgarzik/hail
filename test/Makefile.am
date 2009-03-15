@@ -19,6 +19,7 @@ TESTS =				\
 	pid-exists		\
 	daemon-running		\
 	it-works		\
+	nop			\
 	basic-object		\
 	large-object		\
 	lotsa-objects		\
@@ -26,7 +27,7 @@ TESTS =				\
 	clean-db
 
 check_PROGRAMS		= basic-object it-works large-object \
-			  lotsa-objects
+			  lotsa-objects nop
 
 TESTLDADD		= ../lib/libstc.a	\
 			  ../lib/libchunksrv.a	\
@@ -37,6 +38,7 @@ basic_object_LDADD	= $(TESTLDADD)
 it_works_LDADD		= $(TESTLDADD)
 large_object_LDADD	= $(TESTLDADD)
 lotsa_objects_LDADD	= $(TESTLDADD)
+nop_LDADD		= $(TESTLDADD)
 
 noinst_LIBRARIES	= libtest.a
 
