@@ -72,7 +72,7 @@ time_t current_time;
 
 struct server cld_srv = {
 	.data_dir		= "/spare/tmp/cld/lib",
-	.pid_file		= "/spare/tmp/cld/run/tabled.pid",
+	.pid_file		= "/var/run/cld.pid",
 	.port			= CLD_DEF_PORT,
 };
 
