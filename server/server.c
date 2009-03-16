@@ -605,7 +605,7 @@ static bool volume_list(struct client *cli)
 
 	res = fs_list_objs();
 
-	asprintf(&s,
+	s = g_markup_printf_escaped(
 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
 "<ListVolumeResult xmlns=\"http://indy.yyz.us/doc/2006-03-01/\">\r\n"
 "  <Name>%s</Name>\r\n",
@@ -634,7 +634,7 @@ static bool volume_list(struct client *cli)
 		sizestr = tmpl->data;
 		tmpl = tmpl->next;
 
-		asprintf(&s,
+		s = g_markup_printf_escaped(
                          "  <Contents>\r\n"
 			 "    <Name>%s</Name>\r\n"
                          "    <LastModified>%s</LastModified>\r\n"

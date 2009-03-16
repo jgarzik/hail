@@ -208,4 +208,8 @@ static inline bool use_sendfile(struct client *cli)
 extern size_t strnlen(const char *s, size_t maxlen);
 #endif
 
+#ifndef HAVE_DAEMON
+extern int daemon(int nochdir, int noclose);
+#endif
+
 #endif /* __STORAGED_H__ */

@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <ctype.h>
 #include <errno.h>
 #include <syslog.h>
@@ -63,7 +64,7 @@ int write_pid_file(const char *pid_fn)
 	size_t bytes;
 
 	/* build file data */
-	sprintf(str, "%u\n", getpid());
+	sprintf(str, "%lu\n", (unsigned long) getpid());
 	s = str;
 	bytes = strlen(s);
 
@@ -384,5 +385,53 @@ size_t strnlen(const char *s, size_t maxlen)
 	}
 
 	return len;
+}
+#endif
+
+#ifndef HAVE_DAEMON
+int daemon(int nochdir, int noclose)
+{
+	struct sigaction osa, sa;
+	int fd;
+	pid_t newgrp;
+	int oerrno;
+	int osa_ok;
+
+	/* A SIGHUP may be thrown when the parent exits below. */
+	sigemptyset(&sa.sa_mask);
+	sa.sa_handler = SIG_IGN;
+	sa.sa_flags = 0;
+	osa_ok = sigaction(SIGHUP, &sa, &osa);
+
+	switch (fork()) {
+	case -1:
+		return (-1);
+	case 0:
+		break;
+	default:
+		exit(0);
+	}
+
+	newgrp = setsid();
+	oerrno = errno;
+	if (osa_ok != -1)
+		sigaction(SIGHUP, &osa, NULL);
+
+	if (newgrp == -1) {
+		errno = oerrno;
+		return (-1);
+	}
+
+	if (!nochdir)
+		(void)chdir("/");
+
+	if (!noclose && (fd = open("/dev/null", O_RDWR, 0)) != -1) {
+		(void)dup2(fd, STDIN_FILENO);
+		(void)dup2(fd, STDOUT_FILENO);
+		(void)dup2(fd, STDERR_FILENO);
+		if (fd > 2)
+			(void)close(fd);
+	}
+	return (0);
 }
 #endif

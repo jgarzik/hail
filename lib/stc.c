@@ -114,7 +114,7 @@ struct st_client *stc_new(const char *service_host, int port,
 {
 	struct st_client *stc;
 	struct addrinfo hints, *res = NULL, *rp;
-	int rc, fd, on = 1;
+	int rc, fd = -1, on = 1;
 	char port_str[32];
 
 	sprintf(port_str, "%d", port);

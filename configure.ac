@@ -46,11 +46,12 @@ AC_CHECK_LIB(crypto, MD5_Init, CRYPTO_LIBS=-lcrypto)
 AC_CHECK_LIB(ssl, SSL_new, SSL_LIBS=-lssl)
 AC_CHECK_LIB(event, event_base_new, EVENT_LIBS=-levent, exit 1)
 AC_CHECK_LIB(argp, argp_parse, ARGP_LIBS=-largp)
+AC_CHECK_LIB(socket, bind, SOCKET_LIBS=-lsocket)
 
 dnl -------------------------------------
 dnl Checks for optional library functions
 dnl -------------------------------------
-AC_CHECK_FUNCS(sendfile strnlen)
+AC_CHECK_FUNCS(sendfile strnlen daemon)
 
 dnl -----------------
 dnl Configure options
@@ -67,6 +68,7 @@ AC_SUBST(CRYPTO_LIBS)
 AC_SUBST(SSL_LIBS)
 AC_SUBST(EVENT_LIBS)
 AC_SUBST(ARGP_LIBS)
+AC_SUBST(SOCKET_LIBS)
 
 AC_CONFIG_FILES([doc/Makefile
 		 lib/Makefile
