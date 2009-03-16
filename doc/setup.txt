@@ -12,9 +12,10 @@
 	</Listen>
 
 4) choose pathname (dir + filename) where daemon should store its
-   PID file (normally found somewhere in /var/run):
+   PID file (normally found somewhere in /var/run, on an installed
+   system):
 
-	<PID>/var/run/chunkd.pid</PID>
+	<PID>/home/developer/run/chunkd.pid</PID>
 
 5) create one volume entry for each volume, from step #3:
 
