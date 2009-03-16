@@ -617,8 +617,8 @@ static bool volume_list(struct client *cli)
 	tmpl = res;
 	while (tmpl) {
 		char *hash;
-		char *fn, *name, timestr[50];
-		struct stat st;
+		char *name, timestr[50], *mtimestr, *sizestr;
+		unsigned long long mtime = 0;
 
 		name = tmpl->data;
 		tmpl = tmpl->next;
@@ -626,39 +626,35 @@ static bool volume_list(struct client *cli)
 		hash = tmpl->data;
 		tmpl = tmpl->next;
 
-		fn = fs_obj_pathname(name);
-		if (!fn)
-			goto do_next;
+		mtimestr = tmpl->data;
+		tmpl = tmpl->next;
 
-		if (stat(fn, &st) < 0) {
-			syslog(LOG_ERR, "blist stat(%s) failed: %s",
-				fn, strerror(errno));
-			st.st_mtime = 0;
-			st.st_size = 0;
-		} else
-			st.st_size -= sizeof(struct be_fs_obj_hdr);
+		sscanf(mtimestr, "%llu", &mtime);
+
+		sizestr = tmpl->data;
+		tmpl = tmpl->next;
 
 		asprintf(&s,
                          "  <Contents>\r\n"
 			 "    <Name>%s</Name>\r\n"
                          "    <LastModified>%s</LastModified>\r\n"
                          "    <ETag>%s</ETag>\r\n"
-                         "    <Size>%llu</Size>\r\n"
+                         "    <Size>%s</Size>\r\n"
                          "    <Owner>%s</Owner>\r\n"
                          "  </Contents>\r\n",
 
 			 name,
-			 time2str(timestr, st.st_mtime),
+			 time2str(timestr, mtime),
 			 hash,
-			 (unsigned long long) st.st_size,
+			 sizestr,
 			 user);
 
 		content = g_list_append(content, s);
 
-do_next:
 		free(name);
 		free(hash);
-		free(fn);
+		free(sizestr);
+		free(mtimestr);
 	}
 
 	g_list_free(res);

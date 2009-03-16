@@ -47,7 +47,7 @@ static struct fs_obj *fs_obj_alloc(void)
 	return obj;
 }
 
-char *fs_obj_pathname(const char *cookie)
+static char *fs_obj_pathname(const char *cookie)
 {
 	char *s = NULL;
 	char prefix[5] = "";
@@ -449,6 +449,8 @@ GList *fs_list_objs(void)
 			char *fn;
 			ssize_t rrc;
 			struct be_fs_obj_hdr hdr;
+			struct stat st;
+			char s[64];
 
 			if (de->d_name[0] == '.')
 				continue;
@@ -459,6 +461,12 @@ GList *fs_list_objs(void)
 
 			fd = open(fn, O_RDONLY);
 			if (fd < 0) {
+				syslogerr(fn);
+				free(fn);
+				break;
+			}
+
+			if (fstat(fd, &st) < 0) {
 				syslogerr(fn);
 				free(fn);
 				break;
@@ -481,6 +489,13 @@ GList *fs_list_objs(void)
 
 			res = g_list_append(res, strdup(de->d_name));
 			res = g_list_append(res, strdup(hdr.checksum));
+
+			sprintf(s, "%Lu", (unsigned long long) st.st_mtime);
+			res = g_list_append(res, strdup(s));
+
+			st.st_size -= sizeof(struct be_fs_obj_hdr);
+			sprintf(s, "%Lu", (unsigned long long) st.st_size);
+			res = g_list_append(res, strdup(s));
 		}
 
 		closedir(d);

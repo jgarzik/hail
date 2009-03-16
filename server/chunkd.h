@@ -149,7 +149,6 @@ struct server {
 };
 
 /* be-fs.c */
-extern char *fs_obj_pathname(const char *cookie);
 extern struct backend_obj *fs_obj_new(const char *cookie);
 extern struct backend_obj *fs_obj_open(const char *cookie,
 				       enum errcode *err_code);
