@@ -28,20 +28,6 @@ typedef uint64_t cldino_t;
 
 struct session;
 
-enum {
-	INO_ROOT		= 10,
-	INO_RESERVED_LAST	= 50,
-};
-
-enum inode_flags {
-	CIFL_DIR		= (1 << 0),	/* is a directory */
-};
-
-enum lock_flags {
-	CLFL_SHARED		= (1 << 0),	/* a shared (read) lock */
-	CLFL_PENDING		= (1 << 1),	/* lock waiting to be acq. */
-};
-
 /*
  * session record key:		uint8_t sid[CLD_SID_SZ]
  */
@@ -71,6 +57,15 @@ struct raw_handle {
 	uint32_t		events;		/* event mask */
 };
 
+enum {
+	INO_ROOT		= 10,
+	INO_RESERVED_LAST	= 50,
+};
+
+enum inode_flags {
+	CIFL_DIR		= (1 << 0),	/* is a directory */
+};
+
 /*
  * inode record key:		cldino_t inum
  * inode secondary index key:	inode name
@@ -85,6 +80,11 @@ struct raw_inode {
 	uint64_t		time_modify;
 	uint32_t		flags;		/* inode flags; CIFL_xxx */
 	/* inode name */
+};
+
+enum lock_flags {
+	CLFL_SHARED		= (1 << 0),	/* a shared (read) lock */
+	CLFL_PENDING		= (1 << 1),	/* lock waiting to be acq. */
 };
 
 /*
