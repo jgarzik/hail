@@ -186,23 +186,6 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		cfg_context.text = NULL;
 	}
 
-	else if (!strcmp(element_name, "DB") && cfg_context.text) {
-		if (stat(cfg_context.text, &st) < 0) {
-			syslog(LOG_ERR, "stat(2) cfgfile DB '%s' failed: %s",
-			       cfg_context.text, strerror(errno));
-			return;
-		}
-
-		if (!S_ISDIR(st.st_mode)) {
-			syslog(LOG_ERR, "DB in cfgfile not a dir: '%s'",
-			       cfg_context.text);
-			return;
-		}
-
-		chunkd_srv.data_dir = cfg_context.text;
-		cfg_context.text = NULL;
-	}
-
 	else if (!strcmp(element_name, "Path") && cfg_context.text) {
 		if (stat(cfg_context.text, &st) < 0) {
 			syslog(LOG_ERR, "stat(2) cfgfile Path '%s' failed: %s",
@@ -341,11 +324,6 @@ void read_config(void)
 
 	if (!chunkd_srv.vol_path) {
 		syslog(LOG_ERR, "error: no volume Path defined in cfg file");
-		exit(1);
-	}
-
-	if (!chunkd_srv.data_dir) {
-		syslog(LOG_ERR, "error: no database dir defined in cfg file");
 		exit(1);
 	}
 

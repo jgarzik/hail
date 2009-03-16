@@ -1,44 +1,33 @@
 
-1) Choose a database directory, for storing server-global data.  Example:
-
-	/path/chunkd/data
-
-2) (placeholder)
-
-
-3) create a volume (directory that stores data):
+1) create a volume (directory that stores data):
 
 	mkdir -p /disk1/chunkd
 
-4) create XML-like configuration file (filled in, in the following steps)
+2) create XML-like configuration file (filled in, in the following steps)
 
-5) choose TCP listen port for server.
+3) choose TCP listen port for server.
 
 	<Listen>
 		<Port>18080</Port>
 	</Listen>
 
-6) choose pathname (dir + filename) where daemon should store its
+4) choose pathname (dir + filename) where daemon should store its
    PID file (normally found somewhere in /var/run):
 
 	<PID>/var/run/chunkd.pid</PID>
 
-7) use chosen database dir, from step #1:
-
-	<DB>/path/chunkd/data</DB>
-
-8) create one volume entry for each volume, from step #3:
+5) create one volume entry for each volume, from step #3:
 
 	<Path>/disk1/chunkd</Path>
 
-9) configure SSL if desired, by providing private key and certificate
+6) configure SSL if desired, by providing private key and certificate
 
 	<SSL>
 		<PrivateKey>/etc/pki/server-private-key.pem</PrivateKey>
 		<Cert>/etc/pki/cert-public-key.pem</Cert>
 	</SSL>
 
-10) start daemon (it will put itself into the background) with the
+7) start daemon (it will put itself into the background) with the
 configuration file just created:
 
 	/usr/sbin/chunkd -f /etc/chunkd.conf

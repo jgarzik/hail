@@ -67,10 +67,6 @@ You specify server SSL attributes using <SSL>, <PrivateKey>, and <Cert>.
 miscellaneous settings
 ======================
 
-Directory for daemon-managed cross-volume database:
-
-	<DB>/disk/massive/metadata</DB>
-
 PID file contained the process id of the daemon after forking, normally
 written somewhere in /var/run:
 

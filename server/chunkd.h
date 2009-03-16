@@ -134,7 +134,6 @@ struct server {
 	unsigned long		flags;		/* SFL_xxx above */
 
 	char			*config;	/* master config file */
-	char			*data_dir;
 	char			*pid_file;	/* PID file */
 
 	GList			*listeners;
