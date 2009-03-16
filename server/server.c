@@ -69,7 +69,7 @@ SSL_CTX *ssl_ctx = NULL;
 
 struct server chunkd_srv = {
 	.config			= "/spare/tmp/chunkd/etc/chunkd.conf",
-	.pid_file		= "/spare/tmp/chunkd/run/chunkd.pid",
+	.pid_file		= "/var/run/chunkd.pid",
 };
 
 static struct {
