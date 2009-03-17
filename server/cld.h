@@ -112,6 +112,7 @@ struct server {
 };
 
 /* msg.c */
+extern int inode_lock_rescan(DB_TXN *txn, cldino_t inum);
 extern bool msg_open(struct server_socket *, DB_TXN *,
 		 struct session *, uint8_t *, size_t);
 extern bool msg_put(struct server_socket *, DB_TXN *,

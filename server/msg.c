@@ -262,6 +262,93 @@ static int inode_touch(DB_TXN *txn, struct raw_inode *ino)
 	return 0;
 }
 
+int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
+{
+	DBC *cur;
+	DB *db_locks = cld_srv.cldb.locks;
+	int rc, gflags, acq = 0;
+	DBT key, val;
+	cldino_t inum_le = cldino_to_le(inum);
+	struct raw_lock *lock;
+	uint32_t lflags;
+	struct cld_msg_event me;
+
+	rc = db_locks->cursor(db_locks, txn, &cur, 0);
+	if (rc) {
+		db_locks->err(db_locks, rc, "db_locks->cursor");
+		return rc;
+	}
+
+	memset(&key, 0, sizeof(key));
+
+	/* key: inode number */
+	key.data = &inum_le;
+	key.size = sizeof(inum_le);
+
+	memset(&me, 0, sizeof(me));
+	memcpy(me.hdr.magic, CLD_MAGIC, sizeof(me.hdr.magic));
+	me.hdr.op = cmo_event;
+
+	/* loop through locks associated with this inode, searching
+	 * for pending locks that can be converted into acquired
+	 */
+	gflags = DB_SET | DB_RMW;
+	while (1) {
+		rc = cur->get(cur, &key, &val, gflags);
+		if (rc) {
+			/* no locks, or no next-dup */
+			if (rc == DB_NOTFOUND) {
+				rc = 0;
+				break;
+			}
+
+			db_locks->err(db_locks, rc, "db_locks->cursor get");
+			break;
+		}
+
+		gflags = DB_NEXT_DUP | DB_RMW;
+
+		lock = val.data;
+		lflags = GUINT32_FROM_LE(lock->flags);
+
+		/* pending locks should be first in the list; if
+		 * no more pending locks are present, end scan
+		 */
+		if (!(lflags & CLFL_PENDING))
+			break;
+
+		/* excl lock follows shared lock; do not acquire; end loop */
+		if (acq && (!(lflags & CLFL_SHARED)))
+			break;
+
+		/* pending lock found; acquire lock */
+		lflags &= ~CLFL_PENDING;
+
+		/* update current lock rec at cursor */
+		rc = cur->put(cur, NULL, &val, DB_CURRENT);
+		if (rc) {
+			db_locks->err(db_locks, rc, "db_locks->cursor get");
+			break;
+		}
+
+		acq++;
+
+		/*
+		 * send lock acquisition notification to new lock holder
+		 */
+		get_next_msgid(me.hdr.msgid);
+		memcpy(&me.hdr.sid, lock->sid, sizeof(me.hdr.sid));
+		me.fh = lock->fh;
+		me.events = GUINT32_TO_LE(CE_LOCKED);
+
+		if (!sid_sendmsg(lock->sid, &me, sizeof(me), true))
+			break;
+	}
+
+	cur->close(cur);
+	return rc;
+}
+
 bool msg_get(struct server_socket *sock, DB_TXN *txn,
 	     struct session *sess,
 	     uint8_t *raw_msg, size_t msg_len, bool metadata_only)
@@ -908,7 +995,14 @@ bool msg_close(struct server_socket *sock, DB_TXN *txn,
 		goto err_out;
 	}
 
-	/* FIXME: rescan lock_inum if 'waiter', possibly acquiring locks */
+	/* rescan lock_inum if 'waiter', possibly acquiring locks */
+	if (waiter) {
+		rc = inode_lock_rescan(txn, lock_inum);
+		if (rc) {
+			resp_rc = CLE_DB_ERR;
+			goto err_out;
+		}
+	}
 
 	resp_ok(sock, sess, (struct cld_msg_hdr *) msg);
 	free(h);

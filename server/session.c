@@ -271,7 +271,13 @@ static int session_remove(DB_TXN *txn, struct session *sess)
 			g_array_append_val(waiters, inum);
 	}
 
-	/* FIXME: rescan each inode in 'waiters', possibly acquiring locks */
+	/* rescan each inode in 'waiters', possibly acquiring locks */
+	for (i = 0; i < waiters->len; i++) {
+		rc = inode_lock_rescan(txn,
+				       g_array_index(waiters, cldino_t, i));
+		if (rc)
+			goto err_out;
+	}
 
 	/*
 	 * finally, delete the session
