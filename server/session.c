@@ -94,7 +94,7 @@ int session_remove_locks(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 	int rc;
 	DBT pkey, pval;
 	cldino_t inum_le = cldino_to_le(inum);
-	bool first_loop = true;
+	int gflags;
 
 	*waiter = false;
 
@@ -110,15 +110,9 @@ int session_remove_locks(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 	pkey.data = &inum_le;
 	pkey.size = sizeof(inum_le);
 
+	gflags = DB_SET;
 	while (1) {
 		struct raw_lock *l;
-		int gflags;
-
-		if (first_loop) {
-			first_loop = false;
-			gflags = DB_SET;
-		} else
-			gflags = DB_NEXT_DUP;
 
 		/* search for first/next matching lock */
 		rc = cur->get(cur, &pkey, &pval, gflags);
@@ -127,6 +121,8 @@ int session_remove_locks(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 				db_locks->err(db_locks, rc, "curget2");
 			break;
 		}
+
+		gflags = DB_NEXT_DUP;
 
 		l = pval.data;
 
@@ -174,8 +170,8 @@ static int session_remove(DB_TXN *txn, struct session *sess)
 	struct raw_handle_key hkey;
 	int rc, i;
 	DBT pkey, pval;
-	bool first_loop = true;
 	GArray *locks, *waiters;
+	int gflags;
 
 	memcpy(&hkey.sid, sess->sid, sizeof(sess->sid));
 	hkey.fh = 0;
@@ -202,15 +198,9 @@ static int session_remove(DB_TXN *txn, struct session *sess)
 	pkey.size = sizeof(hkey);
 
 	/* loop through handles, deleting those with our sid */
+	gflags = DB_SET_RANGE;
 	while (1) {
-		int gflags;
 		struct raw_handle *h;
-
-		if (first_loop) {
-			first_loop = false;
-			gflags = DB_SET_RANGE;
-		} else
-			gflags = DB_NEXT;
 
 		/* search for first/next matching handle */
 		rc = cur->get(cur, &pkey, &pval, gflags);
@@ -219,6 +209,8 @@ static int session_remove(DB_TXN *txn, struct session *sess)
 				db_handles->err(db_handles, rc, "curget1");
 			break;
 		}
+
+		gflags = DB_NEXT;
 
 		h = pval.data;
 

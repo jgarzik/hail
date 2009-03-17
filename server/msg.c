@@ -184,9 +184,9 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 	DB *hand_idx = cld_srv.cldb.handle_idx;
 	DBC *cur;
 	DBT key, val;
-	bool firstloop = true;
 	struct cld_msg_event me;
 	cldino_t inum_le = cldino_to_le(inum);
+	int gflags;
 
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
@@ -204,15 +204,9 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 		return rc;
 	}
 
+	gflags = DB_SET;
 	while (1) {
-		int gflags;
 		struct raw_handle *h;
-
-		if (firstloop) {
-			firstloop = false;
-			gflags = DB_SET;
-		} else
-			gflags = DB_NEXT_DUP;
 
 		rc = cur->get(cur, &key, &val, gflags);
 		if (rc) {
@@ -222,6 +216,7 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 			break;
 		}
 
+		gflags = DB_NEXT_DUP;
 		h = val.data;
 
 		if (!deleted && !(GUINT32_FROM_LE(h->events) & CE_UPDATED))
