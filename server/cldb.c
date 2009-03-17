@@ -25,6 +25,10 @@
 #include <glib.h>
 #include "cld.h"
 
+/*
+ * db4 page sizes for our various databases.  Filesystem block size
+ * is recommended, so 4096 was chosen (default ext3 block size).
+ */
 enum {
 	CLDB_PGSZ_SESSIONS		= 4096,
 	CLDB_PGSZ_INODES		= 4096,
@@ -52,6 +56,7 @@ static int inode_name_key(DB *secondary, const DBT *pkey, const DBT *pdata,
 
 	memset(key_out, 0, sizeof(*key_out));
 
+	/* extract inode pathname out of data following fixed struct */
 	p = pdata->data;
 	p += sizeof(*inode);
 
@@ -86,18 +91,22 @@ static int lock_compare(DB *db, const DBT *a_dbt, const DBT *b_dbt)
 	uint64_t bfh = GUINT64_FROM_LE(b->fh);
 	int64_t v;
 
+	/* compare inode numbers */
 	v = ai - bi;
 	if (v)
 		return v;
 	
+	/* compare creation times */
 	v = at - bt;
 	if (v)
 		return v;
 	
+	/* compare SIDs */
 	v = memcmp(a->sid, b->sid, sizeof(a->sid));
 	if (v)
 		return v;
 	
+	/* compare file handles */
 	return afh - bfh;
 }
 
@@ -520,6 +529,10 @@ struct raw_inode *cldb_inode_new(DB_TXN *txn, char *name, size_t name_len,
 	bool found = false;
 	cldino_t new_inum = 0;
 
+	/* allocate a new inode number, by repeatedly choosing a
+	 * random number, then verifying that that number is
+	 * an unused/unallocated inode number
+	 */
 	while (limit-- > 0) {
 		new_inum = (cldino_t) rand();
 
@@ -537,6 +550,7 @@ struct raw_inode *cldb_inode_new(DB_TXN *txn, char *name, size_t name_len,
 	if (!found)
 		return NULL;
 
+	/* build in-memory inode */
 	ino = calloc(1, sizeof(*ino) + name_len + ALIGN8(name_len));
 	if (!ino)
 		return NULL;
@@ -730,7 +744,7 @@ int cldb_lock_del(DB_TXN *txn, uint8_t *sid, uint64_t fh, cldino_t inum)
 	DBT key, val;
 	cldino_t inum_le = cldino_to_le(inum);
 	struct raw_lock *lock;
-	bool looped = false;
+	int gflags;
 
 	rc = db_locks->cursor(db_locks, txn, &cur, 0);
 	if (rc) {
@@ -744,8 +758,12 @@ int cldb_lock_del(DB_TXN *txn, uint8_t *sid, uint64_t fh, cldino_t inum)
 	key.data = &inum_le;
 	key.size = sizeof(inum_le);
 
+	/* loop through all locks attached to this inum, searching
+	 * for matching lock
+	 */
+	gflags = DB_SET;
 	while (1) {
-		rc = cur->get(cur, &key, &val, looped ? DB_NEXT_DUP : DB_SET);
+		rc = cur->get(cur, &key, &val, gflags);
 		if (rc) {
 			if (rc == DB_NOTFOUND)
 				break;
@@ -754,7 +772,11 @@ int cldb_lock_del(DB_TXN *txn, uint8_t *sid, uint64_t fh, cldino_t inum)
 			goto out;
 		}
 
+		gflags = DB_NEXT_DUP;
+
 		lock = val.data;
+
+		/* if we have a matching (sid,fh), delete rec and end loop */
 		if (!memcmp(lock->sid, sid, sizeof(lock->sid)) &&
 		    (fh == GUINT64_FROM_LE(lock->fh))) {
 			rc = cur->del(cur, 0);
@@ -777,11 +799,10 @@ static int cldb_lock_find(DB_TXN *txn, uint8_t *sid, uint64_t fh, cldino_t inum,
 {
 	DBC *cur;
 	DB *db_locks = cld_srv.cldb.locks;
-	int rc;
+	int rc, gflags;
 	DBT key, val;
 	cldino_t inum_le = cldino_to_le(inum);
 	struct raw_lock *lock;
-	bool looped = false;
 	uint32_t lflags;
 
 	rc = db_locks->cursor(db_locks, txn, &cur, 0);
@@ -796,30 +817,36 @@ static int cldb_lock_find(DB_TXN *txn, uint8_t *sid, uint64_t fh, cldino_t inum,
 	key.data = &inum_le;
 	key.size = sizeof(inum_le);
 
+	/* loop through locks associated with this inode, searching
+	 * for a conflicting acquired lock
+	 */
+	gflags = DB_SET;
 	while (1) {
-		rc = cur->get(cur, &key, &val, looped ? DB_NEXT_DUP : DB_SET);
+		rc = cur->get(cur, &key, &val, gflags);
 		if (rc) {
+			/* no locks, or no next-dup (rc == DB_NOTFOUND) */
 			if (rc == DB_NOTFOUND)
 				break;
 
 			db_locks->err(db_locks, rc, "db_locks->cursor get");
-			goto out;
+			break;
 		}
 
-		looped = true;
+		gflags = DB_NEXT_DUP;
 
 		lock = val.data;
 		lflags = GUINT32_FROM_LE(lock->flags);
 
+		/* pending locks do not conflict */
 		if (lflags & CLFL_PENDING)
 			continue;
 
+		/* if conflicting lock found, end loop (rc == 0) */
 		if (!want_shared ||
 		    (want_shared && (!(lflags & CLFL_SHARED))))
 			break;
 	}
 
-out:
 	cur->close(cur);
 	return rc;
 }
@@ -838,14 +865,21 @@ int cldb_lock_add(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 	if (acquired)
 		*acquired = false;
 
+	/* search for conflicting lock */
 	rc = cldb_lock_find(txn, sid, fh, inum, shared);
 	if (rc && (rc != DB_NOTFOUND))
 		return rc;
 	if (rc == 0)
 		have_conflict = true;
 
+	/* if trylock failed, exit immediately */
 	if (!wait && have_conflict)
 		return DB_KEYEXIST;
+
+	/*
+	 * build and store new lock record, marked with CLFL_PENDING
+	 * if lock was not acquired
+	 */
 
 	if (shared)
 		lock_flags |= CLFL_SHARED;
