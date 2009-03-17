@@ -349,11 +349,9 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 	return rc;
 }
 
-bool msg_get(struct server_socket *sock, DB_TXN *txn,
-	     struct session *sess,
-	     uint8_t *raw_msg, size_t msg_len, bool metadata_only)
+bool msg_get(struct msg_params *mp, bool metadata_only)
 {
-	struct cld_msg_get *msg = (struct cld_msg_get *) raw_msg;
+	struct cld_msg_get *msg = mp->msg;
 	struct cld_msg_get_resp *resp;
 	size_t resp_len;
 	uint64_t fh;
@@ -366,9 +364,11 @@ bool msg_get(struct server_socket *sock, DB_TXN *txn,
 	void *data_mem = NULL;
 	size_t data_mem_len = 0;
 	int rc;
+	struct session *sess = mp->sess;
+	DB_TXN *txn = mp->txn;
 
 	/* make sure input data as large as expected */
-	if (msg_len < sizeof(*msg))
+	if (mp->msg_len < sizeof(*msg))
 		return false;
 
 	/* get filehandle from input msg */
@@ -468,17 +468,16 @@ bool msg_get(struct server_socket *sock, DB_TXN *txn,
 	return true;
 
 err_out:
-	resp_err(sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
+	resp_err(mp->sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
 	free(h);
 	free(inode);
 	free(data_mem);
 	return false;
 }
 
-bool msg_open(struct server_socket *sock, DB_TXN *txn,
-	      struct session *sess, uint8_t *raw_msg, size_t msg_len)
+bool msg_open(struct msg_params *mp)
 {
-	struct cld_msg_open *msg = (struct cld_msg_open *) raw_msg;
+	struct cld_msg_open *msg = mp->msg;
 	struct cld_msg_resp_open resp;
 	char *name;
 	struct raw_session *raw_sess = NULL;
@@ -493,19 +492,20 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn,
 	uint64_t fh;
 	cldino_t inum;
 	enum cle_err_codes resp_rc = CLE_OK;
+	DB_TXN *txn = mp->txn;
 
 	/* make sure input data as large as expected */
-	if (msg_len < sizeof(*msg))
+	if (mp->msg_len < sizeof(*msg))
 		return false;
 
 	msg_mode = GUINT32_FROM_LE(msg->mode);
 	msg_events = GUINT32_FROM_LE(msg->events);
 	name_len = GUINT16_FROM_LE(msg->name_len);
 
-	if (msg_len < (sizeof(*msg) + name_len))
+	if (mp->msg_len < (sizeof(*msg) + name_len))
 		return false;
 
-	name = (char *) raw_msg + sizeof(*msg);
+	name = mp->msg + sizeof(*msg);
 
 	create = msg_mode & COM_CREATE;
 	excl = msg_mode & COM_EXCL;
@@ -588,7 +588,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn,
 	inum = cldino_from_le(inode->inum);
 
 	/* alloc & init new handle; updates session's next_fh */
-	h = cldb_handle_new(sess, inum, msg_mode, msg_events);
+	h = cldb_handle_new(mp->sess, inum, msg_mode, msg_events);
 	if (!h) {
 		syslog(LOG_CRIT, "out of memory");
 		resp_rc = CLE_OOM;
@@ -615,7 +615,7 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn,
 	}
 
 	/* encode in-memory session to raw database session struct */
-	raw_sess = session_new_raw(sess);
+	raw_sess = session_new_raw(mp->sess);
 
 	if (!raw_sess) {
 		syslog(LOG_CRIT, "out of memory");
@@ -638,12 +638,12 @@ bool msg_open(struct server_socket *sock, DB_TXN *txn,
 	resp_copy(&resp.hdr, &msg->hdr);
 	resp.code = GUINT32_TO_LE(CLE_OK);
 	resp.fh = GUINT64_TO_LE(fh);
-	sess_sendmsg(sess, &resp, sizeof(resp), true);
+	sess_sendmsg(mp->sess, &resp, sizeof(resp), true);
 
 	return true;
 
 err_out:
-	resp_err(sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
+	resp_err(mp->sock, mp->sess, (struct cld_msg_hdr *) msg, resp_rc);
 	free(parent_data);
 	free(parent);
 	free(inode);
@@ -651,10 +651,9 @@ err_out:
 	return false;
 }
 
-bool msg_put(struct server_socket *sock, DB_TXN *txn,
-	     struct session *sess, uint8_t *raw_msg, size_t msg_len)
+bool msg_put(struct msg_params *mp)
 {
-	struct cld_msg_put *msg = (struct cld_msg_put *) raw_msg;
+	struct cld_msg_put *msg = mp->msg;
 	uint64_t fh;
 	struct raw_handle *h = NULL;
 	struct raw_inode *inode = NULL;
@@ -663,15 +662,17 @@ bool msg_put(struct server_socket *sock, DB_TXN *txn,
 	int rc;
 	cldino_t inum;
 	uint32_t omode;
+	DB_TXN *txn = mp->txn;
+	struct session *sess = mp->sess;
 
 	/* make sure input data as large as expected */
-	if (msg_len < sizeof(*msg))
+	if (mp->msg_len < sizeof(*msg))
 		return false;
 
 	fh = GUINT64_FROM_LE(msg->fh);
 
 	/* read handle from db, for validation */
-	rc = cldb_handle_get(txn, sess->sid, fh, &h, 0);
+	rc = cldb_handle_get(txn, mp->sess->sid, fh, &h, 0);
 	if (rc) {
 		resp_rc = CLE_FH_INVAL;
 		goto err_out;
@@ -693,31 +694,30 @@ bool msg_put(struct server_socket *sock, DB_TXN *txn,
 	}
 
 	/* copy message */
-	mem = malloc(msg_len);
+	mem = malloc(mp->msg_len);
 	if (!mem) {
 		resp_rc = CLE_OOM;
 		goto err_out;
 	}
 
-	memcpy(mem, raw_msg, msg_len);
+	memcpy(mem, mp->msg, mp->msg_len);
 
 	/* store PUT message in PUT msg queue */
 	sess->put_q = g_list_append(sess->put_q, mem);
 
 	free(h);
 	free(inode);
-	resp_ok(sock, sess, &msg->hdr);
+	resp_ok(mp->sock, sess, &msg->hdr);
 	return true;
 
 err_out:
-	resp_err(sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
+	resp_err(mp->sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
 	free(h);
 	free(inode);
 	return false;
 }
 
-static bool try_commit_data(struct server_socket *sock, DB_TXN *txn,
-			struct session *sess,
+static bool try_commit_data(struct msg_params *mp,
 			uint8_t *strid, GList *pmsg_ent)
 {
 	struct cld_msg_put *pmsg = pmsg_ent->data;
@@ -732,7 +732,9 @@ static bool try_commit_data(struct server_socket *sock, DB_TXN *txn,
 	enum cle_err_codes resp_rc = CLE_OK;
 	void *mem, *p, *q;
 	struct cld_msg_data **darr;
+	struct session *sess = mp->sess;
 	bool have_end_seg = false;
+	DB_TXN *txn = mp->txn;
 
 	data_size = GUINT32_FROM_LE(pmsg->data_size);
 	tmp_size = 0;
@@ -877,36 +879,36 @@ static bool try_commit_data(struct server_socket *sock, DB_TXN *txn,
 		goto err_out;
 	}
 
-	resp_ok(sock, sess, (struct cld_msg_hdr *) pmsg);
+	resp_ok(mp->sock, sess, (struct cld_msg_hdr *) pmsg);
 	free(pmsg);
 	free(h);
 	free(inode);
 	return true;
 
 err_out:
-	resp_err(sock, sess, (struct cld_msg_hdr *) pmsg, resp_rc);
+	resp_err(mp->sock, sess, (struct cld_msg_hdr *) pmsg, resp_rc);
 	free(pmsg);
 	free(h);
 	free(inode);
 	return false;
 }
 
-bool msg_data(struct server_socket *sock, DB_TXN *txn,
-	      struct session *sess, uint8_t *raw_msg, size_t msg_len)
+bool msg_data(struct msg_params *mp)
 {
-	struct cld_msg_data *msg = (struct cld_msg_data *) raw_msg;
+	struct cld_msg_data *msg = mp->msg;
 	GList *tmp;
 	void *mem = NULL;
 	enum cle_err_codes resp_rc = CLE_OK;
 	uint32_t seg_len;
+	struct session *sess = mp->sess;
 
 	/* make sure input data as large as expected */
-	if (msg_len < sizeof(*msg))
+	if (mp->msg_len < sizeof(*msg))
 		return false;
 
 	seg_len = GUINT32_FROM_LE(msg->seg_len);
 
-	if (msg_len < (sizeof(*msg) + seg_len))
+	if (mp->msg_len < (sizeof(*msg) + seg_len))
 		return false;
 
 	/* search for PUT message with msgid == our strid; that is how we
@@ -929,13 +931,13 @@ bool msg_data(struct server_socket *sock, DB_TXN *txn,
 	}
 
 	/* copy DATA msg */
-	mem = malloc(msg_len);
+	mem = malloc(mp->msg_len);
 	if (!mem) {
 		resp_rc = CLE_OOM;
 		goto err_out;
 	}
 
-	memcpy(mem, raw_msg, msg_len);
+	memcpy(mem, mp->msg, mp->msg_len);
 
 	/* store DATA message on DATA msg queue */
 	sess->data_q = g_list_append(sess->data_q, mem);
@@ -943,27 +945,27 @@ bool msg_data(struct server_socket *sock, DB_TXN *txn,
 	sess_sendmsg(sess, msg, sizeof(*msg), true);
 
 	/* scan DATA queue for completed stream; commit to db, if found */
-	return try_commit_data(sock, txn, sess, msg->strid, tmp);
+	return try_commit_data(mp, msg->strid, tmp);
 
 err_out:
-	resp_err(sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
+	resp_err(mp->sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
 	return false;
 }
 
-bool msg_close(struct server_socket *sock, DB_TXN *txn,
-	       struct session *sess,
-	       uint8_t *raw_msg, size_t msg_len)
+bool msg_close(struct msg_params *mp)
 {
-	struct cld_msg_close *msg = (struct cld_msg_close *) raw_msg;
+	struct cld_msg_close *msg = mp->msg;
 	uint64_t fh;
 	int rc;
 	enum cle_err_codes resp_rc = CLE_OK;
 	struct raw_handle *h = NULL;
 	cldino_t lock_inum = 0;
 	bool waiter = false;
+	DB_TXN *txn = mp->txn;
+	struct session *sess = mp->sess;
 
 	/* make sure input data as large as expected */
-	if (msg_len < sizeof(*msg))
+	if (mp->msg_len < sizeof(*msg))
 		return false;
 
 	fh = GUINT64_FROM_LE(msg->fh);
@@ -1004,20 +1006,19 @@ bool msg_close(struct server_socket *sock, DB_TXN *txn,
 		}
 	}
 
-	resp_ok(sock, sess, (struct cld_msg_hdr *) msg);
+	resp_ok(mp->sock, sess, (struct cld_msg_hdr *) msg);
 	free(h);
 	return true;
 
 err_out:
-	resp_err(sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
+	resp_err(mp->sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
 	free(h);
 	return false;
 }
 
-bool msg_del(struct server_socket *sock, DB_TXN *txn,
-	     struct session *sess, uint8_t *raw_msg, size_t msg_len)
+bool msg_del(struct msg_params *mp)
 {
-	struct cld_msg_del *msg = (struct cld_msg_del *) raw_msg;
+	struct cld_msg_del *msg = mp->msg;
 	enum cle_err_codes resp_rc = CLE_OK;
 	int rc, name_len;
 	char *name;
@@ -1028,18 +1029,19 @@ bool msg_del(struct server_socket *sock, DB_TXN *txn,
 	cldino_t del_inum;
 	DB *inodes = cld_srv.cldb.inodes;
 	DB *handle_idx = cld_srv.cldb.handle_idx;
+	DB_TXN *txn = mp->txn;
 	DBT key;
 
 	/* make sure input data as large as expected */
-	if (msg_len < sizeof(*msg))
+	if (mp->msg_len < sizeof(*msg))
 		return false;
 
 	name_len = GUINT16_FROM_LE(msg->name_len);
 
-	if (msg_len < (sizeof(*msg) + name_len))
+	if (mp->msg_len < (sizeof(*msg) + name_len))
 		return false;
 
-	name = (char *) raw_msg + sizeof(*msg);
+	name = mp->msg + sizeof(*msg);
 
 	if (!valid_inode_name(name, name_len) || (name_len < 2)) {
 		resp_rc = CLE_NAME_INVAL;
@@ -1130,34 +1132,34 @@ bool msg_del(struct server_socket *sock, DB_TXN *txn,
 		goto err_out;
 	}
 
-	resp_ok(sock, sess, (struct cld_msg_hdr *) msg);
+	resp_ok(mp->sock, mp->sess, (struct cld_msg_hdr *) msg);
 	free(ino);
 	free(parent);
 	free(parent_data);
 	return true;
 
 err_out:
-	resp_err(sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
+	resp_err(mp->sock, mp->sess, (struct cld_msg_hdr *) msg, resp_rc);
 	free(ino);
 	free(parent);
 	free(parent_data);
 	return false;
 }
 
-bool msg_unlock(struct server_socket *sock, DB_TXN *txn,
-		struct session *sess,
-		uint8_t *raw_msg, size_t msg_len)
+bool msg_unlock(struct msg_params *mp)
 {
-	struct cld_msg_unlock *msg = (struct cld_msg_unlock *) raw_msg;
+	struct cld_msg_unlock *msg = mp->msg;
 	uint64_t fh;
 	struct raw_handle *h = NULL;
 	cldino_t inum;
 	int rc;
 	enum cle_err_codes resp_rc = CLE_OK;
 	uint32_t omode;
+	DB_TXN *txn = mp->txn;
+	struct session *sess = mp->sess;
 
 	/* make sure input data as large as expected */
-	if (msg_len < sizeof(*msg))
+	if (mp->msg_len < sizeof(*msg))
 		return false;
 
 	fh = GUINT64_FROM_LE(msg->fh);
@@ -1184,21 +1186,19 @@ bool msg_unlock(struct server_socket *sock, DB_TXN *txn,
 		goto err_out;
 	}
 
-	resp_ok(sock, sess, (struct cld_msg_hdr *) msg);
+	resp_ok(mp->sock, sess, (struct cld_msg_hdr *) msg);
 	free(h);
 	return true;
 
 err_out:
-	resp_err(sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
+	resp_err(mp->sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
 	free(h);
 	return false;
 }
 
-bool msg_lock(struct server_socket *sock, DB_TXN *txn,
-		 struct session *sess,
-		uint8_t *raw_msg, size_t msg_len, bool wait)
+bool msg_lock(struct msg_params *mp, bool wait)
 {
-	struct cld_msg_lock *msg = (struct cld_msg_lock *) raw_msg;
+	struct cld_msg_lock *msg = mp->msg;
 	uint64_t fh;
 	struct raw_handle *h = NULL;
 	cldino_t inum;
@@ -1206,9 +1206,11 @@ bool msg_lock(struct server_socket *sock, DB_TXN *txn,
 	enum cle_err_codes resp_rc = CLE_OK;
 	uint32_t lock_flags, omode;
 	bool acquired = false;
+	DB_TXN *txn = mp->txn;
+	struct session *sess = mp->sess;
 
 	/* make sure input data as large as expected */
-	if (msg_len < sizeof(*msg))
+	if (mp->msg_len < sizeof(*msg))
 		return false;
 
 	fh = GUINT64_FROM_LE(msg->fh);
@@ -1247,12 +1249,12 @@ bool msg_lock(struct server_socket *sock, DB_TXN *txn,
 	}
 
 	/* lock was acquired immediately */
-	resp_ok(sock, sess, (struct cld_msg_hdr *) msg);
+	resp_ok(mp->sock, mp->sess, (struct cld_msg_hdr *) msg);
 	free(h);
 	return true;
 
 err_out:
-	resp_err(sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
+	resp_err(mp->sock, mp->sess, (struct cld_msg_hdr *) msg, resp_rc);
 	free(h);
 	return false;
 }

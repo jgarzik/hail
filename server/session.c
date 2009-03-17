@@ -505,11 +505,11 @@ bool sid_sendmsg(const uint8_t *sid, void *msg_, size_t msglen, bool copy_msg)
 	return sess_sendmsg(sess, msg_, msglen, copy_msg);
 }
 
-bool msg_ack(struct server_socket *sock, DB_TXN *txn,
-	     struct session *sess, uint8_t *raw_msg, size_t msg_len)
+bool msg_ack(struct msg_params *mp)
 {
-	struct cld_msg_hdr *outmsg, *msg = (struct cld_msg_hdr *) raw_msg;
+	struct cld_msg_hdr *outmsg, *msg = mp->msg;
 	GList *tmp, *tmp1;
+	struct session *sess = mp->sess;
 	struct session_outmsg *om;
 
 	if (!sess->out_q)
@@ -543,13 +543,13 @@ bool msg_ack(struct server_socket *sock, DB_TXN *txn,
 	return true;
 }
 
-bool msg_new_sess(struct server_socket *sock, DB_TXN *txn,
-		 const struct client *cli, uint8_t *raw_msg, size_t msg_len)
+bool msg_new_sess(struct msg_params *mp, const struct client *cli)
 {
-	struct cld_msg_hdr *msg = (struct cld_msg_hdr *) raw_msg;
+	struct cld_msg_hdr *msg = mp->msg;
 	DB *db = cld_srv.cldb.sessions;
 	struct raw_session raw_sess;
 	struct session *sess;
+	DB_TXN *txn = mp->txn;
 	DBT key, val;
 	int rc;
 	struct timeval tv;
@@ -562,7 +562,7 @@ bool msg_new_sess(struct server_socket *sock, DB_TXN *txn,
 	/* build raw_session database record */
 	memcpy(&sess->sid, &msg->sid, sizeof(sess->sid));
 	memcpy(&sess->addr, &cli->addr, sizeof(sess->addr));
-	sess->sock = sock;
+	sess->sock = mp->sock;
 	sess->addr_len = cli->addr_len;
 	strncpy(sess->ipaddr, cli->addr_host, sizeof(sess->ipaddr));
 	sess->last_contact = current_time;
@@ -596,7 +596,7 @@ bool msg_new_sess(struct server_socket *sock, DB_TXN *txn,
 		goto err_out;
 	}
 
-	resp_ok(sock, sess, msg);
+	resp_ok(mp->sock, sess, msg);
 	return true;
 
 err_out:

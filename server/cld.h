@@ -79,6 +79,15 @@ struct session {
 	bool			ping_open;	/* sent PING, waiting for ack */
 };
 
+struct msg_params {
+	struct server_socket	*sock;
+	DB_TXN			*txn;
+	struct session		*sess;
+
+	void			*msg;
+	size_t			msg_len;
+};
+
 struct server_stats {
 	unsigned long		poll;		/* number polls */
 	unsigned long		event;		/* events dispatched */
@@ -113,30 +122,20 @@ struct server {
 
 /* msg.c */
 extern int inode_lock_rescan(DB_TXN *txn, cldino_t inum);
-extern bool msg_open(struct server_socket *, DB_TXN *,
-		 struct session *, uint8_t *, size_t);
-extern bool msg_put(struct server_socket *, DB_TXN *,
-		 struct session *, uint8_t *, size_t);
-extern bool msg_data(struct server_socket *, DB_TXN *,
-		 struct session *, uint8_t *, size_t);
-extern bool msg_close(struct server_socket *, DB_TXN *,
-		 struct session *, uint8_t *, size_t);
-extern bool msg_del(struct server_socket *, DB_TXN *,
-		 struct session *, uint8_t *, size_t);
-extern bool msg_unlock(struct server_socket *, DB_TXN *,
-		 struct session *, uint8_t *, size_t);
-extern bool msg_lock(struct server_socket *, DB_TXN *,
-		 struct session *, uint8_t *, size_t, bool);
-extern bool msg_ack(struct server_socket *, DB_TXN *,
-		 struct session *, uint8_t *, size_t);
-extern bool msg_get(struct server_socket *, DB_TXN *,
-		 struct session *, uint8_t *, size_t, bool);
+extern bool msg_open(struct msg_params *);
+extern bool msg_put(struct msg_params *);
+extern bool msg_data(struct msg_params *);
+extern bool msg_close(struct msg_params *);
+extern bool msg_del(struct msg_params *);
+extern bool msg_unlock(struct msg_params *);
+extern bool msg_lock(struct msg_params *, bool);
+extern bool msg_ack(struct msg_params *);
+extern bool msg_get(struct msg_params *, bool);
 
 /* session.c */
 extern guint sess_hash(gconstpointer v);
 extern gboolean sess_equal(gconstpointer _a, gconstpointer _b);
-extern bool msg_new_sess(struct server_socket *, DB_TXN *,
-		 const struct client *, uint8_t *, size_t);
+extern bool msg_new_sess(struct msg_params *, const struct client *);
 extern struct raw_session *session_new_raw(const struct session *sess);
 extern bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
 		  bool copy_msg);

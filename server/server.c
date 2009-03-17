@@ -179,6 +179,7 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 	struct session *sess = NULL;
 	enum cle_err_codes resp_rc = CLE_OK;
 	struct cld_msg_resp resp;
+	struct msg_params mp;
 
 	if (msg_len < sizeof(*msg)) {
 		resp_rc = CLE_BAD_PKT;
@@ -201,6 +202,12 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 	if (seen_msgid(msg->sid, msg->msgid))
 		return false;
 
+	mp.sock = sock;
+	mp.txn = txn;
+	mp.sess = sess;
+	mp.msg = raw_msg;
+	mp.msg_len = msg_len;
+
 	if (msg->op != cmo_new_sess) {
 		if (!sess) {
 			resp_rc = CLE_SESS_INVAL;
@@ -219,7 +226,8 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 		break;
 
 	case cmo_new_sess:
-		return msg_new_sess(sock, txn, cli, raw_msg, msg_len);
+		return msg_new_sess(&mp, cli);
+
 	case cmo_end_sess: {
 		int rc = session_dispose(txn, sess);
 
@@ -233,27 +241,27 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 	}
 
 	case cmo_open:
-		return msg_open(sock, txn, sess, raw_msg, msg_len);
+		return msg_open(&mp);
 	case cmo_get:
-		return msg_get(sock, txn, sess, raw_msg, msg_len, false);
+		return msg_get(&mp, false);
 	case cmo_get_meta:
-		return msg_get(sock, txn, sess, raw_msg, msg_len, true);
+		return msg_get(&mp, true);
 	case cmo_put:
-		return msg_put(sock, txn, sess, raw_msg, msg_len);
+		return msg_put(&mp);
 	case cmo_data:
-		return msg_data(sock, txn, sess, raw_msg, msg_len);
+		return msg_data(&mp);
 	case cmo_close:
-		return msg_close(sock, txn, sess, raw_msg, msg_len);
+		return msg_close(&mp);
 	case cmo_del:
-		return msg_del(sock, txn, sess, raw_msg, msg_len);
+		return msg_del(&mp);
 	case cmo_unlock:
-		return msg_unlock(sock, txn, sess, raw_msg, msg_len);
+		return msg_unlock(&mp);
 	case cmo_lock:
-		return msg_lock(sock, txn, sess, raw_msg, msg_len, true);
+		return msg_lock(&mp, true);
 	case cmo_trylock:
-		return msg_lock(sock, txn, sess, raw_msg, msg_len, false);
+		return msg_lock(&mp, false);
 	case cmo_ack:
-		return msg_ack(sock, txn, sess, raw_msg, msg_len);
+		return msg_ack(&mp);
 	default:
 		return false;
 	}
