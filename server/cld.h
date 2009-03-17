@@ -36,6 +36,7 @@ enum {
 	CLD_SESS_TIMEOUT	= 60,
 	CLD_MSGID_EXPIRE	= CLD_SESS_TIMEOUT * 2,
 	CLD_RETRY_START		= 2,		/* initial retry after 2sec */
+	CLD_CHKPT_SEC		= 60 * 5,	/* secs between db4 chkpt */
 	SFL_FOREGROUND		= (1 << 0),	/* run in foreground */
 };
 
@@ -116,6 +117,8 @@ struct server {
 
 	GHashTable		*msgids;
 	GQueue			*msgid_q;
+
+	struct event		chkpt_timer;	/* db4 checkpoint timer */
 
 	struct server_stats	stats;		/* global statistics */
 };
