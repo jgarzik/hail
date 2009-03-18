@@ -419,7 +419,14 @@ bool msg_get(struct msg_params *mp, bool metadata_only)
 
 		rc = cldb_data_get(txn, inum, &data_mem, &data_mem_len,
 				   true, false);
-		if (rc) {
+
+		/* treat not-found as zero length file, as we may
+		 * not yet have created the data record
+		 */
+		if (rc == DB_NOTFOUND) {
+			data_mem = NULL;
+			data_mem_len = 0;
+		} else if (rc) {
 			resp_rc = CLE_DB_ERR;
 			goto err_out;
 		}
