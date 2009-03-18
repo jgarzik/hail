@@ -82,8 +82,7 @@ fi
 %{_libdir}/lib*.a
 %{_libdir}/lib*.la
 %{_libdir}/pkgconfig/*
-%{_includedir}/cldc.h
-%{_includedir}/cld_msg.h
+%{_includedir}/*.h
 
 %changelog
 * Wed Mar 18 2009 Jeff Garzik <jgarzik@redhat.com> - 0.1git-2
