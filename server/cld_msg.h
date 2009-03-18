@@ -33,6 +33,7 @@ enum {
 };
 
 enum cld_msg_ops {
+	/* client -> server */
 	cmo_nop			= 0,		/* no op */
 	cmo_new_sess		= 1,		/* new session */
 	cmo_open		= 2,		/* open file */
@@ -46,10 +47,12 @@ enum cld_msg_ops {
 	cmo_unlock		= 10,		/* unlock */
 	cmo_trylock		= 11,		/* trylock */
 	cmo_ack			= 12,		/* client ack of msgid rx'd */
-	cmo_ping		= 13,		/* server to client ping */
-	cmo_not_master		= 14,		/* I am not the master! */
-	cmo_end_sess		= 15,		/* end session */
-	cmo_event		= 16,		/* server->cli async event */
+	cmo_end_sess		= 13,		/* end session */
+
+	/* server -> client */
+	cmo_ping		= 30,		/* server to client ping */
+	cmo_not_master		= 31,		/* I am not the master! */
+	cmo_event		= 32,		/* server->cli async event */
 };
 
 enum cle_err_codes {
