@@ -1,0 +1,12 @@
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+libdir=@libdir@
+includedir=@includedir@
+libcldc_serverdir=@libexecdir@
+
+Name: libcldc
+Description: libcldc
+Requires: glib-2.0
+Version: @VERSION@
+Libs: ${pc_top_builddir}/${pcfiledir}/libcldc.la
+#Cflags: -I${pc_top_builddir}/${pcfiledir}/..

@@ -1,18 +1,17 @@
 Name:           cld
 Version:        0.1git
-Release:        1.1c47583%{?dist}
+Release:        1.libtest%{?dist}
 Summary:        Coarse locking daemon
 
 Group:          System Environment/Base
 License:        GPLv2
 URL:            http://www.kernel.org/pub/software/network/distsrv/
-Source0:        cld-0.1git.1c47583.tar.gz
-Source2:	cld.init
-Source3:	cld.sysconf
+Source0:        cld-0.1git.libtest.tar.gz
+Source2:        cld.init
+Source3:        cld.sysconf
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 BuildRequires:  db4-devel libevent-devel glib2-devel
-Requires:       db4 libevent glib2
 
 %description
 Coarse locking daemon.
@@ -41,10 +40,10 @@ rm -rf $RPM_BUILD_ROOT
 make install DESTDIR=$RPM_BUILD_ROOT
 
 mkdir -p %{buildroot}%{_sysconfdir}/rc.d/init.d
-install -m 755 %{SOURCE2} %{buildroot}%{_sysconfdir}/rc.d/init.d/atd
+install -m 755 %{SOURCE2} %{buildroot}%{_sysconfdir}/rc.d/init.d/cld
 
 mkdir -p %{buildroot}/etc/sysconfig
-install -m 755 %{SOURCE3} %{buildroot}/etc/sysconfig/atd
+install -m 755 %{SOURCE3} %{buildroot}/etc/sysconfig/cld
 
 %check
 make check
@@ -52,21 +51,41 @@ make check
 %clean
 rm -rf $RPM_BUILD_ROOT
 
+%post
+/sbin/ldconfig
+# must be in chkconfig on
+/sbin/chkconfig --add cld
+
+%preun
+if [ "$1" = 0 ] ; then
+	/sbin/service cld stop >/dev/null 2>&1 ||:
+	/sbin/chkconfig --del cld
+fi
+
+%postun
+/sbin/ldconfig
+if [ "$1" -ge "1" ]; then
+	/sbin/service cld condrestart >/dev/null 2>&1 ||:
+fi
 
 %files
 %defattr(-,root,root,-)
 %doc README NEWS doc/*.txt
 %{_sbindir}/cld
-%attr(0755,root,root)		%{_sysconfdir}/rc.d/init.d/atd
-%attr(0644,root,root)		%{_sysconfdir}/sysconfig/atd
-%doc README
+%{_libdir}/lib*.so.*
+%attr(0755,root,root)           %{_sysconfdir}/rc.d/init.d/cld
+%attr(0644,root,root)           %{_sysconfdir}/sysconfig/cld
 
 %files devel
 %defattr(-,root,root,0644)
+%{_libdir}/lib*.so
+%{_libdir}/lib*.a
+%{_libdir}/lib*.la
+%{_libdir}/pkgconfig/*
 %{_includedir}/cldc.h
 %{_includedir}/cld_msg.h
 
 %changelog
-* Wed Mar 18 2009 Jeff Garzik <jgarzik@redhat.com> - 0.1git-1.1c47583
+* Wed Mar 18 2009 Jeff Garzik <jgarzik@redhat.com> - 0.1git-1.libtest
 - initial release
 

@@ -1,0 +1,10 @@
+
+*.lo
+
+libcldc.a
+libcldc.la
+libcldc-uninstalled.pc
+libcldc.pc
+
+.libs
+

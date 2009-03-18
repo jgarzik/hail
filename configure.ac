@@ -17,19 +17,49 @@ dnl You should have received a copy of the GNU General Public License
 dnl along with this program; if not, write to the Free Software
 dnl Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
-AC_INIT(cld, 0.1git, [Jeff Garzik <jgarzik@pobox.com>])
+m4_define([libcldc_major_version], [1])
+m4_define([libcldc_minor_version], [1])
+m4_define([libcldc_micro_version], [1])
+m4_define([libcldc_interface_age], [1])
+# If you need a modifier for the version number. 
+# Normally empty, but can be used to make "fixup" releases.
+m4_define([libcldc_extraversion], [])
+
+dnl libtool versioning from libcldc
+m4_define([libcldc_current], [m4_eval(100 * libcldc_minor_version + libcldc_micro_version - libcldc_interface_age)])
+m4_define([libcldc_binary_age], [m4_eval(100 * libcldc_minor_version + libcldc_micro_version)])
+m4_define([libcldc_revision], [libcldc_interface_age])
+m4_define([libcldc_age], [m4_eval(libcldc_binary_age - libcldc_interface_age)])
+m4_define([libcldc_version], [libcldc_major_version().libcldc_minor_version().libcldc_micro_version()libcldc_extraversion()])
+
+AC_INIT([cld], [0.1git],
+        [http://www.kernel.org/pub/software/network/distsrv/])
+
 AC_PREREQ(2.52)
 AC_CONFIG_SRCDIR([server/server.c])
 AM_INIT_AUTOMAKE([gnu])
 AC_CONFIG_HEADERS([cld-config.h])
+
+LIBCLDC_MAJOR_VERSION=libcldc_major_version
+LIBCLDC_MINOR_VERSION=libcldc_minor_version
+LIBCLDC_MICRO_VERSION=libcldc_micro_version
+LIBCLDC_INTERFACE_AGE=libcldc_interface_age
+
+LIBCLDC_CURRENT=libcldc_current
+LIBCLDC_REVISION=libcldc_revision
+LIBCLDC_AGE=libcldc_age
+
+AC_SUBST(LIBCLDC_CURRENT)
+AC_SUBST(LIBCLDC_REVISION)
+AC_SUBST(LIBCLDC_AGE)
 
 dnl Make sure anyone changing configure.ac/Makefile.am has a clue
 AM_MAINTAINER_MODE
 
 dnl Checks for programs
 AC_PROG_CC
-AC_PROG_RANLIB
 AC_PROG_GCC_TRADITIONAL
+AM_PROG_LIBTOOL
 
 dnl Checks for header files.
 dnl AC_HEADER_STDC
@@ -62,6 +92,8 @@ dnl --------------------------
 dnl autoconf output generation
 dnl --------------------------
 
+PKG_PROG_PKG_CONFIG()
+
 AM_PATH_GLIB_2_0(2.0.0)
 
 AC_SUBST(DB4_LIBS)
@@ -72,6 +104,8 @@ AC_CONFIG_FILES([
 	Makefile
 	doc/Makefile
 	lib/Makefile
+	lib/libcldc.pc
+	lib/libcldc-uninstalled.pc
 	include/Makefile
 	server/Makefile
 	test/Makefile])
