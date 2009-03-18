@@ -1,6 +1,6 @@
 Name:           cld
 Version:        0.1git
-Release:        1.libtest%{?dist}
+Release:        2%{?dist}
 Summary:        Coarse locking daemon
 
 Group:          System Environment/Base
@@ -86,6 +86,9 @@ fi
 %{_includedir}/cld_msg.h
 
 %changelog
+* Wed Mar 18 2009 Jeff Garzik <jgarzik@redhat.com> - 0.1git-2
+- update cld initscript
+
 * Wed Mar 18 2009 Jeff Garzik <jgarzik@redhat.com> - 0.1git-1.libtest
 - initial release
 

@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# atd Starts/stop the "at" daemon
+# cld Starts/stop the coarse locking daemon
 #
 # chkconfig:   345 95 5
 # description: Runs commands scheduled by the "at" command at the time \
@@ -8,23 +8,21 @@
 #    average is low enough.
 
 ### BEGIN INIT INFO
-# Provides: atd at batch
+# Provides: cld
 # Required-Start: $local_fs
 # Required-Stop: $local_fs
 # Default-Start: 345
 # Default-Stop: 95
-# Short-Description: Starts/stop the "at" daemon
-# Description:      Runs commands scheduled by the "at" command at the time 
-#    specified when "at" was run, and runs batch commands when the load 
-#    average is low enough.
+# Short-Description: Starts/stop the "cld" daemon
+# Description:      Highly reliable distribution filesystem for locking
 ### END INIT INFO
 
 # Source function library.
 . /etc/rc.d/init.d/functions
 
-exec=/usr/sbin/atd
-prog="atd"
-config=/etc/sysconfig/atd
+exec=/usr/sbin/cld
+prog="cld"
+config=/etc/sysconfig/cld
 
 [ -e /etc/sysconfig/$prog ] && . /etc/sysconfig/$prog
 
