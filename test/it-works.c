@@ -6,7 +6,7 @@
 #include <time.h>
 #include <string.h>
 #include <locale.h>
-#include <stc.h>
+#include <chunkc.h>
 #include "test.h"
 
 static void test(bool ssl)

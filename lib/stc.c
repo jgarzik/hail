@@ -12,7 +12,7 @@
 #include <openssl/ssl.h>
 #include <libxml/tree.h>
 #include <glib.h>
-#include <stc.h>
+#include <chunkc.h>
 #include <netdb.h>
 #include <chunk_msg.h>
 #include <chunksrv.h>
