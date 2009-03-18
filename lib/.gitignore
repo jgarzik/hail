@@ -1,2 +1,6 @@
+*.lo
+*.la
+.libs
 libchunksrv.a
-libstc.a
+libchunkdc-uninstalled.pc
+libchunkdc.pc

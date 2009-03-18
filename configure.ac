@@ -17,19 +17,49 @@ dnl You should have received a copy of the GNU General Public License
 dnl along with this program; if not, write to the Free Software
 dnl Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
-AC_INIT(chunkd, 0.2git, [Jeff Garzik <jgarzik@pobox.com>])
+m4_define([libchunkdc_major_version], [1])
+m4_define([libchunkdc_minor_version], [1])
+m4_define([libchunkdc_micro_version], [1])
+m4_define([libchunkdc_interface_age], [1])
+# If you need a modifier for the version number. 
+# Normally empty, but can be used to make "fixup" releases.
+m4_define([libchunkdc_extraversion], [])
+
+dnl libtool versioning from libchunkdc
+m4_define([libchunkdc_current], [m4_eval(100 * libchunkdc_minor_version + libchunkdc_micro_version - libchunkdc_interface_age)])
+m4_define([libchunkdc_binary_age], [m4_eval(100 * libchunkdc_minor_version + libchunkdc_micro_version)])
+m4_define([libchunkdc_revision], [libchunkdc_interface_age])
+m4_define([libchunkdc_age], [m4_eval(libchunkdc_binary_age - libchunkdc_interface_age)])
+m4_define([libchunkdc_version], [libchunkdc_major_version().libchunkdc_minor_version().libchunkdc_micro_version()libchunkdc_extraversion()])
+
+AC_INIT([chunkd], [0.2git],
+        [http://www.kernel.org/pub/software/network/distsrv/])
+
 AC_PREREQ(2.52)
 AC_CONFIG_SRCDIR([server/server.c])
 AM_INIT_AUTOMAKE([gnu])
 AC_CONFIG_HEADERS([chunkd-config.h])
+
+LIBCHUNKDC_MAJOR_VERSION=libchunkdc_major_version
+LIBCHUNKDC_MINOR_VERSION=libchunkdc_minor_version
+LIBCHUNKDC_MICRO_VERSION=libchunkdc_micro_version
+LIBCHUNKDC_INTERFACE_AGE=libchunkdc_interface_age
+
+LIBCHUNKDC_CURRENT=libchunkdc_current
+LIBCHUNKDC_REVISION=libchunkdc_revision
+LIBCHUNKDC_AGE=libchunkdc_age
+
+AC_SUBST(LIBCHUNKDC_CURRENT)
+AC_SUBST(LIBCHUNKDC_REVISION)
+AC_SUBST(LIBCHUNKDC_AGE)
 
 dnl Make sure anyone changing configure.ac/Makefile.am has a clue
 AM_MAINTAINER_MODE
 
 dnl Checks for programs
 AC_PROG_CC
-AC_PROG_RANLIB
 AC_PROG_GCC_TRADITIONAL
+AM_PROG_LIBTOOL
 
 dnl Checks for header files.
 AC_HEADER_STDC
@@ -61,6 +91,8 @@ dnl --------------------------
 dnl autoconf output generation
 dnl --------------------------
 
+PKG_PROG_PKG_CONFIG()
+
 AM_PATH_GLIB_2_0(2.0.0, , exit 1, gthread)
 AM_PATH_XML2(2.6.0, , exit 1)
 
@@ -72,6 +104,8 @@ AC_SUBST(SOCKET_LIBS)
 
 AC_CONFIG_FILES([doc/Makefile
 		 lib/Makefile
+		 lib/libchunkdc.pc
+		 lib/libchunkdc-uninstalled.pc
 		 include/Makefile
 		 server/Makefile
 		 test/Makefile

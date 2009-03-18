@@ -29,7 +29,7 @@ TESTS =				\
 check_PROGRAMS		= basic-object it-works large-object \
 			  lotsa-objects nop
 
-TESTLDADD		= ../lib/libstc.a	\
+TESTLDADD		= ../lib/libchunkdc.la	\
 			  ../lib/libchunksrv.a	\
 			  libtest.a		\
 			  @GLIB_LIBS@ @CRYPTO_LIBS@ \

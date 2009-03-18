@@ -1,6 +1,6 @@
 Name:           chunkd
 Version:        0.2git
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        Data storage daemon
 
 Group:          System Environment/Base
@@ -52,6 +52,7 @@ make check
 rm -rf $RPM_BUILD_ROOT
 
 %post
+/sbin/ldconfig
 # must be in chkconfig on
 /sbin/chkconfig --add chunkd
 
@@ -62,6 +63,7 @@ if [ "$1" = 0 ] ; then
 fi
 
 %postun
+/sbin/ldconfig
 if [ "$1" -ge "1" ]; then
 	/sbin/service chunkd condrestart >/dev/null 2>&1 ||:
 fi
@@ -70,14 +72,22 @@ fi
 %defattr(-,root,root,-)
 %doc README NEWS doc/*.txt
 %{_sbindir}/chunkd
+%{_libdir}/lib*.so.*
 %attr(0755,root,root)           %{_sysconfdir}/rc.d/init.d/chunkd
 %attr(0644,root,root)           %{_sysconfdir}/sysconfig/chunkd
 
 %files devel
 %defattr(-,root,root,0644)
+%{_libdir}/lib*.so
+%{_libdir}/lib*.a
+%{_libdir}/lib*.la
+%{_libdir}/pkgconfig/*
 %{_includedir}/*.h
 
 %changelog
+* Wed Mar 18 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2git-2%{?dist}
+- package and ship libchunkdc
+
 * Wed Mar 18 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2git-1%{?dist}
 - initial release
 
