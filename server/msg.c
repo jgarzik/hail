@@ -479,7 +479,7 @@ bool msg_open(struct msg_params *mp)
 	struct raw_inode *inode = NULL, *parent = NULL;
 	struct raw_handle *h;
 	int rc, name_len;
-	bool create, excl;
+	bool create, excl, do_dir, have_dir;
 	struct pathname_info pinfo;
 	void *parent_data = NULL;
 	size_t parent_len;
@@ -504,6 +504,7 @@ bool msg_open(struct msg_params *mp)
 
 	create = msg_mode & COM_CREATE;
 	excl = msg_mode & COM_EXCL;
+	do_dir = msg_mode & COM_DIRECTORY;
 
 	if (!valid_inode_name(name, name_len) || (create && name_len < 2)) {
 		resp_rc = CLE_NAME_INVAL;
@@ -530,6 +531,15 @@ bool msg_open(struct msg_params *mp)
 			create = false;
 	}
 
+	/* if inode exists, make sure COM_DIRECTORY (or lack thereof)
+	 * matches the inode's state
+	 */
+	have_dir = GUINT32_FROM_LE(inode->flags) & CIFL_DIR;
+	if (!create && (do_dir != have_dir)) {
+		resp_rc = CLE_MODE_INVAL;
+		goto err_out;
+	}
+
 	if (create) {
 		/* create new in-memory inode */
 		inode = cldb_inode_new(txn, pinfo.base, pinfo.base_len, 0);
@@ -538,6 +548,10 @@ bool msg_open(struct msg_params *mp)
 			resp_rc = CLE_OOM;
 			goto err_out;
 		}
+
+		if (do_dir)
+			inode->flags = GUINT32_TO_LE(
+				GUINT32_FROM_LE(inode->flags) | CIFL_DIR);
 
 		/* read parent, to which we will add new child inode */
 		rc = cldb_inode_get_byname(txn, pinfo.dir, pinfo.dir_len,
@@ -676,7 +690,8 @@ bool msg_put(struct msg_params *mp)
 	inum = cldino_from_le(h->inum);
 	omode = GUINT32_FROM_LE(h->mode);
 
-	if (!(omode & COM_WRITE)) {
+	if ((!(omode & COM_WRITE)) ||
+	    (omode & COM_DIRECTORY)) {
 		resp_rc = CLE_MODE_INVAL;
 		goto err_out;
 	}
@@ -1023,6 +1038,7 @@ bool msg_del(struct msg_params *mp)
 	size_t parent_len;
 	cldino_t del_inum;
 	DB *inodes = cld_srv.cldb.inodes;
+	DB *db_data = cld_srv.cldb.data;
 	DB *handle_idx = cld_srv.cldb.handle_idx;
 	DB_TXN *txn = mp->txn;
 	DBT key;
@@ -1071,6 +1087,29 @@ bool msg_del(struct msg_params *mp)
 		goto err_out;
 	}
 
+	/* prevent deletion of non-empty dirs */
+	if (GUINT32_FROM_LE(ino->flags) & CIFL_DIR) {
+		DBT val;
+
+		memset(&key, 0, sizeof(key));
+		memset(&val, 0, sizeof(val));
+
+		/* key: inode number */
+		key.data = &ino->inum;
+		key.size = sizeof(ino->inum);
+
+		rc = db_data->get(db_data, txn, &key, &val, 0);
+		if (rc && (rc != DB_NOTFOUND)) {
+			db_data->err(db_data, rc, "db_data->get for rmdir");
+			resp_rc = CLE_DB_ERR;
+			goto err_out;
+		}
+		if (rc == 0 && val.size > 0) {
+			resp_rc = CLE_DIR_NOTEMPTY;
+			goto err_out;
+		}
+	}
+
 	del_inum = cldino_from_le(ino->inum);
 
 	/* notify interested parties of impending deletion */
@@ -1090,14 +1129,25 @@ bool msg_del(struct msg_params *mp)
 	if (rc) {
 		if (rc == DB_NOTFOUND)
 			resp_rc = CLE_INODE_INVAL;
-		else
+		else {
+			inodes->err(inodes, rc, "inodes->del");
 			resp_rc = CLE_DB_ERR;
+		}
 		goto err_out;
 	}
 
-	/* delete all filehandles associated with this inode */
+	/* delete data associated with inode, if any */
+	rc = db_data->del(db_data, txn, &key, 0);
+	if (rc && (rc != DB_NOTFOUND)) {
+		db_data->err(db_data, rc, "db_data->del");
+		resp_rc = CLE_DB_ERR;
+		goto err_out;
+	}
+
+	/* delete all filehandles associated with this inode, if any */
 	rc = handle_idx->del(handle_idx, txn, &key, 0);
-	if (rc) {
+	if (rc && (rc != DB_NOTFOUND)) {
+		handle_idx->err(handle_idx, rc, "handle_idx->del");
 		resp_rc = CLE_DB_ERR;
 		goto err_out;
 	}
