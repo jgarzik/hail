@@ -1,0 +1,6 @@
+# specify additional command line arguments for cld
+#
+
+#example: 
+#OPTS="--debug"
+
