@@ -22,7 +22,7 @@
 
 #include <stdbool.h>
 #include <db.h>
-#include "cld_msg.h"
+#include <cld_msg.h>
 
 typedef uint64_t cldino_t;
 

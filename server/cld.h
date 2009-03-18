@@ -24,7 +24,7 @@
 #include <event.h>
 #include <glib.h>
 #include "cldb.h"
-#include "cld_msg.h"
+#include <cld_msg.h>
 
 struct client;
 struct server_socket;

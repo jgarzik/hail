@@ -1,3 +1,3 @@
 
-EXTRA_DIST = cldc.h
+include_HEADERS = cldc.h cld_msg.h
 
