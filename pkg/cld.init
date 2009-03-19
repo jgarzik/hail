@@ -3,9 +3,7 @@
 # cld Starts/stop the coarse locking daemon
 #
 # chkconfig:   345 95 5
-# description: Runs commands scheduled by the "at" command at the time \
-#    specified when "at" was run, and runs batch commands when the load \
-#    average is low enough.
+# description: Coarse locking service
 
 ### BEGIN INIT INFO
 # Provides: cld
