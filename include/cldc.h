@@ -13,9 +13,9 @@ struct cld_client {
 	int			local_port;
 };
 
-extern int cldc_init(void);
-extern void cldc_free(struct cld_client *cldc);
-extern struct cld_client *cldc_new(const char *remote_host, int remote_port,
+extern int cldcli_init(void);
+extern void cldcli_free(struct cld_client *);
+extern struct cld_client *cldcli_new(const char *remote_host, int remote_port,
 				   int local_port);
 
 #endif /* __CLDC_H__ */

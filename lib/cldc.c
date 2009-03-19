@@ -28,11 +28,11 @@
 #include <stdio.h>
 #include <netdb.h>
 #include <time.h>
-#include "cldc.h"
+#include <cldc.h>
 
 static unsigned int next_msgid;
 
-int cldc_init(void)
+int cldcli_init(void)
 {
 	srand(time(NULL) ^ getpid());
 
@@ -41,7 +41,7 @@ int cldc_init(void)
 	return 0;
 }
 
-void cldc_free(struct cld_client *cldc)
+void cldcli_free(struct cld_client *cldc)
 {
 	if (!cldc)
 		return;
@@ -53,7 +53,7 @@ void cldc_free(struct cld_client *cldc)
 	free(cldc);
 }
 
-struct cld_client *cldc_new(const char *remote_host, int remote_port,
+struct cld_client *cldcli_new(const char *remote_host, int remote_port,
 			    int local_port)
 {
 	struct cld_client *cldc;
