@@ -82,6 +82,7 @@ struct session {
 
 struct msg_params {
 	struct server_socket	*sock;
+	const struct client	*cli;
 	DB_TXN			*txn;
 	struct session		*sess;
 

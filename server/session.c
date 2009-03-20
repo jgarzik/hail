@@ -540,16 +540,19 @@ bool msg_new_sess(struct msg_params *mp, const struct client *cli)
 	struct cld_msg_hdr *msg = mp->msg;
 	DB *db = cld_srv.cldb.sessions;
 	struct raw_session raw_sess;
-	struct session *sess;
+	struct session *sess = NULL;
 	DB_TXN *txn = mp->txn;
 	DBT key, val;
 	int rc;
 	struct timeval tv;
+	enum cle_err_codes resp_rc = CLE_OK;
+	struct cld_msg_resp resp;
 
 	sess = session_new();
-	if (!sess)
-		/* note, the client does not get response if we OOM here */
-		return false;
+	if (!sess) {
+		resp_rc = CLE_OOM;
+		goto err_out;
+	}
 
 	/* build raw_session database record */
 	memcpy(&sess->sid, &msg->sid, sizeof(sess->sid));
@@ -575,25 +578,33 @@ bool msg_new_sess(struct msg_params *mp, const struct client *cli)
 	 * this should fail
 	 */
 	rc = db->put(db, txn, &key, &val, DB_NOOVERWRITE);
-	if (rc)
+	if (rc) {
+		if (rc == DB_KEYEXIST)
+			resp_rc = CLE_SESS_EXISTS;
+		else
+			resp_rc = CLE_DB_ERR;
 		goto err_out;
+	}
 
 	g_hash_table_insert(cld_srv.sessions, sess->sid, sess);
 
 	/* begin session timer */
 	tv.tv_sec = CLD_SESS_TIMEOUT / 2;
 	tv.tv_usec = 0;
-	if (evtimer_add(&sess->timer, &tv) < 0) {
+	if (evtimer_add(&sess->timer, &tv) < 0)
 		syslog(LOG_WARNING, "evtimer_add session_new failed");
-		goto err_out;
-	}
 
 	resp_ok(mp->sock, sess, msg);
 	return true;
 
 err_out:
-	/* note: no response to client, in new-session error case */
 	session_free(sess);
+
+	resp_copy(&resp.hdr, msg);
+	resp.code = GUINT32_TO_LE(resp_rc);
+
+	udp_tx(mp->sock, (struct sockaddr *) &mp->cli->addr,
+	       mp->cli->addr_len, &resp, sizeof(resp));
 	return false;
 }
 

@@ -203,6 +203,7 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 		return false;
 
 	mp.sock = sock;
+	mp.cli = cli;
 	mp.txn = txn;
 	mp.sess = sess;
 	mp.msg = raw_msg;
