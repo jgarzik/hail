@@ -72,6 +72,7 @@ enum cle_err_codes {
 	CLE_MODE_INVAL		= 13,		/* op incompat. w/ file mode */
 	CLE_INODE_EXISTS	= 14,		/* inode exists */
 	CLE_DIR_NOTEMPTY	= 15,		/* dir not empty */
+	CLE_INTERNAL_ERR	= 16,		/* nonspecific internal err */
 };
 
 enum cld_open_modes {

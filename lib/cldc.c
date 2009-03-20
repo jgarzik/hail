@@ -22,12 +22,14 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <netdb.h>
 #include <time.h>
+#include <glib.h>
 #include <cldc.h>
 
 static unsigned int next_msgid;
@@ -132,5 +134,103 @@ err_out_res:
 err_out:
 	free(cldc);
 	return NULL;
+}
+
+static int cldc_rx_generic(struct cldc *cldc, const struct cld_msg_hdr *msg)
+{
+	return -55;	/* FIXME */
+}
+
+static int cldc_rx_new_sess(struct cldc *cldc,
+			   const void *buf, size_t buflen)
+{
+	return -55;	/* FIXME */
+}
+
+static int cldc_rx_end_sess(struct cldc *cldc,
+			   const void *buf, size_t buflen)
+{
+	return -55;	/* FIXME */
+}
+
+static int cldc_rx_open(struct cldc *cldc,
+			   const void *buf, size_t buflen)
+{
+	return -55;	/* FIXME */
+}
+
+static int cldc_rx_data(struct cldc *cldc,
+			   const void *buf, size_t buflen)
+{
+	return -55;	/* FIXME */
+}
+
+static int cldc_rx_event(struct cldc *cldc,
+			   const void *buf, size_t buflen)
+{
+	return -55;	/* FIXME */
+}
+
+static int cldc_rx_not_master(struct cldc *cldc,
+			   const void *buf, size_t buflen)
+{
+	return -55;	/* FIXME */
+}
+
+static int cldc_rx_get(struct cldc *cldc,
+			   const void *buf, size_t buflen, bool meta_only)
+{
+	return -55;	/* FIXME */
+}
+
+int cldc_receive_pkt(struct cldc *cldc,
+		     const void *net_addr, size_t net_addrlen,
+		     const void *buf, size_t buflen)
+{
+	const struct cld_msg_hdr *msg = buf;
+	struct cldc_session *sess = NULL;
+
+	if (buflen < sizeof(*msg))
+		return -2;
+	if (memcmp(msg->magic, CLD_MAGIC, sizeof(msg->magic)))
+		return -2;
+
+	/* look up session, verify stored server address matches IP */
+	sess = g_hash_table_lookup(cldc->sessions, msg->sid);
+	if (sess && ((sess->addr_len != net_addrlen) ||
+	    memcmp(sess->addr, net_addr, net_addrlen)))
+		return -3;
+
+	switch(msg->op) {
+	case cmo_nop:
+	case cmo_close:
+	case cmo_del:
+	case cmo_lock:
+	case cmo_unlock:
+	case cmo_trylock:
+	case cmo_ping:
+	case cmo_put:
+		return cldc_rx_generic(cldc, msg);
+	case cmo_end_sess:
+		return cldc_rx_end_sess(cldc, buf, buflen);
+	case cmo_not_master:
+		return cldc_rx_not_master(cldc, buf, buflen);
+	case cmo_event:
+		return cldc_rx_event(cldc, buf, buflen);
+	case cmo_new_sess:
+		return cldc_rx_new_sess(cldc, buf, buflen);
+	case cmo_open:
+		return cldc_rx_open(cldc, buf, buflen);
+	case cmo_get_meta:
+		return cldc_rx_get(cldc, buf, buflen, false);
+	case cmo_get:
+		return cldc_rx_get(cldc, buf, buflen, true);
+	case cmo_data:
+		return cldc_rx_data(cldc, buf, buflen);
+	case cmo_ack:
+		return -4;
+	}
+
+	return -1;
 }
 
