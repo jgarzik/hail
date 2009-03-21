@@ -21,24 +21,26 @@
 
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <errno.h>
 #include <stdio.h>
 #include <netdb.h>
 #include <time.h>
 #include <glib.h>
 #include <cldc.h>
 
-static unsigned int next_msgid;
+enum {
+	CLDC_MSG_EXPIRE			= 5 * 60,
+};
 
 int cldcli_init(void)
 {
 	srand(time(NULL) ^ getpid());
-
-	next_msgid = rand();
 
 	return 0;
 }
@@ -260,3 +262,123 @@ int cldc_receive_pkt(struct cldc *cldc,
 	return -1;
 }
 
+static void sess_next_msgid(struct cldc_session *sess, uint8_t *msgid)
+{
+	uint64_t msgid64 = GUINT64_TO_LE(sess->next_msgid++);
+	memcpy(msgid, &msgid64, CLD_MSGID_SZ);
+}
+
+static struct cldc_msg *cldc_new_msg(struct cldc *cldc,
+				     struct cldc_session *sess,
+				     size_t msg_len)
+{
+	struct cldc_msg *msg;
+	struct cld_msg_hdr *hdr;
+	struct timeval tv;
+
+	gettimeofday(&tv, NULL);
+
+	msg = calloc(1, sizeof(*msg) + msg_len);
+	if (!msg)
+		return NULL;
+
+	msg->sess = sess;
+	msg->expire_time = tv.tv_sec + CLDC_MSG_EXPIRE;
+	
+	sess_next_msgid(sess, msg->msgid);
+
+	msg->data_len = msg_len;
+
+	hdr = (struct cld_msg_hdr *) &msg->data[0];
+	memcpy(&hdr->magic, CLD_MAGIC, CLD_MAGIC_SZ);
+	memcpy(&hdr->msgid, msg->msgid, CLD_MSGID_SZ);
+	memcpy(&hdr->sid, sess->sid, CLD_SID_SZ);
+
+	return msg;
+}
+
+static guint cldmsg_hash(gconstpointer key_)
+{
+	const uint64_t *key = key_;
+
+	return GUINT64_FROM_LE(*key);
+}
+
+static gboolean cldmsg_equal(gconstpointer a_, gconstpointer b_)
+{
+	const struct cldc_msg *a = a_;
+	const struct cldc_msg *b = b_;
+
+	if (a == b)
+		return TRUE;
+	if (!memcmp(a->msgid, b->msgid, CLD_MSGID_SZ))
+		return TRUE;
+	return FALSE;
+}
+
+static ssize_t new_sess_cb(struct cldc_msg *msg)
+{
+	struct cldc_session *sess = msg->sess;
+
+	sess->confirmed = true;
+
+	return 0;
+}
+
+int cldc_new_sess(struct cldc *cldc, const void *addr, size_t addr_len,
+		  struct cldc_session **sess_out)
+{
+	struct cldc_session *sess;
+	uint32_t v;
+	void *p;
+	struct cldc_msg *msg;
+	struct cld_msg_hdr *hdr;
+
+	if (addr_len > sizeof(sess->addr))
+		return -EINVAL;
+
+	sess = calloc(1, sizeof(*sess));
+	if (!sess)
+		return -ENOMEM;
+
+	/* create random SID, next_msgid */
+	p = &sess->sid;
+	v = rand();
+	memcpy(p, &v, sizeof(v));
+	v = rand();
+	memcpy(p + 4, &v, sizeof(v));
+
+	p = &sess->next_msgid;
+	v = rand();
+	memcpy(p, &v, sizeof(v));
+	v = rand();
+	memcpy(p + 4, &v, sizeof(v));
+
+	/* init other session vars */
+	memcpy(sess->addr, addr, addr_len);
+	sess->addr_len = addr_len;
+
+	sess->out_msg = g_hash_table_new_full(cldmsg_hash, cldmsg_equal,
+					      NULL, free);
+
+	/* create NEW-SESS message */
+	msg = cldc_new_msg(cldc, sess, sizeof(struct cld_msg_hdr));
+	if (!msg)
+		return -ENOMEM;
+
+	msg->cb = new_sess_cb;
+
+	hdr = (struct cld_msg_hdr *) &msg->data;
+	hdr->op = cmo_new_sess;
+
+	g_hash_table_insert(sess->out_msg, msg->msgid, msg);
+
+	/* save session */
+	*sess_out = sess;
+
+	g_hash_table_insert(cldc->sessions, sess->sid, sess);
+
+	/* send initial NEW-SESS message */
+	return cldc->pkt_send(cldc->private, sess->addr, sess->addr_len,
+			      msg->data, msg->data_len);
+}

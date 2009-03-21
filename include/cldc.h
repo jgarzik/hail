@@ -5,9 +5,12 @@
 #include <cld_msg.h>
 
 struct cldc_msg;
+struct cldc_session;
 
 struct cldc_msg {
 	uint8_t		msgid[CLD_MSGID_SZ];	/* message id */
+
+	struct cldc_session *sess;
 
 	ssize_t		(*cb)(struct cldc_msg *);
 	void		*cb_private;
@@ -16,8 +19,10 @@ struct cldc_msg {
 
 	time_t		expire_time;
 
-	int		msg_len;
-	uint8_t		msg[0];
+	int		data_len;
+	uint8_t		data[0];
+
+	int		retries;
 };
 
 struct cldc_session {
@@ -27,6 +32,10 @@ struct cldc_session {
 	size_t		addr_len;
 
 	GHashTable	*out_msg;
+
+	uint64_t	next_msgid;
+
+	bool		confirmed;
 };
 
 struct cldc {
@@ -56,5 +65,8 @@ extern int cldcli_init(void);
 extern void cldcli_free(struct cld_client *);
 extern struct cld_client *cldcli_new(const char *remote_host, int remote_port,
 				   int local_port);
+
+extern int cldc_new_sess(struct cldc *cldc, const void *addr, size_t addr_len,
+		  struct cldc_session **sess_out);
 
 #endif /* __CLDC_H__ */
