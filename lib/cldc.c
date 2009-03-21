@@ -37,6 +37,7 @@
 enum {
 	CLDC_MSG_EXPIRE			= 5 * 60,
 	CLDC_MSG_SCAN			= 60,
+	CLDC_MSG_RETRY			= 5,
 };
 
 static time_t cldc_current_time;
@@ -150,11 +151,18 @@ static int cldc_rx_generic(struct cldc *cldc, struct cldc_session *sess,
 			   const struct cld_msg_hdr *msg)
 {
 	struct cld_msg_hdr resp;
-	struct cldc_msg *outmsg;
+	struct cldc_msg *outmsg = NULL;
 	ssize_t rc;
+	GList *tmp;
 
-	outmsg = g_hash_table_lookup(sess->out_msg, msg->msgid);
-	if (!outmsg)
+	tmp = sess->out_msg;
+	while (tmp) {
+		outmsg = tmp->data;
+		if (!memcmp(outmsg->msgid, msg->msgid, CLD_MSGID_SZ))
+			break;
+		tmp = tmp->next;
+	}
+	if (!tmp)
 		return -5;
 
 	if (!outmsg->done) {
@@ -211,34 +219,23 @@ static int cldc_rx_get(struct cldc *cldc, struct cldc_session *sess,
 	return -55;	/* FIXME */
 }
 
-static void sess_expire_iter(gpointer key_, gpointer val_ , gpointer user_)
-{
-	struct cldc_msg *msg = val_;
-	GList **l = user_;
-
-	if (cldc_current_time < msg->expire_time)
-		return;
-	
-	*l = g_list_prepend(*l, msg);
-}
-
 static void sess_expire_outmsg(struct cldc_session *sess)
 {
-	GList *l = NULL, *tmp;
+	GList *tmp, *tmp1;
 
-	g_hash_table_foreach(sess->out_msg, sess_expire_iter, &l);
-
-	tmp = l;
+	tmp = sess->out_msg;
 	while (tmp) {
 		struct cldc_msg *msg;
 
-		msg = tmp->data;
+		tmp1 = tmp;
 		tmp = tmp->next;
 
-		g_hash_table_remove(sess->out_msg, msg->msgid);
+		msg = tmp1->data;
+		if (cldc_current_time > msg->expire_time) {
+			free(msg);
+			sess->out_msg = g_list_delete_link(sess->out_msg, tmp1);
+		}
 	}
-
-	g_list_free(l);
 
 	sess->msg_scan_time = cldc_current_time + CLDC_MSG_SCAN;
 }
@@ -340,30 +337,53 @@ static struct cldc_msg *cldc_new_msg(struct cldc *cldc,
 	return msg;
 }
 
-static guint cldmsg_hash(gconstpointer key_)
-{
-	const uint64_t *key = key_;
-
-	return GUINT64_FROM_LE(*key);
-}
-
-static gboolean cldmsg_equal(gconstpointer a_, gconstpointer b_)
-{
-	const struct cldc_msg *a = a_;
-	const struct cldc_msg *b = b_;
-
-	if (a == b)
-		return TRUE;
-	if (!memcmp(a->msgid, b->msgid, CLD_MSGID_SZ))
-		return TRUE;
-	return FALSE;
-}
-
 static ssize_t new_sess_cb(struct cldc_msg *msg)
 {
 	struct cldc_session *sess = msg->sess;
 
 	sess->confirmed = true;
+
+	return 0;
+}
+
+static int sess_timer(struct cldc *cldc, void *priv)
+{
+	struct cldc_session *sess = priv;
+	struct cldc_msg *msg;
+	GList *tmp = sess->out_msg;
+
+	if (!tmp) {
+		sess->timer_on = false;
+		return 0;
+	}
+
+	while (tmp) {
+		msg = tmp->data;
+		tmp = tmp->next;
+
+		cldc->pkt_send(cldc->private,
+			       sess->addr, sess->addr_len,
+			       msg->data, msg->data_len);
+	}
+
+	return CLDC_MSG_RETRY;
+}
+
+static int sess_send(struct cldc *cldc, struct cldc_session *sess,
+		     struct cldc_msg *msg)
+{
+	sess->out_msg = g_list_append(sess->out_msg, msg);
+
+	if (cldc->pkt_send(cldc->private,
+		       sess->addr, sess->addr_len,
+		       msg->data, msg->data_len) < 0)
+		return -1;
+
+	if (!sess->timer_on) {
+		if (!cldc->timer_ctl(true, sess_timer, sess, CLDC_MSG_RETRY))
+			return -1;
+		sess->timer_on = true;
+	}
 
 	return 0;
 }
@@ -398,30 +418,26 @@ int cldc_new_sess(struct cldc *cldc, const void *addr, size_t addr_len,
 	memcpy(p + 4, &v, sizeof(v));
 
 	/* init other session vars */
+	sess->cldc = cldc;
 	memcpy(sess->addr, addr, addr_len);
 	sess->addr_len = addr_len;
 
-	sess->out_msg = g_hash_table_new_full(cldmsg_hash, cldmsg_equal,
-					      NULL, free);
-
 	/* create NEW-SESS message */
 	msg = cldc_new_msg(cldc, sess, sizeof(struct cld_msg_hdr));
-	if (!msg)
+	if (!msg) {
+		free(sess);
 		return -ENOMEM;
+	}
 
 	msg->cb = new_sess_cb;
 
 	hdr = (struct cld_msg_hdr *) &msg->data;
 	hdr->op = cmo_new_sess;
 
-	g_hash_table_insert(sess->out_msg, msg->msgid, msg);
-
 	/* save session */
 	*sess_out = sess;
 
 	g_hash_table_insert(cldc->sessions, sess->sid, sess);
 
-	/* send initial NEW-SESS message */
-	return cldc->pkt_send(cldc->private, sess->addr, sess->addr_len,
-			      msg->data, msg->data_len);
+	return sess_send(cldc, sess, msg);
 }

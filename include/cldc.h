@@ -4,6 +4,7 @@
 #include <sys/types.h>
 #include <cld_msg.h>
 
+struct cldc;
 struct cldc_msg;
 struct cldc_session;
 
@@ -28,20 +29,26 @@ struct cldc_msg {
 struct cldc_session {
 	uint8_t		sid[CLD_SID_SZ];	/* client id */
 
+	struct cldc	*cldc;
+
 	uint8_t		addr[64];		/* server address */
 	size_t		addr_len;
 
-	GHashTable	*out_msg;
+	GList		*out_msg;
 	time_t		msg_scan_time;
 
 	uint64_t	next_msgid;
 
 	bool		confirmed;
+	bool		timer_on;
 };
 
 struct cldc {
 	/* public: set by app */
 	void		*private;
+	bool		(*timer_ctl)(bool add,
+				     int (*cb)(struct cldc *, void *),
+				     void *priv, time_t secs);
 	ssize_t		(*pkt_send)(void *private,
 				const void *addr, size_t addrlen,
 				const void *buf, size_t buflen);
