@@ -13,7 +13,7 @@ struct cldc_msg {
 
 	struct cldc_session *sess;
 
-	ssize_t		(*cb)(struct cldc_msg *);
+	ssize_t		(*cb)(struct cldc_msg *, bool);
 	void		*cb_private;
 
 	bool		done;
@@ -37,21 +37,29 @@ struct cldc_session {
 	GList		*out_msg;
 	time_t		msg_scan_time;
 
+	time_t		expire_time;
+	bool		expired;
+
 	uint64_t	next_msgid;
 
 	bool		confirmed;
-	bool		timer_on;
+};
+
+enum cldc_event {
+	CLDC_EVT_NONE,
+	CLDC_EVT_SESS_FAILED,
 };
 
 struct cldc {
 	/* public: set by app */
 	void		*private;
-	bool		(*timer_ctl)(bool add,
+	bool		(*timer_ctl)(void *private, bool add,
 				     int (*cb)(struct cldc *, void *),
-				     void *priv, time_t secs);
+				     time_t secs);
 	ssize_t		(*pkt_send)(void *private,
 				const void *addr, size_t addrlen,
 				const void *buf, size_t buflen);
+	void		(*event)(void *private, enum cldc_event evt);
 
 	/* private: managed by lib */
 	GHashTable	*sessions;

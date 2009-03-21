@@ -169,7 +169,7 @@ static int cldc_rx_generic(struct cldc *cldc, struct cldc_session *sess,
 		outmsg->done = true;
 
 		if (outmsg->cb) {
-			rc = outmsg->cb(outmsg);
+			rc = outmsg->cb(outmsg, true);
 			if (rc < 0)
 				return rc;
 		}
@@ -337,13 +337,49 @@ static struct cldc_msg *cldc_new_msg(struct cldc *cldc,
 	return msg;
 }
 
-static ssize_t new_sess_cb(struct cldc_msg *msg)
+static ssize_t new_sess_cb(struct cldc_msg *msg, bool ok)
 {
 	struct cldc_session *sess = msg->sess;
+
+	if (!ok) {
+		/* FIXME: timeout */
+		return -1;
+	}
 
 	sess->confirmed = true;
 
 	return 0;
+}
+
+static void sess_msg_drop(struct cldc_session *sess)
+{
+	GList *tmp = sess->out_msg;
+	struct cldc_msg *msg;
+
+	while (tmp) {
+		msg = tmp->data;
+		tmp = tmp->next;
+		
+		if (!msg->done && msg->cb)
+			msg->cb(msg, false);
+
+		free(msg);
+	}
+
+	g_list_free(sess->out_msg);
+	sess->out_msg = NULL;
+}
+
+static void sess_expire(struct cldc_session *sess)
+{
+	struct cldc *cldc = sess->cldc;
+
+	sess->expired = true;
+	sess_msg_drop(sess);
+
+	cldc->timer_ctl(cldc->private, false, NULL, 0);
+
+	cldc->event(cldc->private, CLDC_EVT_SESS_FAILED);
 }
 
 static int sess_timer(struct cldc *cldc, void *priv)
@@ -352,8 +388,8 @@ static int sess_timer(struct cldc *cldc, void *priv)
 	struct cldc_msg *msg;
 	GList *tmp = sess->out_msg;
 
-	if (!tmp) {
-		sess->timer_on = false;
+	if (cldc_current_time > sess->expire_time) {
+		sess_expire(sess);
 		return 0;
 	}
 
@@ -361,6 +397,7 @@ static int sess_timer(struct cldc *cldc, void *priv)
 		msg = tmp->data;
 		tmp = tmp->next;
 
+		msg->retries++;
 		cldc->pkt_send(cldc->private,
 			       sess->addr, sess->addr_len,
 			       msg->data, msg->data_len);
@@ -378,12 +415,6 @@ static int sess_send(struct cldc *cldc, struct cldc_session *sess,
 		       sess->addr, sess->addr_len,
 		       msg->data, msg->data_len) < 0)
 		return -1;
-
-	if (!sess->timer_on) {
-		if (!cldc->timer_ctl(true, sess_timer, sess, CLDC_MSG_RETRY))
-			return -1;
-		sess->timer_on = true;
-	}
 
 	return 0;
 }
@@ -438,6 +469,8 @@ int cldc_new_sess(struct cldc *cldc, const void *addr, size_t addr_len,
 	*sess_out = sess;
 
 	g_hash_table_insert(cldc->sessions, sess->sid, sess);
+
+	cldc->timer_ctl(cldc->private, true, sess_timer, CLDC_MSG_RETRY);
 
 	return sess_send(cldc, sess, msg);
 }
