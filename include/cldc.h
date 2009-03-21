@@ -32,6 +32,7 @@ struct cldc_session {
 	size_t		addr_len;
 
 	GHashTable	*out_msg;
+	time_t		msg_scan_time;
 
 	uint64_t	next_msgid;
 

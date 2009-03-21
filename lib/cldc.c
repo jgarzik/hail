@@ -36,7 +36,10 @@
 
 enum {
 	CLDC_MSG_EXPIRE			= 5 * 60,
+	CLDC_MSG_SCAN			= 60,
 };
+
+static time_t cldc_current_time;
 
 int cldcli_init(void)
 {
@@ -208,12 +211,48 @@ static int cldc_rx_get(struct cldc *cldc, struct cldc_session *sess,
 	return -55;	/* FIXME */
 }
 
+static void sess_expire_iter(gpointer key_, gpointer val_ , gpointer user_)
+{
+	struct cldc_msg *msg = val_;
+	GList **l = user_;
+
+	if (cldc_current_time < msg->expire_time)
+		return;
+	
+	*l = g_list_prepend(*l, msg);
+}
+
+static void sess_expire_outmsg(struct cldc_session *sess)
+{
+	GList *l = NULL, *tmp;
+
+	g_hash_table_foreach(sess->out_msg, sess_expire_iter, &l);
+
+	tmp = l;
+	while (tmp) {
+		struct cldc_msg *msg;
+
+		msg = tmp->data;
+		tmp = tmp->next;
+
+		g_hash_table_remove(sess->out_msg, msg->msgid);
+	}
+
+	g_list_free(l);
+
+	sess->msg_scan_time = cldc_current_time + CLDC_MSG_SCAN;
+}
+
 int cldc_receive_pkt(struct cldc *cldc,
 		     const void *net_addr, size_t net_addrlen,
 		     const void *buf, size_t buflen)
 {
 	const struct cld_msg_hdr *msg = buf;
 	struct cldc_session *sess = NULL;
+	struct timeval tv;
+
+	gettimeofday(&tv, NULL);
+	cldc_current_time = tv.tv_sec;
 
 	if (buflen < sizeof(*msg))
 		return -2;
@@ -229,6 +268,10 @@ int cldc_receive_pkt(struct cldc *cldc,
 	if (((sess->addr_len != net_addrlen) ||
 	    memcmp(sess->addr, net_addr, net_addrlen)))
 		return -3;
+
+	/* expire old sess outgoing messages */
+	if (cldc_current_time >= sess->msg_scan_time)
+		sess_expire_outmsg(sess);
 
 	switch(msg->op) {
 	case cmo_nop:
