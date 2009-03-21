@@ -4,11 +4,29 @@
 #include <sys/types.h>
 #include <cld_msg.h>
 
+struct cldc_msg;
+
+struct cldc_msg {
+	uint8_t		msgid[CLD_MSGID_SZ];	/* message id */
+
+	ssize_t		(*cb)(struct cldc_msg *);
+	void		*cb_private;
+
+	bool		done;
+
+	time_t		expire_time;
+
+	int		msg_len;
+	uint8_t		msg[0];
+};
+
 struct cldc_session {
 	uint8_t		sid[CLD_SID_SZ];	/* client id */
 
 	uint8_t		addr[64];		/* server address */
 	size_t		addr_len;
+
+	GHashTable	*out_msg;
 };
 
 struct cldc {
