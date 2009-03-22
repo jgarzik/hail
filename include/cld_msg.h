@@ -27,7 +27,6 @@
 enum {
 	CLD_MAGIC_SZ		= 8,
 	CLD_SID_SZ		= 8,
-	CLD_MSGID_SZ		= 8,
 
 	CLD_MAX_DATA_MSGS	= 1024,		/* max data msgs in a stream */
 };
@@ -98,7 +97,7 @@ enum cld_lock_flags {
 
 struct cld_msg_hdr {
 	uint8_t		magic[CLD_MAGIC_SZ];	/* magic number; constant */
-	uint8_t		msgid[CLD_MSGID_SZ];	/* message id */
+	uint64_t	msgid;
 	uint8_t		sid[CLD_SID_SZ];	/* client id */
 	uint8_t		op;			/* operation code */
 	uint8_t		res1[7];
@@ -152,7 +151,7 @@ struct cld_msg_get_resp {
 struct cld_msg_data {
 	struct cld_msg_hdr	hdr;
 
-	uint8_t			strid[CLD_MSGID_SZ]; /* stream id */
+	uint64_t		strid;
 	uint32_t		seg;		/* segment number */
 	uint32_t		seg_len;	/* segment length */
 };
@@ -160,7 +159,7 @@ struct cld_msg_data {
 struct cld_msg_data_resp {
 	struct cld_msg_hdr	hdr;
 
-	uint8_t			strid[CLD_MSGID_SZ]; /* stream id */
+	uint64_t		strid;
 	uint32_t		seg;		/* segment number */
 	uint32_t		seg_len;	/* segment length */
 };

@@ -39,11 +39,11 @@ struct pathname_info {
 
 static uint64_t next_msgid = 0xcab0beef;
 
-static void get_next_msgid(uint8_t *msgid_out)
+static void get_next_msgid(uint64_t *msgid_out)
 {
 	uint64_t tmp = GUINT64_TO_LE(next_msgid++);
 
-	memcpy(msgid_out, &tmp, CLD_MSGID_SZ);
+	*msgid_out = tmp;
 }
 
 static bool valid_inode_name(const char *name, size_t name_len)
@@ -222,7 +222,7 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 		if (!deleted && !(GUINT32_FROM_LE(h->events) & CE_UPDATED))
 			continue;
 
-		get_next_msgid(me.hdr.msgid);
+		get_next_msgid(&me.hdr.msgid);
 		memcpy(&me.hdr.sid, h->sid, sizeof(me.hdr.sid));
 		me.fh = h->fh;
 		me.events = GUINT32_TO_LE(deleted ? CE_DELETED : CE_UPDATED);
@@ -331,7 +331,7 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 		/*
 		 * send lock acquisition notification to new lock holder
 		 */
-		get_next_msgid(me.hdr.msgid);
+		get_next_msgid(&me.hdr.msgid);
 		memcpy(&me.hdr.sid, lock->sid, sizeof(me.hdr.sid));
 		me.fh = lock->fh;
 		me.events = GUINT32_TO_LE(CE_LOCKED);
@@ -443,8 +443,8 @@ bool msg_get(struct msg_params *mp, bool metadata_only)
 
 			seg_len -= sizeof(*dr);
 
-			get_next_msgid(dr->hdr.msgid);
-			memcpy(&dr->strid, &dr->hdr.msgid, CLD_MSGID_SZ);
+			get_next_msgid(&dr->hdr.msgid);
+			dr->strid = dr->hdr.msgid;
 			dr->seg = GUINT32_TO_LE(i);
 			dr->seg_len = GUINT32_TO_LE(seg_len);
 			memcpy(dbuf + sizeof(*dr), p, seg_len);
@@ -457,8 +457,8 @@ bool msg_get(struct msg_params *mp, bool metadata_only)
 		}
 
 		/* send terminating packet (seg_len == 0) */
-		get_next_msgid(dr->hdr.msgid);
-		memcpy(&dr->strid, &dr->hdr.msgid, CLD_MSGID_SZ);
+		get_next_msgid(&dr->hdr.msgid);
+		dr->strid = dr->hdr.msgid;
 		dr->seg = GUINT32_TO_LE(i);
 		dr->seg_len = 0;
 		sess_sendmsg(sess, dr, sizeof(*dr), true);
@@ -735,7 +735,7 @@ err_out:
 }
 
 static bool try_commit_data(struct msg_params *mp,
-			uint8_t *strid, GList *pmsg_ent)
+			uint64_t strid, GList *pmsg_ent)
 {
 	struct cld_msg_put *pmsg = pmsg_ent->data;
 	struct cld_msg_data *dmsg;
@@ -770,7 +770,7 @@ static bool try_commit_data(struct msg_params *mp,
 		tmp = tmp->next;
 
 		/* non-matching strid[] implies not-our-stream */
-		if (memcmp(dmsg->strid, strid, CLD_MSGID_SZ))
+		if (dmsg->strid != strid)
 			continue;
 
 		tmp_seg = GUINT32_FROM_LE(dmsg->seg);
@@ -817,7 +817,7 @@ static bool try_commit_data(struct msg_params *mp,
 		tmp = tmp->next;
 
 		/* non-matching strid[] implies not-our-stream */
-		if (memcmp(dmsg->strid, strid, CLD_MSGID_SZ))
+		if (dmsg->strid != strid)
 			continue;
 
 		/* remove data packet from data msg queue */
@@ -936,7 +936,7 @@ bool msg_data(struct msg_params *mp)
 		struct cld_msg_put *pmsg;
 
 		pmsg = tmp->data;
-		if (!memcmp(pmsg->hdr.msgid, msg->strid, CLD_MSGID_SZ))
+		if (pmsg->hdr.msgid == msg->strid)
 			break;
 
 		tmp = tmp->next;

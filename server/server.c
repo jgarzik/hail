@@ -118,7 +118,7 @@ static guint msgid_hash(gconstpointer _v)
 	const struct msgid_hist_ent *v = _v;
 	uint64_t a, b, c;
 
-	memcpy(&a, &v->msgid, CLD_MSGID_SZ);
+	a = GUINT64_FROM_LE(v->msgid);
 	memcpy(&b, &v->sid, CLD_SID_SZ);
 
 	c = a ^ b;
@@ -131,19 +131,19 @@ static gboolean msgid_equal(gconstpointer _a, gconstpointer _b)
 	const struct msgid_hist_ent *a = _a;
 	const struct msgid_hist_ent *b = _b;
 
-	if (memcmp(&a->msgid, &b->msgid, CLD_MSGID_SZ) ||
+	if ((a->msgid != b->msgid) ||
 	    memcmp(&a->sid, &b->sid, CLD_SID_SZ))
 		return FALSE;
 
 	return TRUE;
 }
 
-static bool seen_msgid(const uint8_t *sid, const uint8_t *msgid)
+static bool seen_msgid(const uint8_t *sid, uint64_t msgid)
 {
 	struct msgid_hist_ent ent, *e;
 
 	memcpy(&ent.sid, sid, sizeof(ent.sid));
-	memcpy(&ent.msgid, msgid, sizeof(ent.msgid));
+	ent.msgid = msgid;
 	ent.expire_time = current_time + CLD_MSGID_EXPIRE;
 
 	if (g_hash_table_lookup(cld_srv.msgids, &ent))

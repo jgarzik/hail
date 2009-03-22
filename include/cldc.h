@@ -9,7 +9,7 @@ struct cldc_msg;
 struct cldc_session;
 
 struct cldc_msg {
-	uint8_t		msgid[CLD_MSGID_SZ];	/* message id */
+	uint64_t	msgid;
 
 	struct cldc_session *sess;
 

@@ -317,8 +317,8 @@ static void session_ping(struct session *sess)
 	msgid = GUINT64_TO_LE(msgid);
 
 	memset(&resp, 0, sizeof(resp));
-	memcpy(&resp.magic, CLD_MAGIC, strlen(CLD_MAGIC));
-	memcpy(&resp.msgid, &msgid, sizeof(msgid));
+	memcpy(&resp.magic, CLD_MAGIC, CLD_MAGIC_SZ);
+	resp.msgid = msgid;
 	memcpy(&resp.sid, &sess->sid, CLD_SID_SZ);
 	resp.op = cmo_ping;
 
@@ -517,7 +517,7 @@ bool msg_ack(struct msg_params *mp)
 		outmsg = om->msg;
 
 		/* if matching msgid found, we ack'd a message in out_q */
-		if (memcmp(msg->msgid, outmsg->msgid, sizeof(msg->msgid)))
+		if (msg->msgid != outmsg->msgid)
 			continue;
 
 		if (outmsg->op == cmo_ping)

@@ -41,7 +41,7 @@ enum {
 };
 
 struct msgid_hist_ent {
-	uint8_t		msgid[CLD_MSGID_SZ];		/* message id */
+	uint64_t	msgid;
 	uint8_t		sid[CLD_SID_SZ];		/* client id */
 	time_t		expire_time;
 };
