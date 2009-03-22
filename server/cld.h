@@ -40,12 +40,6 @@ enum {
 	SFL_FOREGROUND		= (1 << 0),	/* run in foreground */
 };
 
-struct msgid_hist_ent {
-	uint64_t	msgid;
-	uint8_t		sid[CLD_SID_SZ];		/* client id */
-	time_t		expire_time;
-};
-
 struct client {
 	struct sockaddr_in6	addr;		/* inet address */
 	socklen_t		addr_len;	/* inet address len */
@@ -70,6 +64,9 @@ struct session {
 	uint64_t		last_contact;
 	uint64_t		next_fh;
 	struct event		timer;
+
+	uint64_t		next_seqid_in;
+	uint64_t		next_seqid_out;
 
 	GList			*put_q;		/* queued PUT pkts */
 	GList			*data_q;	/* queued data pkts */
@@ -116,9 +113,6 @@ struct server {
 
 	GQueue			*timers;
 
-	GHashTable		*msgids;
-	GQueue			*msgid_q;
-
 	struct event		chkpt_timer;	/* db4 checkpoint timer */
 
 	struct server_stats	stats;		/* global statistics */
@@ -137,13 +131,12 @@ extern bool msg_ack(struct msg_params *);
 extern bool msg_get(struct msg_params *, bool);
 
 /* session.c */
+extern uint64_t next_seqid_le(uint64_t *seq);
 extern guint sess_hash(gconstpointer v);
 extern gboolean sess_equal(gconstpointer _a, gconstpointer _b);
 extern bool msg_new_sess(struct msg_params *, const struct client *);
 extern struct raw_session *session_new_raw(const struct session *sess);
 extern bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
-		  bool copy_msg);
-extern bool sid_sendmsg(const uint8_t *sid, void *msg_, size_t msglen,
 		  bool copy_msg);
 extern int session_dispose(DB_TXN *txn, struct session *sess);
 extern int session_remove_locks(DB_TXN *txn, uint8_t *sid, uint64_t fh,
@@ -155,7 +148,7 @@ extern int debugging;
 extern time_t current_time;
 extern int udp_tx(struct server_socket *, struct sockaddr *, socklen_t,
 	    const void *, size_t);
-extern void resp_copy(struct cld_msg_hdr *dest, const struct cld_msg_hdr *src);
+extern void resp_copy(struct cld_msg_resp *resp, const struct cld_msg_hdr *src);
 extern void resp_err(struct server_socket *, struct session *,
 		     struct cld_msg_hdr *, enum cle_err_codes);
 extern void resp_ok(struct server_socket *, struct session *,

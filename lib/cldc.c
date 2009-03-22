@@ -42,6 +42,23 @@ enum {
 
 static time_t cldc_current_time;
 
+static struct cldc_msg *cldc_new_msg(struct cldc *cldc,
+				     struct cldc_session *sess,
+				     size_t msg_len);
+static int sess_send(struct cldc *cldc, struct cldc_session *sess,
+		     struct cldc_msg *msg);
+
+static uint64_t next_seqid_le(uint64_t *seq)
+{
+	uint64_t tmp, rc;
+
+	tmp = *seq;
+	rc = GUINT64_TO_LE(tmp);
+	*seq = tmp + 1;
+
+	return rc;
+}
+
 int cldcli_init(void)
 {
 	srand(time(NULL) ^ getpid());
@@ -150,15 +167,15 @@ static const struct cld_msg_hdr def_msg_ack = {
 static int cldc_rx_generic(struct cldc *cldc, struct cldc_session *sess,
 			   const struct cld_msg_hdr *msg)
 {
-	struct cld_msg_hdr resp;
-	struct cldc_msg *outmsg = NULL;
+	struct cld_msg_hdr *resp;
+	struct cldc_msg *outmsg = NULL, *ack_msg;
 	ssize_t rc;
 	GList *tmp;
 
 	tmp = sess->out_msg;
 	while (tmp) {
 		outmsg = tmp->data;
-		if (outmsg->msgid == msg->msgid)
+		if (outmsg->seqid == msg->seqid)
 			break;
 		tmp = tmp->next;
 	}
@@ -175,12 +192,17 @@ static int cldc_rx_generic(struct cldc *cldc, struct cldc_session *sess,
 		}
 	}
 
-	memcpy(&resp, &def_msg_ack, sizeof(resp));
-	resp.msgid = msg->msgid;
-	memcpy(&resp.sid, sess->sid, CLD_SID_SZ);
+	ack_msg = cldc_new_msg(cldc, sess, sizeof(struct cld_msg_hdr));
+	if (!ack_msg)
+		return -7;
 
-	return cldc->pkt_send(cldc->private, sess->addr, sess->addr_len,
-			      &resp, sizeof(resp));
+	memcpy(ack_msg->data, &def_msg_ack, sizeof(def_msg_ack));
+	ack_msg->data_len = sizeof(def_msg_ack);
+	resp = (struct cld_msg_hdr *) ack_msg->data;
+	resp->seqid = next_seqid_le(&sess->next_seqid_out);
+	memcpy(&resp->sid, sess->sid, CLD_SID_SZ);
+
+	return sess_send(cldc, sess, ack_msg);
 }
 
 static int cldc_rx_end_sess(struct cldc *cldc, struct cldc_session *sess,
@@ -247,6 +269,7 @@ int cldc_receive_pkt(struct cldc *cldc,
 	const struct cld_msg_hdr *msg = buf;
 	struct cldc_session *sess = NULL;
 	struct timeval tv;
+	uint64_t seqid;
 
 	gettimeofday(&tv, NULL);
 	cldc_current_time = tv.tv_sec;
@@ -269,6 +292,16 @@ int cldc_receive_pkt(struct cldc *cldc,
 	/* expire old sess outgoing messages */
 	if (cldc_current_time >= sess->msg_scan_time)
 		sess_expire_outmsg(sess);
+
+	/* verify (or set, for new-sess) sequence id */
+	seqid = GUINT64_FROM_LE(msg->seqid);
+	if (msg->op == cmo_new_sess)
+		sess->next_seqid_in = seqid;
+	else if (msg->op != cmo_not_master) {
+		if (seqid != sess->next_seqid_in)
+			return -6;
+		sess->next_seqid_in++;
+	}
 
 	switch(msg->op) {
 	case cmo_nop:
@@ -302,10 +335,10 @@ int cldc_receive_pkt(struct cldc *cldc,
 	return -1;
 }
 
-static void sess_next_msgid(struct cldc_session *sess, uint64_t *msgid)
+static void sess_next_seqid(struct cldc_session *sess, uint64_t *seqid)
 {
-	uint64_t msgid64 = GUINT64_TO_LE(sess->next_msgid++);
-	*msgid = msgid64;
+	uint64_t rc = GUINT64_TO_LE(sess->next_seqid_out++);
+	*seqid = rc;
 }
 
 static struct cldc_msg *cldc_new_msg(struct cldc *cldc,
@@ -325,13 +358,13 @@ static struct cldc_msg *cldc_new_msg(struct cldc *cldc,
 	msg->sess = sess;
 	msg->expire_time = tv.tv_sec + CLDC_MSG_EXPIRE;
 	
-	sess_next_msgid(sess, &msg->msgid);
+	sess_next_seqid(sess, &msg->seqid);
 
 	msg->data_len = msg_len;
 
 	hdr = (struct cld_msg_hdr *) &msg->data[0];
 	memcpy(&hdr->magic, CLD_MAGIC, CLD_MAGIC_SZ);
-	hdr->msgid = msg->msgid;
+	hdr->seqid = msg->seqid;
 	memcpy(&hdr->sid, sess->sid, CLD_SID_SZ);
 
 	return msg;
@@ -435,14 +468,14 @@ int cldc_new_sess(struct cldc *cldc, const void *addr, size_t addr_len,
 	if (!sess)
 		return -ENOMEM;
 
-	/* create random SID, next_msgid */
+	/* create random SID, next_seqid_out */
 	p = &sess->sid;
 	v = rand();
 	memcpy(p, &v, sizeof(v));
 	v = rand();
 	memcpy(p + 4, &v, sizeof(v));
 
-	sess->next_msgid =
+	sess->next_seqid_out =
 		((uint64_t) rand()) |
 		(((uint64_t) rand()) << 32);
 

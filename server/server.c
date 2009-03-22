@@ -91,9 +91,12 @@ int udp_tx(struct server_socket *sock, struct sockaddr *addr,
 	return 0;
 }
 
-void resp_copy(struct cld_msg_hdr *dest, const struct cld_msg_hdr *src)
+void resp_copy(struct cld_msg_resp *resp, const struct cld_msg_hdr *src)
 {
-	memcpy(dest, src, sizeof(*dest));
+	memcpy(&resp->hdr, src, sizeof(*src));
+	resp->code = 0;
+	resp->rsv = 0;
+	resp->seqid_in = src->seqid;
 }
 
 void resp_err(struct server_socket *sock, struct session *sess,
@@ -101,7 +104,8 @@ void resp_err(struct server_socket *sock, struct session *sess,
 {
 	struct cld_msg_resp resp;
 
-	resp_copy(&resp.hdr, msg);
+	resp_copy(&resp, msg);
+	resp.hdr.seqid = next_seqid_le(&sess->next_seqid_out);
 	resp.code = GUINT32_TO_LE(errcode);
 
 	sess_sendmsg(sess, &resp, sizeof(resp), true);
@@ -111,64 +115,6 @@ void resp_ok(struct server_socket *sock, struct session *sess,
 		    struct cld_msg_hdr *msg)
 {
 	resp_err(sock, sess, msg, CLE_OK);
-}
-
-static guint msgid_hash(gconstpointer _v)
-{
-	const struct msgid_hist_ent *v = _v;
-	uint64_t a, b, c;
-
-	a = GUINT64_FROM_LE(v->msgid);
-	memcpy(&b, &v->sid, CLD_SID_SZ);
-
-	c = a ^ b;
-
-	return (guint) c;
-}
-
-static gboolean msgid_equal(gconstpointer _a, gconstpointer _b)
-{
-	const struct msgid_hist_ent *a = _a;
-	const struct msgid_hist_ent *b = _b;
-
-	if ((a->msgid != b->msgid) ||
-	    memcmp(&a->sid, &b->sid, CLD_SID_SZ))
-		return FALSE;
-
-	return TRUE;
-}
-
-static bool seen_msgid(const uint8_t *sid, uint64_t msgid)
-{
-	struct msgid_hist_ent ent, *e;
-
-	memcpy(&ent.sid, sid, sizeof(ent.sid));
-	ent.msgid = msgid;
-	ent.expire_time = current_time + CLD_MSGID_EXPIRE;
-
-	if (g_hash_table_lookup(cld_srv.msgids, &ent))
-		return true;
-
-	e = malloc(sizeof(*e));
-	if (!e)
-		return false;
-
-	memcpy(e, &ent, sizeof(ent));
-
-	g_hash_table_insert(cld_srv.msgids, e, e);
-	g_queue_push_head(cld_srv.msgid_q, e);
-
-	while (cld_srv.msgid_q->length > 0) {
-		e = g_queue_peek_tail(cld_srv.msgid_q);
-		if (e->expire_time > current_time)
-			break;
-
-		e = g_queue_pop_tail(cld_srv.msgid_q);
-		g_hash_table_remove(cld_srv.msgids, e);
-		free(e);
-	}
-
-	return false;
 }
 
 static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
@@ -198,10 +144,6 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 		goto err_out;
 	}
 
-	/* eliminate duplicates; do not return any response */
-	if (seen_msgid(msg->sid, msg->msgid))
-		return false;
-
 	mp.sock = sock;
 	mp.cli = cli;
 	mp.txn = txn;
@@ -216,9 +158,18 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 		}
 
 		sess->last_contact = time(NULL);
-	} else if (sess) {
-		resp_rc = CLE_SESS_EXISTS;
-		goto err_out;
+
+		/* eliminate duplicates; do not return any response */
+		if (GUINT64_FROM_LE(msg->seqid) != sess->next_seqid_in)
+			return false;
+
+		/* received message - update session */
+		sess->next_seqid_in++;
+	} else {
+		if (sess) {
+			resp_rc = CLE_SESS_EXISTS;
+			goto err_out;
+		}
 	}
 
 	switch(msg->op) {
@@ -230,10 +181,14 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 		return msg_new_sess(&mp, cli);
 
 	case cmo_end_sess: {
-		int rc = session_dispose(txn, sess);
+		int rc;
 
 		/* transmit response (once, without retries) */
-		resp_copy(&resp.hdr, msg);
+		resp_copy(&resp, msg);
+		resp.hdr.seqid = next_seqid_le(&sess->next_seqid_out);
+
+		rc = session_dispose(txn, sess);
+
 		resp.code = GUINT32_TO_LE(rc == 0 ? CLE_OK : CLE_DB_ERR);
 		udp_tx(sock, (struct sockaddr *) &cli->addr, cli->addr_len,
 		       &resp, sizeof(resp));
@@ -271,7 +226,8 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 
 err_out:
 	/* transmit error response (once, without retries) */
-	resp_copy(&resp.hdr, msg);
+	resp_copy(&resp, msg);
+	resp.hdr.seqid = GUINT64_TO_LE(0xdeadbeef);
 	resp.code = GUINT32_TO_LE(resp_rc);
 	udp_tx(sock, (struct sockaddr *) &cli->addr, cli->addr_len,
 	       &resp, sizeof(resp));
@@ -341,11 +297,13 @@ static void udp_srv_event(int fd, short events, void *userdata)
 		if (rc)
 			dbenv->err(dbenv, rc, dberrmsg);
 	} else {
-		struct cld_msg_hdr resp, *msg = (struct cld_msg_hdr *) raw_msg;
+		struct cld_msg_hdr *msg = (struct cld_msg_hdr *) raw_msg;
+		struct cld_msg_resp resp;
 
 		/* transmit not-master error msg */
 		resp_copy(&resp, msg);
-		resp.op = cmo_not_master;
+		resp.hdr.seqid = GUINT64_TO_LE(0xdeadbeef);
+		resp.hdr.op = cmo_not_master;
 		udp_tx(sock, (struct sockaddr *) &cli.addr, cli.addr_len,
 		       &resp, sizeof(resp));
 	}
@@ -598,10 +556,7 @@ int main (int argc, char *argv[])
 
 	cld_srv.sessions = g_hash_table_new(sess_hash, sess_equal);
 	cld_srv.timers = g_queue_new();
-	cld_srv.msgids = g_hash_table_new(msgid_hash, msgid_equal);
-	cld_srv.msgid_q = g_queue_new();
-	if (!cld_srv.sessions || !cld_srv.timers ||
-	    !cld_srv.msgids || !cld_srv.msgid_q)
+	if (!cld_srv.sessions || !cld_srv.timers)
 		goto err_out_pid;
 
 	/* set up server networking */

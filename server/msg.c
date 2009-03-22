@@ -37,15 +37,6 @@ struct pathname_info {
 	size_t		base_len;
 };
 
-static uint64_t next_msgid = 0xcab0beef;
-
-static void get_next_msgid(uint64_t *msgid_out)
-{
-	uint64_t tmp = GUINT64_TO_LE(next_msgid++);
-
-	*msgid_out = tmp;
-}
-
 static bool valid_inode_name(const char *name, size_t name_len)
 {
 	if (!name || !*name || !name_len)
@@ -187,6 +178,7 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 	struct cld_msg_event me;
 	cldino_t inum_le = cldino_to_le(inum);
 	int gflags;
+	struct session *sess;
 
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
@@ -222,12 +214,18 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 		if (!deleted && !(GUINT32_FROM_LE(h->events) & CE_UPDATED))
 			continue;
 
-		get_next_msgid(&me.hdr.msgid);
+		sess = g_hash_table_lookup(cld_srv.sessions, h->sid);
+		if (!sess) {
+			syslog(LOG_WARNING, "inode_notify BUG");
+			continue;
+		}
+
+		me.hdr.seqid = next_seqid_le(&sess->next_seqid_out);
 		memcpy(&me.hdr.sid, h->sid, sizeof(me.hdr.sid));
 		me.fh = h->fh;
 		me.events = GUINT32_TO_LE(deleted ? CE_DELETED : CE_UPDATED);
 
-		if (!sid_sendmsg(h->sid, &me, sizeof(me), true))
+		if (!sess_sendmsg(sess, &me, sizeof(me), true))
 			break;
 	}
 
@@ -267,6 +265,7 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 	struct raw_lock *lock;
 	uint32_t lflags;
 	struct cld_msg_event me;
+	struct session *sess;
 
 	rc = db_locks->cursor(db_locks, txn, &cur, 0);
 	if (rc) {
@@ -328,15 +327,22 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 
 		acq++;
 
+		sess = g_hash_table_lookup(cld_srv.sessions, lock->sid);
+		if (!sess) {
+			syslog(LOG_WARNING, "inode_lock_rescan BUG");
+			break;
+		}
+
 		/*
 		 * send lock acquisition notification to new lock holder
 		 */
-		get_next_msgid(&me.hdr.msgid);
+
+		me.hdr.seqid = next_seqid_le(&sess->next_seqid_out);
 		memcpy(&me.hdr.sid, lock->sid, sizeof(me.hdr.sid));
 		me.fh = lock->fh;
 		me.events = GUINT32_TO_LE(CE_LOCKED);
 
-		if (!sid_sendmsg(lock->sid, &me, sizeof(me), true))
+		if (!sess_sendmsg(sess, &me, sizeof(me), true))
 			break;
 	}
 
@@ -402,7 +408,8 @@ bool msg_get(struct msg_params *mp, bool metadata_only)
 	}
 
 	/* return response containing inode metadata */
-	resp_copy(&resp->hdr, &msg->hdr);
+	resp_copy(&resp->resp, &msg->hdr);
+	resp->resp.hdr.seqid = next_seqid_le(&sess->next_seqid_out);
 	resp->inum = GUINT64_TO_LE(inum);
 	memcpy(&resp->ino_len, &inode->ino_len,
 	       (sizeof(struct raw_inode) - sizeof(inode->inum)) + name_len);
@@ -432,8 +439,8 @@ bool msg_get(struct msg_params *mp, bool metadata_only)
 		}
 
 		/* copy the GET msg's hdr, then change op to DATA */
-		resp_copy(&dr->hdr, &msg->hdr);
-		dr->hdr.op = cmo_data;
+		resp_copy(&dr->resp, &msg->hdr);
+		dr->resp.hdr.op = cmo_data;
 		i = 0;
 		p = data_mem;
 
@@ -443,8 +450,8 @@ bool msg_get(struct msg_params *mp, bool metadata_only)
 
 			seg_len -= sizeof(*dr);
 
-			get_next_msgid(&dr->hdr.msgid);
-			dr->strid = dr->hdr.msgid;
+			dr->resp.hdr.seqid = next_seqid_le(&sess->next_seqid_out);
+			dr->strid = resp->resp.hdr.seqid;
 			dr->seg = GUINT32_TO_LE(i);
 			dr->seg_len = GUINT32_TO_LE(seg_len);
 			memcpy(dbuf + sizeof(*dr), p, seg_len);
@@ -457,8 +464,8 @@ bool msg_get(struct msg_params *mp, bool metadata_only)
 		}
 
 		/* send terminating packet (seg_len == 0) */
-		get_next_msgid(&dr->hdr.msgid);
-		dr->strid = dr->hdr.msgid;
+		dr->resp.hdr.seqid = next_seqid_le(&sess->next_seqid_out);
+		dr->strid = resp->resp.hdr.seqid;
 		dr->seg = GUINT32_TO_LE(i);
 		dr->seg_len = 0;
 		sess_sendmsg(sess, dr, sizeof(*dr), true);
@@ -480,7 +487,7 @@ err_out:
 bool msg_open(struct msg_params *mp)
 {
 	struct cld_msg_open *msg = mp->msg;
-	struct cld_msg_resp_open resp;
+	struct cld_msg_open_resp resp;
 	char *name;
 	struct raw_session *raw_sess = NULL;
 	struct raw_inode *inode = NULL, *parent = NULL;
@@ -651,8 +658,9 @@ bool msg_open(struct msg_params *mp)
 	free(inode);
 	free(raw_sess);
 
-	resp_copy(&resp.hdr, &msg->hdr);
-	resp.code = GUINT32_TO_LE(CLE_OK);
+	resp_copy(&resp.resp, &msg->hdr);
+	resp.resp.hdr.seqid = next_seqid_le(&mp->sess->next_seqid_out);
+	resp.resp.code = GUINT32_TO_LE(CLE_OK);
 	resp.fh = GUINT64_TO_LE(fh);
 	sess_sendmsg(mp->sess, &resp, sizeof(resp), true);
 
@@ -928,7 +936,7 @@ bool msg_data(struct msg_params *mp)
 	if (mp->msg_len < (sizeof(*msg) + seg_len))
 		return false;
 
-	/* search for PUT message with msgid == our strid; that is how we
+	/* search for PUT message with seqid == our strid; that is how we
 	 * associate DATA messages with the initial PUT msg
 	 */
 	tmp = sess->put_q;
@@ -936,7 +944,7 @@ bool msg_data(struct msg_params *mp)
 		struct cld_msg_put *pmsg;
 
 		pmsg = tmp->data;
-		if (pmsg->hdr.msgid == msg->strid)
+		if (pmsg->hdr.seqid == msg->strid)
 			break;
 
 		tmp = tmp->next;

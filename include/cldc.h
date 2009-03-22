@@ -9,7 +9,7 @@ struct cldc_msg;
 struct cldc_session;
 
 struct cldc_msg {
-	uint64_t	msgid;
+	uint64_t	seqid;
 
 	struct cldc_session *sess;
 
@@ -40,7 +40,8 @@ struct cldc_session {
 	time_t		expire_time;
 	bool		expired;
 
-	uint64_t	next_msgid;
+	uint64_t	next_seqid_in;
+	uint64_t	next_seqid_out;
 
 	bool		confirmed;
 };

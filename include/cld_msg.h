@@ -45,7 +45,7 @@ enum cld_msg_ops {
 	cmo_lock		= 9,		/* lock */
 	cmo_unlock		= 10,		/* unlock */
 	cmo_trylock		= 11,		/* trylock */
-	cmo_ack			= 12,		/* client ack of msgid rx'd */
+	cmo_ack			= 12,		/* ack of seqid rx'd */
 	cmo_end_sess		= 13,		/* end session */
 
 	/* server -> client */
@@ -97,7 +97,7 @@ enum cld_lock_flags {
 
 struct cld_msg_hdr {
 	uint8_t		magic[CLD_MAGIC_SZ];	/* magic number; constant */
-	uint64_t	msgid;
+	uint64_t	seqid;
 	uint8_t		sid[CLD_SID_SZ];	/* client id */
 	uint8_t		op;			/* operation code */
 	uint8_t		res1[7];
@@ -107,6 +107,8 @@ struct cld_msg_resp {
 	struct cld_msg_hdr	hdr;
 
 	uint32_t		code;		/* error code, CLE_xxx */
+	uint32_t		rsv;		/* reserved */
+	uint64_t		seqid_in;	/* C->S seqid */
 };
 
 struct cld_msg_open {
@@ -118,10 +120,9 @@ struct cld_msg_open {
 	/* inode name */
 };
 
-struct cld_msg_resp_open {
-	struct cld_msg_hdr	hdr;
+struct cld_msg_open_resp {
+	struct cld_msg_resp	resp;
 
-	uint32_t		code;		/* error code, CLE_xxx */
 	uint64_t		fh;		/* handle opened */
 };
 
@@ -132,7 +133,7 @@ struct cld_msg_get {
 };
 
 struct cld_msg_get_resp {
-	struct cld_msg_hdr	hdr;
+	struct cld_msg_resp	resp;
 
 	/* should mirror struct raw_inode, except that inum's type
 	 * should always be uint64_t, regardless of server's
@@ -157,7 +158,7 @@ struct cld_msg_data {
 };
 
 struct cld_msg_data_resp {
-	struct cld_msg_hdr	hdr;
+	struct cld_msg_resp	resp;
 
 	uint64_t		strid;
 	uint32_t		seg;		/* segment number */

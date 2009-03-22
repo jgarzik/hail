@@ -30,6 +30,17 @@
 static void session_retry(int fd, short events, void *userdata);
 static void session_timeout(int fd, short events, void *userdata);
 
+uint64_t next_seqid_le(uint64_t *seq)
+{
+	uint64_t tmp, rc;
+
+	tmp = *seq;
+	rc = GUINT64_TO_LE(tmp);
+	*seq = tmp + 1;
+
+	return rc;
+}
+
 guint sess_hash(gconstpointer v)
 {
 	const struct session *sess = v;
@@ -308,17 +319,10 @@ int session_dispose(DB_TXN *txn, struct session *sess)
 static void session_ping(struct session *sess)
 {
 	struct cld_msg_hdr resp;
-	uint64_t msgid;
-	struct timeval tv;
-
-	gettimeofday(&tv, NULL);
-
-	msgid = tv.tv_sec ^ tv.tv_usec;
-	msgid = GUINT64_TO_LE(msgid);
 
 	memset(&resp, 0, sizeof(resp));
 	memcpy(&resp.magic, CLD_MAGIC, CLD_MAGIC_SZ);
-	resp.msgid = msgid;
+	resp.seqid = next_seqid_le(&sess->next_seqid_out);
 	memcpy(&resp.sid, &sess->sid, CLD_SID_SZ);
 	resp.op = cmo_ping;
 
@@ -486,17 +490,6 @@ bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
 	return true;
 }
 
-bool sid_sendmsg(const uint8_t *sid, void *msg_, size_t msglen, bool copy_msg)
-{
-	struct session *sess;
-
-	sess = g_hash_table_lookup(cld_srv.sessions, sid);
-	if (!sess)
-		return false;
-
-	return sess_sendmsg(sess, msg_, msglen, copy_msg);
-}
-
 bool msg_ack(struct msg_params *mp)
 {
 	struct cld_msg_hdr *outmsg, *msg = mp->msg;
@@ -516,8 +509,8 @@ bool msg_ack(struct msg_params *mp)
 		om = tmp1->data;
 		outmsg = om->msg;
 
-		/* if matching msgid found, we ack'd a message in out_q */
-		if (msg->msgid != outmsg->msgid)
+		/* if matching seqid found, we ack'd a message in out_q */
+		if (msg->seqid != outmsg->seqid)
 			continue;
 
 		if (outmsg->op == cmo_ping)
@@ -600,7 +593,8 @@ bool msg_new_sess(struct msg_params *mp, const struct client *cli)
 err_out:
 	session_free(sess);
 
-	resp_copy(&resp.hdr, msg);
+	resp_copy(&resp, msg);
+	resp.hdr.seqid = GUINT64_TO_LE(0xdeadbeef);
 	resp.code = GUINT32_TO_LE(resp_rc);
 
 	udp_tx(mp->sock, (struct sockaddr *) &mp->cli->addr,
