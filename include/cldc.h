@@ -118,6 +118,8 @@ extern int cldc_close(struct cldc_fh *fh, const struct cldc_call_opts *copts);
 extern int cldc_unlock(struct cldc_fh *fh, const struct cldc_call_opts *copts);
 extern int cldc_lock(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 	      uint32_t lock_flags, bool wait_for_lock);
+extern int cldc_put(struct cldc_fh *fh, const struct cldc_call_opts *copts,
+	     const void *data, size_t data_len);
 
 static inline bool seqid_after_eq(uint64_t a_, uint64_t b_)
 {

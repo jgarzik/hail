@@ -35,11 +35,14 @@
 #include <cldc.h>
 
 enum {
-	CLDC_MSG_EXPIRE			= 5 * 60,
-	CLDC_MSG_SCAN			= 60,
-	CLDC_MSG_RETRY			= 5,
-	CLDC_MSG_REMEMBER		= 25,
-	CLDC_SESS_EXPIRE		= 2 * 60,
+	CLDC_MSG_EXPIRE		= 5 * 60,
+	CLDC_MSG_SCAN		= 60,
+	CLDC_MSG_RETRY		= 5,
+	CLDC_MSG_REMEMBER	= 25,
+	CLDC_SESS_EXPIRE	= 2 * 60,
+	CLDC_MAX_DATA_SZ	= 256 * 1024,
+	CLDC_MAX_DATA_PKT_SZ	= 1024,
+	CLDC_MAX_DATA_PKTS	= (CLDC_MAX_DATA_SZ / CLDC_MAX_DATA_PKT_SZ) + 2,
 };
 
 static time_t cldc_current_time;
@@ -813,5 +816,81 @@ int cldc_unlock(struct cldc_fh *fh, const struct cldc_call_opts *copts)
 	unlock->fh = fh->fh_le;
 
 	return sess_send(sess, msg);
+}
+
+int cldc_put(struct cldc_fh *fh, const struct cldc_call_opts *copts,
+	     const void *data, size_t data_len)
+{
+	struct cldc_session *sess;
+	struct cldc_msg *msg;
+	struct cld_msg_put *put;
+	struct cldc_msg *datamsg[CLDC_MAX_DATA_PKTS];
+	int n_pkts, i, copy_len;
+	const void *p;
+	size_t data_len_left = data_len;
+
+	if (!data || !data_len || data_len > CLDC_MAX_DATA_SZ)
+		return -EINVAL;
+
+	n_pkts = (data_len / CLDC_MAX_DATA_PKT_SZ);
+	if (data_len % CLDC_MAX_DATA_PKT_SZ)
+		n_pkts++;
+	n_pkts++;			/* add one for terminator segment */
+
+	if (!fh->valid)
+		return -EINVAL;
+
+	sess = fh->sess;
+
+	/* create UNLOCK message */
+	msg = cldc_new_msg(sess, copts, cmo_put, sizeof(struct cld_msg_put));
+	if (!msg)
+		return -ENOMEM;
+
+	put = (struct cld_msg_put *) msg->data;
+
+	memset(datamsg, 0, sizeof(datamsg));
+
+	p = data;
+	for (i = 0; i < n_pkts; i++) {
+		struct cld_msg_data *dm;
+		void *q;
+
+		/* create DATA message for this segment */
+		datamsg[i] = cldc_new_msg(sess, copts, cmo_data,
+					  CLDC_MAX_DATA_PKT_SZ);
+		if (!datamsg[i])
+			goto err_out;
+
+		if (i == (n_pkts - 1))
+			datamsg[i]->cb = generic_end_cb;
+
+		dm = (struct cld_msg_data *) datamsg[i]->data;
+		q = dm;
+		q += sizeof(struct cld_msg_data);
+
+		copy_len = MIN(CLDC_MAX_DATA_PKT_SZ, data_len_left);
+		memcpy(q, p, copy_len);
+
+		p += copy_len;
+		data_len_left -= copy_len;
+
+		dm->strid = put->hdr.seqid;
+		dm->seg = GUINT32_TO_LE(i);
+		dm->seg_len = GUINT32_TO_LE(copy_len);
+	}
+
+	sess_send(sess, msg);
+	for (i = 0; i < n_pkts; i++)
+		sess_send(sess, datamsg[i]);
+
+	return 0;
+
+err_out:
+	for (i = 0; i < n_pkts; i++)
+		if (datamsg[i])
+			free(datamsg[i]);
+	free(msg);
+	return -ENOMEM;
 }
 
