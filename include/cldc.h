@@ -10,7 +10,7 @@ struct cldc_session;
 struct cldc_call_opts;
 
 struct cldc_call_opts {
-	int		(*cb)(struct cldc_call_opts *, bool);
+	int		(*cb)(struct cldc_call_opts *, enum cle_err_codes);
 	void		*private;
 };
 

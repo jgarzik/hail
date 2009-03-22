@@ -471,11 +471,19 @@ static void sess_free(struct cldc_session *sess)
 	free(sess);
 }
 
-static ssize_t end_sess_cb(struct cldc_msg *msg, const void *resp,
+static ssize_t end_sess_cb(struct cldc_msg *msg, const void *resp_p,
 			   size_t resp_len, bool ok)
 {
+	const struct cld_msg_resp *resp = resp_p;
+	enum cle_err_codes resp_rc = CLE_OK;
+
+	if (!ok)
+		resp_rc = CLE_TIMEOUT;
+	else
+		resp_rc = GUINT32_FROM_LE(resp->code);
+
 	if (msg->copts.cb)
-		return msg->copts.cb(&msg->copts, ok);
+		return msg->copts.cb(&msg->copts, resp_rc);
 
 	sess_free(msg->sess);
 	return 0;
@@ -496,20 +504,23 @@ int cldc_end_sess(struct cldc_session *sess, const struct cldc_call_opts *copts)
 	return sess_send(sess, msg);
 }
 
-static ssize_t new_sess_cb(struct cldc_msg *msg, const void *resp,
+static ssize_t new_sess_cb(struct cldc_msg *msg, const void *resp_p,
 			   size_t resp_len, bool ok)
 {
 	struct cldc_session *sess = msg->sess;
+	const struct cld_msg_resp *resp = resp_p;
+	enum cle_err_codes resp_rc = CLE_OK;
 
-	if (!ok) {
-		/* FIXME: timeout */
-		return -1;
-	}
+	if (!ok)
+		resp_rc = CLE_TIMEOUT;
+	else
+		resp_rc = GUINT32_FROM_LE(resp->code);
 
-	sess->confirmed = true;
+	if (resp_rc == CLE_OK)
+		sess->confirmed = true;
 
 	if (msg->copts.cb)
-		return msg->copts.cb(&msg->copts, ok);
+		return msg->copts.cb(&msg->copts, resp_rc);
 
 	return 0;
 }
@@ -566,11 +577,19 @@ int cldc_new_sess(struct cldc *cldc, const struct cldc_call_opts *copts,
 	return sess_send(sess, msg);
 }
 
-static ssize_t generic_end_cb(struct cldc_msg *msg, const void *resp,
+static ssize_t generic_end_cb(struct cldc_msg *msg, const void *resp_p,
 			      size_t resp_len, bool ok)
 {
+	const struct cld_msg_resp *resp = resp_p;
+	enum cle_err_codes resp_rc = CLE_OK;
+
+	if (!ok)
+		resp_rc = CLE_TIMEOUT;
+	else
+		resp_rc = GUINT32_FROM_LE(resp->code);
+
 	if (msg->copts.cb)
-		return msg->copts.cb(&msg->copts, ok);
+		return msg->copts.cb(&msg->copts, resp_rc);
 
 	return 0;
 }

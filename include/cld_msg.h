@@ -72,6 +72,7 @@ enum cle_err_codes {
 	CLE_INODE_EXISTS	= 14,		/* inode exists */
 	CLE_DIR_NOTEMPTY	= 15,		/* dir not empty */
 	CLE_INTERNAL_ERR	= 16,		/* nonspecific internal err */
+	CLE_TIMEOUT		= 17,		/* session timed out */
 };
 
 enum cld_open_modes {
