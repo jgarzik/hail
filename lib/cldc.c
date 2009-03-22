@@ -169,33 +169,38 @@ static int ack_seqid(struct cldc_session *sess, uint64_t seqid_le)
 }
 
 static int cldc_rx_generic(struct cldc_session *sess,
-			   const struct cld_msg_hdr *msg)
+			   const void *buf,
+			   size_t buflen)
 {
-	struct cldc_msg *outmsg = NULL;
+	const struct cld_msg_resp *resp = buf;
+	struct cldc_msg *req = NULL;
 	ssize_t rc;
 	GList *tmp;
 
+	if (buflen < sizeof(*resp))
+		return -8;
+
 	tmp = sess->out_msg;
 	while (tmp) {
-		outmsg = tmp->data;
-		if (outmsg->seqid == msg->seqid)
+		req = tmp->data;
+		if (req->seqid == resp->hdr.seqid)
 			break;
 		tmp = tmp->next;
 	}
 	if (!tmp)
 		return -5;
 
-	if (!outmsg->done) {
-		outmsg->done = true;
+	if (!req->done) {
+		req->done = true;
 
-		if (outmsg->cb) {
-			rc = outmsg->cb(outmsg, true);
+		if (req->cb) {
+			rc = req->cb(req, buf, buflen, true);
 			if (rc < 0)
 				return rc;
 		}
 	}
 
-	return ack_seqid(sess, msg->seqid);
+	return ack_seqid(sess, resp->hdr.seqid);
 }
 
 static int cldc_rx_open(struct cldc_session *sess,
@@ -317,7 +322,7 @@ int cldc_receive_pkt(struct cldc *cldc,
 	case cmo_put:
 	case cmo_new_sess:
 	case cmo_end_sess:
-		return cldc_rx_generic(sess, msg);
+		return cldc_rx_generic(sess, buf, buflen);
 	case cmo_not_master:
 		return cldc_rx_not_master(sess, buf, buflen);
 	case cmo_event:
@@ -388,7 +393,7 @@ static void sess_msg_drop(struct cldc_session *sess)
 		tmp = tmp->next;
 		
 		if (!msg->done && msg->cb)
-			msg->cb(msg, false);
+			msg->cb(msg, NULL, 0, false);
 
 		free(msg);
 	}
@@ -466,7 +471,8 @@ static void sess_free(struct cldc_session *sess)
 	free(sess);
 }
 
-static ssize_t end_sess_cb(struct cldc_msg *msg, bool ok)
+static ssize_t end_sess_cb(struct cldc_msg *msg, const void *resp,
+			   size_t resp_len, bool ok)
 {
 	if (msg->copts.cb)
 		return msg->copts.cb(&msg->copts, ok);
@@ -490,7 +496,8 @@ int cldc_end_sess(struct cldc_session *sess, const struct cldc_call_opts *copts)
 	return sess_send(sess, msg);
 }
 
-static ssize_t new_sess_cb(struct cldc_msg *msg, bool ok)
+static ssize_t new_sess_cb(struct cldc_msg *msg, const void *resp,
+			   size_t resp_len, bool ok)
 {
 	struct cldc_session *sess = msg->sess;
 
@@ -559,7 +566,8 @@ int cldc_new_sess(struct cldc *cldc, const struct cldc_call_opts *copts,
 	return sess_send(sess, msg);
 }
 
-static ssize_t generic_end_cb(struct cldc_msg *msg, bool ok)
+static ssize_t generic_end_cb(struct cldc_msg *msg, const void *resp,
+			      size_t resp_len, bool ok)
 {
 	if (msg->copts.cb)
 		return msg->copts.cb(&msg->copts, ok);
