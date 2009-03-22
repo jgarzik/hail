@@ -49,6 +49,7 @@ struct cldc_session {
 	bool		expired;
 
 	uint64_t	next_seqid_in;
+	uint64_t	next_seqid_in_tr;
 	uint64_t	next_seqid_out;
 
 	bool		confirmed;
@@ -94,5 +95,23 @@ extern struct cld_client *cldcli_new(const char *remote_host, int remote_port,
 extern int cldc_new_sess(struct cldc *cldc, const struct cldc_call_opts *copts,
 			 const void *addr, size_t addr_len,
 			 struct cldc_session **sess_out);
+
+static inline bool seqid_after_eq(uint64_t a_, uint64_t b_)
+{
+	int64_t a = (int64_t) a_;
+	int64_t b = (int64_t) b_;
+
+	return a - b >= 0;
+}
+
+static inline bool seqid_before_eq(uint64_t a_, uint64_t b_)
+{
+	return seqid_after_eq(b_, a_);
+}
+
+static inline bool seqid_in_range(uint64_t a, uint64_t b, uint64_t c)
+{
+	return seqid_after_eq(a, b) && seqid_before_eq(a, c);
+}
 
 #endif /* __CLDC_H__ */

@@ -38,12 +38,13 @@ enum {
 	CLDC_MSG_EXPIRE			= 5 * 60,
 	CLDC_MSG_SCAN			= 60,
 	CLDC_MSG_RETRY			= 5,
+	CLDC_MSG_REMEMBER		= 25,
+	CLDC_SESS_EXPIRE		= 2 * 60,
 };
 
 static time_t cldc_current_time;
 
-static struct cldc_msg *cldc_new_msg(struct cldc *cldc,
-				     struct cldc_session *sess,
+static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 				     size_t msg_len);
 static int sess_send(struct cldc_session *sess, struct cldc_msg *msg);
 
@@ -152,10 +153,22 @@ static const struct cld_msg_hdr def_msg_ack = {
 	.op		= cmo_ack,
 };
 
-static int cldc_rx_generic(struct cldc *cldc, struct cldc_session *sess,
+static int ack_seqid(struct cldc_session *sess, uint64_t seqid_le)
+{
+	struct cldc *cldc = sess->cldc;
+	struct cld_msg_hdr resp;
+
+	memcpy(&resp, &def_msg_ack, sizeof(resp));
+	resp.seqid = seqid_le;
+	memcpy(&resp.sid, sess->sid, CLD_SID_SZ);
+
+	return cldc->pkt_send(cldc->private, sess->addr, sess->addr_len,
+			      &resp, sizeof(resp));
+}
+
+static int cldc_rx_generic(struct cldc_session *sess,
 			   const struct cld_msg_hdr *msg)
 {
-	struct cld_msg_hdr resp;
 	struct cldc_msg *outmsg = NULL;
 	ssize_t rc;
 	GList *tmp;
@@ -180,45 +193,34 @@ static int cldc_rx_generic(struct cldc *cldc, struct cldc_session *sess,
 		}
 	}
 
-	memcpy(&resp, &def_msg_ack, sizeof(resp));
-	resp.seqid = msg->seqid;
-	memcpy(&resp.sid, sess->sid, CLD_SID_SZ);
-
-	return cldc->pkt_send(cldc->private, sess->addr, sess->addr_len,
-			      &resp, sizeof(resp));
+	return ack_seqid(sess, msg->seqid);
 }
 
-static int cldc_rx_end_sess(struct cldc *cldc, struct cldc_session *sess,
+static int cldc_rx_open(struct cldc_session *sess,
 			   const void *buf, size_t buflen)
 {
 	return -55;	/* FIXME */
 }
 
-static int cldc_rx_open(struct cldc *cldc, struct cldc_session *sess,
+static int cldc_rx_data(struct cldc_session *sess,
 			   const void *buf, size_t buflen)
 {
 	return -55;	/* FIXME */
 }
 
-static int cldc_rx_data(struct cldc *cldc, struct cldc_session *sess,
+static int cldc_rx_event(struct cldc_session *sess,
 			   const void *buf, size_t buflen)
 {
 	return -55;	/* FIXME */
 }
 
-static int cldc_rx_event(struct cldc *cldc, struct cldc_session *sess,
+static int cldc_rx_not_master(struct cldc_session *sess,
 			   const void *buf, size_t buflen)
 {
 	return -55;	/* FIXME */
 }
 
-static int cldc_rx_not_master(struct cldc *cldc, struct cldc_session *sess,
-			   const void *buf, size_t buflen)
-{
-	return -55;	/* FIXME */
-}
-
-static int cldc_rx_get(struct cldc *cldc, struct cldc_session *sess,
+static int cldc_rx_get(struct cldc_session *sess,
 			   const void *buf, size_t buflen, bool meta_only)
 {
 	return -55;	/* FIXME */
@@ -278,13 +280,24 @@ int cldc_receive_pkt(struct cldc *cldc,
 
 	/* verify (or set, for new-sess) sequence id */
 	seqid = GUINT64_FROM_LE(msg->seqid);
-	if (msg->op == cmo_new_sess)
+	if (msg->op == cmo_new_sess) {
 		sess->next_seqid_in = seqid;
-	else if (msg->op != cmo_not_master) {
-		if (seqid != sess->next_seqid_in)
+		sess->next_seqid_in_tr =
+			sess->next_seqid_in - CLDC_MSG_REMEMBER;
+	} else if (msg->op != cmo_not_master) {
+		if (seqid != sess->next_seqid_in) {
+			if (seqid_in_range(seqid,
+					   sess->next_seqid_in_tr,
+					   sess->next_seqid_in))
+				return ack_seqid(sess, msg->seqid);
+
 			return -6;
+		}
 		sess->next_seqid_in++;
+		sess->next_seqid_in_tr++;
 	}
+
+	sess->expire_time = cldc_current_time + CLDC_SESS_EXPIRE;
 
 	switch(msg->op) {
 	case cmo_nop:
@@ -296,21 +309,20 @@ int cldc_receive_pkt(struct cldc *cldc,
 	case cmo_ping:
 	case cmo_put:
 	case cmo_new_sess:
-		return cldc_rx_generic(cldc, sess, msg);
 	case cmo_end_sess:
-		return cldc_rx_end_sess(cldc, sess, buf, buflen);
+		return cldc_rx_generic(sess, msg);
 	case cmo_not_master:
-		return cldc_rx_not_master(cldc, sess, buf, buflen);
+		return cldc_rx_not_master(sess, buf, buflen);
 	case cmo_event:
-		return cldc_rx_event(cldc, sess, buf, buflen);
+		return cldc_rx_event(sess, buf, buflen);
 	case cmo_open:
-		return cldc_rx_open(cldc, sess, buf, buflen);
+		return cldc_rx_open(sess, buf, buflen);
 	case cmo_get_meta:
-		return cldc_rx_get(cldc, sess, buf, buflen, false);
+		return cldc_rx_get(sess, buf, buflen, false);
 	case cmo_get:
-		return cldc_rx_get(cldc, sess, buf, buflen, true);
+		return cldc_rx_get(sess, buf, buflen, true);
 	case cmo_data:
-		return cldc_rx_data(cldc, sess, buf, buflen);
+		return cldc_rx_data(sess, buf, buflen);
 	case cmo_ack:
 		return -4;
 	}
@@ -324,8 +336,7 @@ static void sess_next_seqid(struct cldc_session *sess, uint64_t *seqid)
 	*seqid = rc;
 }
 
-static struct cldc_msg *cldc_new_msg(struct cldc *cldc,
-				     struct cldc_session *sess,
+static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 				     size_t msg_len)
 {
 	struct cldc_msg *msg;
@@ -423,23 +434,40 @@ static int sess_send(struct cldc_session *sess,
 	return 0;
 }
 
+static void sess_free(struct cldc_session *sess)
+{
+	GList *tmp;
+
+	if (!sess)
+		return;
+
+	tmp = sess->out_msg;
+	while (tmp) {
+		free(tmp->data);
+		tmp = tmp->next;
+	}
+	g_list_free(sess->out_msg);
+
+	memset(sess, 0, sizeof(*sess));
+	free(sess);
+}
+
 static ssize_t end_sess_cb(struct cldc_msg *msg, bool ok)
 {
 	if (msg->copts.cb)
 		return msg->copts.cb(&msg->copts, ok);
 
-	/* FIXME - free session */
+	sess_free(msg->sess);
 	return 0;
 }
 
 int cldc_end_sess(struct cldc_session *sess, const struct cldc_call_opts *copts)
 {
-	struct cldc *cldc = sess->cldc;
 	struct cldc_msg *msg;
 	struct cld_msg_hdr *hdr;
 
 	/* create END-SESS message */
-	msg = cldc_new_msg(cldc, sess, sizeof(struct cld_msg_hdr));
+	msg = cldc_new_msg(sess, sizeof(struct cld_msg_hdr));
 	if (!msg)
 		return -ENOMEM;
 
@@ -503,7 +531,7 @@ int cldc_new_sess(struct cldc *cldc, const struct cldc_call_opts *copts,
 	sess->addr_len = addr_len;
 
 	/* create NEW-SESS message */
-	msg = cldc_new_msg(cldc, sess, sizeof(struct cld_msg_hdr));
+	msg = cldc_new_msg(sess, sizeof(struct cld_msg_hdr));
 	if (!msg) {
 		free(sess);
 		return -ENOMEM;
