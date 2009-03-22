@@ -45,19 +45,7 @@ static time_t cldc_current_time;
 static struct cldc_msg *cldc_new_msg(struct cldc *cldc,
 				     struct cldc_session *sess,
 				     size_t msg_len);
-static int sess_send(struct cldc *cldc, struct cldc_session *sess,
-		     struct cldc_msg *msg);
-
-static uint64_t next_seqid_le(uint64_t *seq)
-{
-	uint64_t tmp, rc;
-
-	tmp = *seq;
-	rc = GUINT64_TO_LE(tmp);
-	*seq = tmp + 1;
-
-	return rc;
-}
+static int sess_send(struct cldc_session *sess, struct cldc_msg *msg);
 
 int cldcli_init(void)
 {
@@ -365,20 +353,6 @@ static struct cldc_msg *cldc_new_msg(struct cldc *cldc,
 	return msg;
 }
 
-static ssize_t new_sess_cb(struct cldc_msg *msg, bool ok)
-{
-	struct cldc_session *sess = msg->sess;
-
-	if (!ok) {
-		/* FIXME: timeout */
-		return -1;
-	}
-
-	sess->confirmed = true;
-
-	return 0;
-}
-
 static void sess_msg_drop(struct cldc_session *sess)
 {
 	GList *tmp = sess->out_msg;
@@ -434,9 +408,11 @@ static int sess_timer(struct cldc *cldc, void *priv)
 	return CLDC_MSG_RETRY;
 }
 
-static int sess_send(struct cldc *cldc, struct cldc_session *sess,
+static int sess_send(struct cldc_session *sess,
 		     struct cldc_msg *msg)
 {
+	struct cldc *cldc = sess->cldc;
+
 	sess->out_msg = g_list_append(sess->out_msg, msg);
 
 	if (cldc->pkt_send(cldc->private,
@@ -447,7 +423,54 @@ static int sess_send(struct cldc *cldc, struct cldc_session *sess,
 	return 0;
 }
 
-int cldc_new_sess(struct cldc *cldc, const void *addr, size_t addr_len,
+static ssize_t end_sess_cb(struct cldc_msg *msg, bool ok)
+{
+	if (msg->copts.cb)
+		return msg->copts.cb(&msg->copts, ok);
+
+	/* FIXME - free session */
+	return 0;
+}
+
+int cldc_end_sess(struct cldc_session *sess, const struct cldc_call_opts *copts)
+{
+	struct cldc *cldc = sess->cldc;
+	struct cldc_msg *msg;
+	struct cld_msg_hdr *hdr;
+
+	/* create END-SESS message */
+	msg = cldc_new_msg(cldc, sess, sizeof(struct cld_msg_hdr));
+	if (!msg)
+		return -ENOMEM;
+
+	msg->cb = end_sess_cb;
+	memcpy(&msg->copts, copts, sizeof(*copts));
+
+	hdr = (struct cld_msg_hdr *) &msg->data;
+	hdr->op = cmo_end_sess;
+
+	return sess_send(sess, msg);
+}
+
+static ssize_t new_sess_cb(struct cldc_msg *msg, bool ok)
+{
+	struct cldc_session *sess = msg->sess;
+
+	if (!ok) {
+		/* FIXME: timeout */
+		return -1;
+	}
+
+	sess->confirmed = true;
+
+	if (msg->copts.cb)
+		return msg->copts.cb(&msg->copts, ok);
+
+	return 0;
+}
+
+int cldc_new_sess(struct cldc *cldc, const struct cldc_call_opts *copts,
+		  const void *addr, size_t addr_len,
 		  struct cldc_session **sess_out)
 {
 	struct cldc_session *sess;
@@ -487,6 +510,7 @@ int cldc_new_sess(struct cldc *cldc, const void *addr, size_t addr_len,
 	}
 
 	msg->cb = new_sess_cb;
+	memcpy(&msg->copts, copts, sizeof(*copts));
 
 	hdr = (struct cld_msg_hdr *) &msg->data;
 	hdr->op = cmo_new_sess;
@@ -498,5 +522,5 @@ int cldc_new_sess(struct cldc *cldc, const void *addr, size_t addr_len,
 
 	cldc->timer_ctl(cldc->private, true, sess_timer, CLDC_MSG_RETRY);
 
-	return sess_send(cldc, sess, msg);
+	return sess_send(sess, msg);
 }

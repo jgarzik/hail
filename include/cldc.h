@@ -7,6 +7,12 @@
 struct cldc;
 struct cldc_msg;
 struct cldc_session;
+struct cldc_call_opts;
+
+struct cldc_call_opts {
+	int		(*cb)(struct cldc_call_opts *, bool);
+	void		*private;
+};
 
 struct cldc_msg {
 	uint64_t	seqid;
@@ -15,6 +21,8 @@ struct cldc_msg {
 
 	ssize_t		(*cb)(struct cldc_msg *, bool);
 	void		*cb_private;
+
+	struct cldc_call_opts copts;
 
 	bool		done;
 
@@ -83,7 +91,8 @@ extern void cldcli_free(struct cld_client *);
 extern struct cld_client *cldcli_new(const char *remote_host, int remote_port,
 				   int local_port);
 
-extern int cldc_new_sess(struct cldc *cldc, const void *addr, size_t addr_len,
-		  struct cldc_session **sess_out);
+extern int cldc_new_sess(struct cldc *cldc, const struct cldc_call_opts *copts,
+			 const void *addr, size_t addr_len,
+			 struct cldc_session **sess_out);
 
 #endif /* __CLDC_H__ */
