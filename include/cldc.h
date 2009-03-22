@@ -115,6 +115,9 @@ extern int cldc_open(struct cldc_session *sess,
 	      const char *pathname, uint32_t open_mode,
 	      uint32_t events, struct cldc_fh **fh_out);
 extern int cldc_close(struct cldc_fh *fh, const struct cldc_call_opts *copts);
+extern int cldc_unlock(struct cldc_fh *fh, const struct cldc_call_opts *copts);
+extern int cldc_lock(struct cldc_fh *fh, const struct cldc_call_opts *copts,
+	      uint32_t lock_flags, bool wait_for_lock);
 
 static inline bool seqid_after_eq(uint64_t a_, uint64_t b_)
 {

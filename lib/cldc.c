@@ -760,3 +760,58 @@ int cldc_close(struct cldc_fh *fh, const struct cldc_call_opts *copts)
 	return sess_send(sess, msg);
 }
 
+int cldc_lock(struct cldc_fh *fh, const struct cldc_call_opts *copts,
+	      uint32_t lock_flags, bool wait_for_lock)
+{
+	struct cldc_session *sess;
+	struct cldc_msg *msg;
+	struct cld_msg_lock *lock;
+
+	if (!fh->valid)
+		return -EINVAL;
+
+	sess = fh->sess;
+
+	/* create LOCK message */
+	msg = cldc_new_msg(sess, copts,
+			   wait_for_lock ? cmo_lock : cmo_trylock,
+			   sizeof(struct cld_msg_lock));
+	if (!msg)
+		return -ENOMEM;
+
+	msg->cb = generic_end_cb;
+
+	/* fill in LOCK-specific info */
+	lock = (struct cld_msg_lock *) msg->data;
+	lock->fh = fh->fh_le;
+	lock->flags = GUINT32_TO_LE(lock_flags);
+
+	return sess_send(sess, msg);
+}
+
+int cldc_unlock(struct cldc_fh *fh, const struct cldc_call_opts *copts)
+{
+	struct cldc_session *sess;
+	struct cldc_msg *msg;
+	struct cld_msg_unlock *unlock;
+
+	if (!fh->valid)
+		return -EINVAL;
+
+	sess = fh->sess;
+
+	/* create UNLOCK message */
+	msg = cldc_new_msg(sess, copts, cmo_unlock,
+			   sizeof(struct cld_msg_unlock));
+	if (!msg)
+		return -ENOMEM;
+
+	msg->cb = generic_end_cb;
+
+	/* fill in UNLOCK-specific info */
+	unlock = (struct cld_msg_unlock *) msg->data;
+	unlock->fh = fh->fh_le;
+
+	return sess_send(sess, msg);
+}
+
