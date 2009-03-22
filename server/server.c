@@ -159,12 +159,14 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 
 		sess->last_contact = time(NULL);
 
-		/* eliminate duplicates; do not return any response */
-		if (GUINT64_FROM_LE(msg->seqid) != sess->next_seqid_in)
-			return false;
+		if (msg->op != cmo_ack) {
+			/* eliminate duplicates; do not return any response */
+			if (GUINT64_FROM_LE(msg->seqid) != sess->next_seqid_in)
+				return false;
 
-		/* received message - update session */
-		sess->next_seqid_in++;
+			/* received message - update session */
+			sess->next_seqid_in++;
+		}
 	} else {
 		if (sess) {
 			resp_rc = CLE_SESS_EXISTS;

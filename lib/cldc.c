@@ -167,8 +167,8 @@ static const struct cld_msg_hdr def_msg_ack = {
 static int cldc_rx_generic(struct cldc *cldc, struct cldc_session *sess,
 			   const struct cld_msg_hdr *msg)
 {
-	struct cld_msg_hdr *resp;
-	struct cldc_msg *outmsg = NULL, *ack_msg;
+	struct cld_msg_hdr resp;
+	struct cldc_msg *outmsg = NULL;
 	ssize_t rc;
 	GList *tmp;
 
@@ -192,17 +192,12 @@ static int cldc_rx_generic(struct cldc *cldc, struct cldc_session *sess,
 		}
 	}
 
-	ack_msg = cldc_new_msg(cldc, sess, sizeof(struct cld_msg_hdr));
-	if (!ack_msg)
-		return -7;
+	memcpy(&resp, &def_msg_ack, sizeof(resp));
+	resp.seqid = msg->seqid;
+	memcpy(&resp.sid, sess->sid, CLD_SID_SZ);
 
-	memcpy(ack_msg->data, &def_msg_ack, sizeof(def_msg_ack));
-	ack_msg->data_len = sizeof(def_msg_ack);
-	resp = (struct cld_msg_hdr *) ack_msg->data;
-	resp->seqid = next_seqid_le(&sess->next_seqid_out);
-	memcpy(&resp->sid, sess->sid, CLD_SID_SZ);
-
-	return sess_send(cldc, sess, ack_msg);
+	return cldc->pkt_send(cldc->private, sess->addr, sess->addr_len,
+			      &resp, sizeof(resp));
 }
 
 static int cldc_rx_end_sess(struct cldc *cldc, struct cldc_session *sess,
