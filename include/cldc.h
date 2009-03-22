@@ -10,8 +10,23 @@ struct cldc_session;
 struct cldc_call_opts;
 
 struct cldc_call_opts {
+	/* app-owned */
 	int		(*cb)(struct cldc_call_opts *, enum cle_err_codes);
 	void		*private;
+
+	/* private; lib-owned */
+	uint8_t		resp_buf[sizeof(struct cld_msg_get_resp) +
+				 CLD_INODE_NAME_MAX];
+};
+
+struct cldc_stream {
+	uint64_t	strid_le;
+	uint32_t	size;
+	uint32_t	next_seg;
+	void		*bufp;
+	uint32_t	size_left;
+	struct cldc_call_opts copts;
+	char		buf[0];
 };
 
 struct cldc_msg {
@@ -52,6 +67,8 @@ struct cldc_session {
 
 	GList		*out_msg;
 	time_t		msg_scan_time;
+
+	GList		*streams;
 
 	time_t		expire_time;
 	bool		expired;
@@ -120,6 +137,8 @@ extern int cldc_lock(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 	      uint32_t lock_flags, bool wait_for_lock);
 extern int cldc_put(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 	     const void *data, size_t data_len);
+extern int cldc_get(struct cldc_fh *fh, const struct cldc_call_opts *copts,
+	     bool metadata_only);
 
 static inline bool seqid_after_eq(uint64_t a_, uint64_t b_)
 {

@@ -28,6 +28,8 @@ enum {
 	CLD_MAGIC_SZ		= 8,
 	CLD_SID_SZ		= 8,
 
+	CLD_INODE_NAME_MAX	= 256,		/* max total pathname len */
+
 	CLD_MAX_DATA_MSGS	= 1024,		/* max data msgs in a stream */
 };
 

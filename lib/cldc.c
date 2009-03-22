@@ -209,7 +209,57 @@ static int cldc_rx_generic(struct cldc_session *sess,
 static int cldc_rx_data_c(struct cldc_session *sess,
 			   const void *buf, size_t buflen)
 {
-	return -55;	/* FIXME */
+	const struct cld_msg_data *data = buf;
+	struct cldc_stream *str = NULL;
+	uint32_t seg, seg_len;
+	GList *tmp;
+	const void *p;
+
+	if (buflen < sizeof(*data))
+		return -8;
+
+	seg = GUINT32_FROM_LE(data->seg);
+	seg_len = GUINT32_FROM_LE(data->seg_len);
+
+	if (buflen < (sizeof(*data) + seg_len))
+		return -8;
+
+	/* look for stream w/ our strid */
+	tmp = sess->streams;
+	while (tmp) {
+		str = tmp->data;
+		if (str->strid_le == data->strid)
+			break;
+		tmp = tmp->next;
+	}
+
+	/* if not found, return */
+	if (!tmp)
+		return -9;
+
+	/* verify segment number is what we expect */
+	if (seg != str->next_seg)
+		return -10;
+	
+	if (seg_len > str->size_left)
+		return -10;
+
+	p = data;
+	p += sizeof(*data);
+	memcpy(str->bufp, p, seg_len);
+
+	str->bufp += seg_len;
+	str->size_left -= seg_len;
+
+	/* if no bytes left, process completion */
+	if (!str->size_left && str->copts.cb) {
+		str->copts.cb(&str->copts, CLE_OK);
+		sess->streams = g_list_delete_link(sess->streams, tmp);
+		memset(str, 0, sizeof(*str));
+		free(str);
+	}
+	
+	return 0;
 }
 
 static int cldc_rx_event(struct cldc_session *sess,
@@ -450,6 +500,28 @@ static int sess_send(struct cldc_session *sess,
 	return 0;
 }
 
+static int sess_stream_open(struct cldc_session *sess,
+			     uint64_t strid_le,
+			     uint32_t size,
+			     const struct cldc_call_opts *copts)
+{
+	struct cldc_stream *str;
+
+	str = calloc(1, sizeof(*str) + size);
+	if (!str)
+		return -ENOMEM;
+
+	str->strid_le = strid_le;
+	str->size = size;
+	str->size_left = size;
+	str->bufp = &str->buf[0];
+	memcpy(&str->copts, copts, sizeof(*copts));
+
+	sess->streams = g_list_append(sess->streams, str);
+	
+	return 0;
+}
+
 static void sess_free(struct cldc_session *sess)
 {
 	GList *tmp;
@@ -466,6 +538,13 @@ static void sess_free(struct cldc_session *sess)
 		tmp = tmp->next;
 	}
 	g_list_free(sess->out_msg);
+
+	tmp = sess->streams;
+	while (tmp) {
+		free(tmp->data);
+		tmp = tmp->next;
+	}
+	g_list_free(sess->streams);
 
 	memset(sess, 0, sizeof(*sess));
 	free(sess);
@@ -893,5 +972,87 @@ err_out:
 			free(datamsg[i]);
 	free(msg);
 	return -ENOMEM;
+}
+
+#undef XC32
+#undef XC64
+#define XC32(name) \
+	o->name = GUINT32_FROM_LE(resp->name)
+#define XC64(name) \
+	o->name = GUINT64_FROM_LE(resp->name)
+
+static ssize_t get_end_cb(struct cldc_msg *msg, const void *resp_p,
+			  size_t resp_len, bool ok)
+{
+	const struct cld_msg_get_resp *resp = resp_p;
+	enum cle_err_codes resp_rc = CLE_OK;
+	struct cld_msg_get_resp *o = NULL;
+
+	if (!ok)
+		resp_rc = CLE_TIMEOUT;
+	else {
+		const void *p;
+		void *q;
+
+		o = (struct cld_msg_get_resp *) &msg->copts.resp_buf;
+		
+		/* copy-and-swap */
+		XC64(inum);
+		XC32(ino_len);
+		XC32(size);
+		XC64(version);
+		XC64(time_create);
+		XC64(time_modify);
+		XC32(flags);
+
+		/* copy inode name */
+		p = resp;
+		p += sizeof(struct cld_msg_get_resp);
+		q = o;
+		q += sizeof(struct cld_msg_get_resp);
+		memcpy(q, p, o->ino_len);
+		
+		resp_rc = GUINT32_FROM_LE(resp->resp.code);
+	}
+
+	/* if error or get-meta, return immediately with response */
+	if ((resp_rc != CLE_OK) || (resp->resp.hdr.op == cmo_get_meta)) {
+		if (msg->copts.cb)
+			return msg->copts.cb(&msg->copts, resp_rc);
+		return 0;
+	}
+
+	sess_stream_open(msg->sess, resp->resp.hdr.seqid, o->size,
+			 &msg->copts);
+
+	return 0;
+}
+#undef XC
+
+int cldc_get(struct cldc_fh *fh, const struct cldc_call_opts *copts,
+	     bool metadata_only)
+{
+	struct cldc_session *sess;
+	struct cldc_msg *msg;
+	struct cld_msg_get *get;
+
+	if (!fh->valid)
+		return -EINVAL;
+
+	sess = fh->sess;
+
+	/* create GET message */
+	msg = cldc_new_msg(sess, copts, cmo_get,
+			   sizeof(struct cld_msg_get));
+	if (!msg)
+		return -ENOMEM;
+
+	msg->cb = get_end_cb;
+
+	/* fill in GET-specific info */
+	get = (struct cld_msg_get *) msg->data;
+	get->fh = fh->fh_le;
+
+	return sess_send(sess, msg);
 }
 
