@@ -496,6 +496,9 @@ int cldc_end_sess(struct cldc_session *sess, const struct cldc_call_opts *copts)
 {
 	struct cldc_msg *msg;
 
+	if (!sess->confirmed)
+		return -EINVAL;
+
 	/* create END-SESS message */
 	msg = cldc_new_msg(sess, copts, cmo_end_sess,
 			   sizeof(struct cld_msg_hdr));
@@ -603,6 +606,9 @@ int cldc_nop(struct cldc_session *sess, const struct cldc_call_opts *copts)
 {
 	struct cldc_msg *msg;
 
+	if (!sess->confirmed)
+		return -EINVAL;
+
 	/* create NOP message */
 	msg = cldc_new_msg(sess, copts, cmo_nop, sizeof(struct cld_msg_hdr));
 	if (!msg)
@@ -620,6 +626,9 @@ int cldc_del(struct cldc_session *sess, const struct cldc_call_opts *copts,
 	struct cld_msg_del *del;
 	void *p;
 	size_t plen;
+
+	if (!sess->confirmed)
+		return -EINVAL;
 
 	/* first char must be slash */
 	if (*pathname != '/')
@@ -646,3 +655,115 @@ int cldc_del(struct cldc_session *sess, const struct cldc_call_opts *copts,
 
 	return sess_send(sess, msg);
 }
+
+static ssize_t open_end_cb(struct cldc_msg *msg, const void *resp_p,
+			   size_t resp_len, bool ok)
+{
+	const struct cld_msg_open_resp *resp = resp_p;
+	struct cldc_fh *fh = msg->cb_private;
+	enum cle_err_codes resp_rc = CLE_OK;
+
+	if (resp_len < sizeof(*resp))
+		return -EINVAL;
+
+	if (!ok)
+		resp_rc = CLE_TIMEOUT;
+	else
+		resp_rc = GUINT32_FROM_LE(resp->resp.code);
+
+	if (resp_rc == CLE_OK) {
+		fh->fh_le = resp->fh;
+		fh->valid = true;
+	}
+
+	if (msg->copts.cb)
+		return msg->copts.cb(&msg->copts, resp_rc);
+
+	return 0;
+}
+
+int cldc_open(struct cldc_session *sess,
+	      const struct cldc_call_opts *copts,
+	      const char *pathname, uint32_t open_mode,
+	      uint32_t events, struct cldc_fh **fh_out)
+{
+	struct cldc_msg *msg;
+	struct cld_msg_open *open;
+	struct cldc_fh fh, *fhtmp;
+	void *p;
+	size_t plen;
+	int fh_idx;
+
+	*fh_out = NULL;
+
+	if (!sess->confirmed)
+		return -EINVAL;
+
+	/* first char must be slash */
+	if (*pathname != '/')
+		return -EINVAL;
+
+	plen = strlen(pathname);
+	if (plen > 65530)
+		return -EINVAL;
+
+	/* create OPEN message */
+	msg = cldc_new_msg(sess, copts, cmo_open,
+			   sizeof(struct cld_msg_open) + strlen(pathname));
+	if (!msg)
+		return -ENOMEM;
+
+	/* add fh to fh table; get pointer to new fh */
+	memset(&fh, 0, sizeof(fh));
+	fh.sess = sess;
+	fh_idx = sess->fh->len;
+	g_array_append_val(sess->fh, fh);
+
+	fhtmp = &g_array_index(sess->fh, struct cldc_fh, fh_idx);
+
+	msg->cb = open_end_cb;
+	msg->cb_private = fhtmp;
+
+	/* fill in OPEN-specific info */
+	open = (struct cld_msg_open *) msg->data;
+	open->mode = GUINT32_TO_LE(open_mode);
+	open->events = GUINT32_TO_LE(events);
+	open->name_len = GUINT16_TO_LE(plen);
+	p = open;
+	p += sizeof(struct cld_msg_open);
+	memcpy(p, pathname, plen);
+
+	*fh_out = fhtmp;
+
+	return sess_send(sess, msg);
+}
+
+int cldc_close(struct cldc_fh *fh, const struct cldc_call_opts *copts)
+{
+	struct cldc_session *sess;
+	struct cldc_msg *msg;
+	struct cld_msg_close *close;
+
+	if (!fh->valid)
+		return -EINVAL;
+
+	sess = fh->sess;
+
+	/* create CLOSE message */
+	msg = cldc_new_msg(sess, copts, cmo_close,
+			   sizeof(struct cld_msg_close));
+	if (!msg)
+		return -ENOMEM;
+
+	/* mark FH as invalid from this point forward */
+	fh->valid = false;
+
+	msg->cb = generic_end_cb;
+
+	/* fill in CLOSE-specific fh info */
+	close = (struct cld_msg_close *) msg->data;
+	close->fh = fh->fh_le;
+
+	return sess_send(sess, msg);
+}
+

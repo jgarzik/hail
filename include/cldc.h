@@ -37,6 +37,7 @@ struct cldc_msg {
 struct cldc_fh {
 	uint64_t	fh_le;			/* fh id, LE */
 	struct cldc_session *sess;
+	bool		valid;
 };
 
 struct cldc_session {
@@ -109,6 +110,11 @@ extern int cldc_nop(struct cldc_session *sess,
 extern int cldc_del(struct cldc_session *sess,
 		    const struct cldc_call_opts *copts,
 		    const char *pathname);
+extern int cldc_open(struct cldc_session *sess,
+	      const struct cldc_call_opts *copts,
+	      const char *pathname, uint32_t open_mode,
+	      uint32_t events, struct cldc_fh **fh_out);
+extern int cldc_close(struct cldc_fh *fh, const struct cldc_call_opts *copts);
 
 static inline bool seqid_after_eq(uint64_t a_, uint64_t b_)
 {
