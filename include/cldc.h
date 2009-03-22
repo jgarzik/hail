@@ -99,6 +99,9 @@ extern int cldc_end_sess(struct cldc_session *sess,
 				const struct cldc_call_opts *copts);
 extern int cldc_nop(struct cldc_session *sess,
 		    const struct cldc_call_opts *copts);
+extern int cldc_del(struct cldc_session *sess,
+		    const struct cldc_call_opts *copts,
+		    const char *pathname);
 
 static inline bool seqid_after_eq(uint64_t a_, uint64_t b_)
 {

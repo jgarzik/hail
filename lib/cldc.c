@@ -608,3 +608,36 @@ int cldc_nop(struct cldc_session *sess, const struct cldc_call_opts *copts)
 	return sess_send(sess, msg);
 }
 
+int cldc_del(struct cldc_session *sess, const struct cldc_call_opts *copts,
+	     const char *pathname)
+{
+	struct cldc_msg *msg;
+	struct cld_msg_del *del;
+	void *p;
+	size_t plen;
+
+	/* first char must be slash */
+	if (*pathname != '/')
+		return -EINVAL;
+
+	plen = strlen(pathname);
+	if (plen > 65530)
+		return -EINVAL;
+
+	/* create DEL message */
+	msg = cldc_new_msg(sess, copts, cmo_del,
+			   sizeof(struct cld_msg_del) + strlen(pathname));
+	if (!msg)
+		return -ENOMEM;
+
+	msg->cb = generic_end_cb;
+
+	/* fill in DEL-specific name_len, name info */
+	del = (struct cld_msg_del *) msg->data;
+	del->name_len = GUINT16_TO_LE(plen);
+	p = del;
+	p += sizeof(struct cld_msg_del);
+	memcpy(p, pathname, plen);
+
+	return sess_send(sess, msg);
+}
