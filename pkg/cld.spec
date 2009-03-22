@@ -6,7 +6,7 @@ Summary:        Coarse locking daemon
 Group:          System Environment/Base
 License:        GPLv2
 URL:            http://www.kernel.org/pub/software/network/distsrv/
-Source0:        cld-0.1git.libtest.tar.gz
+Source0:        cld-0.1git.tar.gz
 Source2:        cld.init
 Source3:        cld.sysconf
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
