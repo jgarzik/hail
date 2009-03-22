@@ -203,12 +203,6 @@ static int cldc_rx_generic(struct cldc_session *sess,
 	return ack_seqid(sess, resp->hdr.seqid);
 }
 
-static int cldc_rx_open(struct cldc_session *sess,
-			   const void *buf, size_t buflen)
-{
-	return -55;	/* FIXME */
-}
-
 static int cldc_rx_data(struct cldc_session *sess,
 			   const void *buf, size_t buflen)
 {
@@ -322,13 +316,12 @@ int cldc_receive_pkt(struct cldc *cldc,
 	case cmo_put:
 	case cmo_new_sess:
 	case cmo_end_sess:
+	case cmo_open:
 		return cldc_rx_generic(sess, buf, buflen);
 	case cmo_not_master:
 		return cldc_rx_not_master(sess, buf, buflen);
 	case cmo_event:
 		return cldc_rx_event(sess, buf, buflen);
-	case cmo_open:
-		return cldc_rx_open(sess, buf, buflen);
 	case cmo_get_meta:
 		return cldc_rx_get(sess, buf, buflen, false);
 	case cmo_get:
