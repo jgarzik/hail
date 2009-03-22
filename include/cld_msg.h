@@ -38,7 +38,7 @@ enum cld_msg_ops {
 	cmo_open		= 2,		/* open file */
 	cmo_get_meta		= 3,		/* get metadata */
 	cmo_get			= 4,		/* get metadata + data */
-	cmo_data		= 5,		/* data message */
+	cmo_data_s		= 5,		/* data message to server */
 	cmo_put			= 6,		/* put data */
 	cmo_close		= 7,		/* close file */
 	cmo_del			= 8,		/* delete file */
@@ -52,6 +52,7 @@ enum cld_msg_ops {
 	cmo_ping		= 30,		/* server to client ping */
 	cmo_not_master		= 31,		/* I am not the master! */
 	cmo_event		= 32,		/* server->cli async event */
+	cmo_data_c		= 33,		/* data message to client */
 };
 
 enum cle_err_codes {
@@ -152,14 +153,6 @@ struct cld_msg_get_resp {
 
 struct cld_msg_data {
 	struct cld_msg_hdr	hdr;
-
-	uint64_t		strid;
-	uint32_t		seg;		/* segment number */
-	uint32_t		seg_len;	/* segment length */
-};
-
-struct cld_msg_data_resp {
-	struct cld_msg_resp	resp;
 
 	uint64_t		strid;
 	uint32_t		seg;		/* segment number */

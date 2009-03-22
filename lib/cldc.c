@@ -206,7 +206,7 @@ static int cldc_rx_generic(struct cldc_session *sess,
 	return ack_seqid(sess, resp->hdr.seqid);
 }
 
-static int cldc_rx_data(struct cldc_session *sess,
+static int cldc_rx_data_c(struct cldc_session *sess,
 			   const void *buf, size_t buflen)
 {
 	return -55;	/* FIXME */
@@ -320,6 +320,7 @@ int cldc_receive_pkt(struct cldc *cldc,
 	case cmo_new_sess:
 	case cmo_end_sess:
 	case cmo_open:
+	case cmo_data_s:
 		return cldc_rx_generic(sess, buf, buflen);
 	case cmo_not_master:
 		return cldc_rx_not_master(sess, buf, buflen);
@@ -329,8 +330,8 @@ int cldc_receive_pkt(struct cldc *cldc,
 		return cldc_rx_get(sess, buf, buflen, false);
 	case cmo_get:
 		return cldc_rx_get(sess, buf, buflen, true);
-	case cmo_data:
-		return cldc_rx_data(sess, buf, buflen);
+	case cmo_data_c:
+		return cldc_rx_data_c(sess, buf, buflen);
 	case cmo_ping:
 		return cldc_rx_ping(sess, buf, buflen);
 	case cmo_ack:
@@ -857,7 +858,7 @@ int cldc_put(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 		void *q;
 
 		/* create DATA message for this segment */
-		datamsg[i] = cldc_new_msg(sess, copts, cmo_data,
+		datamsg[i] = cldc_new_msg(sess, copts, cmo_data_s,
 					  CLDC_MAX_DATA_PKT_SZ);
 		if (!datamsg[i])
 			goto err_out;

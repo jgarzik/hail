@@ -421,8 +421,8 @@ bool msg_get(struct msg_params *mp, bool metadata_only)
 		int i, seg_len;
 		void *p;
 		char dbuf[CLD_MAX_UDP_SEG];
-		struct cld_msg_data_resp *dr =
-			(struct cld_msg_data_resp *) &dbuf;
+		struct cld_msg_data *dr =
+			(struct cld_msg_data *) &dbuf;
 
 		rc = cldb_data_get(txn, inum, &data_mem, &data_mem_len,
 				   true, false);
@@ -439,8 +439,11 @@ bool msg_get(struct msg_params *mp, bool metadata_only)
 		}
 
 		/* copy the GET msg's hdr, then change op to DATA */
-		resp_copy(&dr->resp, &msg->hdr);
-		dr->resp.hdr.op = cmo_data;
+		memset(dr, 0, sizeof(*dr));
+		memcpy(&dr->hdr.magic, CLD_MAGIC, CLD_MAGIC_SZ);
+		memcpy(dr->hdr.sid, sess->sid, CLD_SID_SZ);
+		dr->hdr.op = cmo_data_c;
+
 		i = 0;
 		p = data_mem;
 
@@ -450,7 +453,7 @@ bool msg_get(struct msg_params *mp, bool metadata_only)
 
 			seg_len -= sizeof(*dr);
 
-			dr->resp.hdr.seqid = next_seqid_le(&sess->next_seqid_out);
+			dr->hdr.seqid = next_seqid_le(&sess->next_seqid_out);
 			dr->strid = resp->resp.hdr.seqid;
 			dr->seg = GUINT32_TO_LE(i);
 			dr->seg_len = GUINT32_TO_LE(seg_len);
@@ -464,7 +467,7 @@ bool msg_get(struct msg_params *mp, bool metadata_only)
 		}
 
 		/* send terminating packet (seg_len == 0) */
-		dr->resp.hdr.seqid = next_seqid_le(&sess->next_seqid_out);
+		dr->hdr.seqid = next_seqid_le(&sess->next_seqid_out);
 		dr->strid = resp->resp.hdr.seqid;
 		dr->seg = GUINT32_TO_LE(i);
 		dr->seg_len = 0;

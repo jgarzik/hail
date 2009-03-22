@@ -206,7 +206,7 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 		return msg_get(&mp, true);
 	case cmo_put:
 		return msg_put(&mp);
-	case cmo_data:
+	case cmo_data_s:
 		return msg_data(&mp);
 	case cmo_close:
 		return msg_close(&mp);
