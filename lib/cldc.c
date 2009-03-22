@@ -460,6 +460,9 @@ static void sess_free(struct cldc_session *sess)
 	if (!sess)
 		return;
 
+	if (sess->fh)
+		g_array_free(sess->fh, TRUE);
+
 	tmp = sess->out_msg;
 	while (tmp) {
 		free(tmp->data);
@@ -541,6 +544,8 @@ int cldc_new_sess(struct cldc *cldc, const struct cldc_call_opts *copts,
 	if (!sess)
 		return -ENOMEM;
 
+	sess->fh = g_array_sized_new(FALSE, TRUE, sizeof(struct cldc_fh), 16);
+
 	/* create random SID, next_seqid_out */
 	p = &sess->sid;
 	v = rand();
@@ -561,7 +566,7 @@ int cldc_new_sess(struct cldc *cldc, const struct cldc_call_opts *copts,
 	msg = cldc_new_msg(sess, copts, cmo_new_sess,
 			   sizeof(struct cld_msg_hdr));
 	if (!msg) {
-		free(sess);
+		sess_free(sess);
 		return -ENOMEM;
 	}
 

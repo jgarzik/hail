@@ -34,6 +34,11 @@ struct cldc_msg {
 	int		retries;
 };
 
+struct cldc_fh {
+	uint64_t	fh_le;			/* fh id, LE */
+	struct cldc_session *sess;
+};
+
 struct cldc_session {
 	uint8_t		sid[CLD_SID_SZ];	/* client id */
 
@@ -41,6 +46,8 @@ struct cldc_session {
 
 	uint8_t		addr[64];		/* server address */
 	size_t		addr_len;
+
+	GArray		*fh;			/* file handle table */
 
 	GList		*out_msg;
 	time_t		msg_scan_time;
