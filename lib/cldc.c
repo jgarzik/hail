@@ -45,6 +45,8 @@ enum {
 static time_t cldc_current_time;
 
 static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
+				     const struct cldc_call_opts *copts,
+				     enum cld_msg_ops op,
 				     size_t msg_len);
 static int sess_send(struct cldc_session *sess, struct cldc_msg *msg);
 
@@ -226,6 +228,12 @@ static int cldc_rx_get(struct cldc_session *sess,
 	return -55;	/* FIXME */
 }
 
+static int cldc_rx_ping(struct cldc_session *sess,
+			const void *buf, size_t buflen)
+{
+	return -55;	/* FIXME */
+}
+
 static void sess_expire_outmsg(struct cldc_session *sess)
 {
 	GList *tmp, *tmp1;
@@ -306,7 +314,6 @@ int cldc_receive_pkt(struct cldc *cldc,
 	case cmo_lock:
 	case cmo_unlock:
 	case cmo_trylock:
-	case cmo_ping:
 	case cmo_put:
 	case cmo_new_sess:
 	case cmo_end_sess:
@@ -323,6 +330,8 @@ int cldc_receive_pkt(struct cldc *cldc,
 		return cldc_rx_get(sess, buf, buflen, true);
 	case cmo_data:
 		return cldc_rx_data(sess, buf, buflen);
+	case cmo_ping:
+		return cldc_rx_ping(sess, buf, buflen);
 	case cmo_ack:
 		return -4;
 	}
@@ -337,6 +346,8 @@ static void sess_next_seqid(struct cldc_session *sess, uint64_t *seqid)
 }
 
 static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
+				     const struct cldc_call_opts *copts,
+				     enum cld_msg_ops op,
 				     size_t msg_len)
 {
 	struct cldc_msg *msg;
@@ -355,11 +366,14 @@ static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 	sess_next_seqid(sess, &msg->seqid);
 
 	msg->data_len = msg_len;
+	if (copts)
+		memcpy(&msg->copts, copts, sizeof(msg->copts));
 
 	hdr = (struct cld_msg_hdr *) &msg->data[0];
 	memcpy(&hdr->magic, CLD_MAGIC, CLD_MAGIC_SZ);
 	hdr->seqid = msg->seqid;
 	memcpy(&hdr->sid, sess->sid, CLD_SID_SZ);
+	hdr->op = op;
 
 	return msg;
 }
@@ -464,18 +478,14 @@ static ssize_t end_sess_cb(struct cldc_msg *msg, bool ok)
 int cldc_end_sess(struct cldc_session *sess, const struct cldc_call_opts *copts)
 {
 	struct cldc_msg *msg;
-	struct cld_msg_hdr *hdr;
 
 	/* create END-SESS message */
-	msg = cldc_new_msg(sess, sizeof(struct cld_msg_hdr));
+	msg = cldc_new_msg(sess, copts, cmo_end_sess,
+			   sizeof(struct cld_msg_hdr));
 	if (!msg)
 		return -ENOMEM;
 
 	msg->cb = end_sess_cb;
-	memcpy(&msg->copts, copts, sizeof(*copts));
-
-	hdr = (struct cld_msg_hdr *) &msg->data;
-	hdr->op = cmo_end_sess;
 
 	return sess_send(sess, msg);
 }
@@ -505,7 +515,6 @@ int cldc_new_sess(struct cldc *cldc, const struct cldc_call_opts *copts,
 	uint32_t v;
 	void *p;
 	struct cldc_msg *msg;
-	struct cld_msg_hdr *hdr;
 
 	if (addr_len > sizeof(sess->addr))
 		return -EINVAL;
@@ -531,17 +540,14 @@ int cldc_new_sess(struct cldc *cldc, const struct cldc_call_opts *copts,
 	sess->addr_len = addr_len;
 
 	/* create NEW-SESS message */
-	msg = cldc_new_msg(sess, sizeof(struct cld_msg_hdr));
+	msg = cldc_new_msg(sess, copts, cmo_new_sess,
+			   sizeof(struct cld_msg_hdr));
 	if (!msg) {
 		free(sess);
 		return -ENOMEM;
 	}
 
 	msg->cb = new_sess_cb;
-	memcpy(&msg->copts, copts, sizeof(*copts));
-
-	hdr = (struct cld_msg_hdr *) &msg->data;
-	hdr->op = cmo_new_sess;
 
 	/* save session */
 	*sess_out = sess;
@@ -552,3 +558,26 @@ int cldc_new_sess(struct cldc *cldc, const struct cldc_call_opts *copts,
 
 	return sess_send(sess, msg);
 }
+
+static ssize_t generic_end_cb(struct cldc_msg *msg, bool ok)
+{
+	if (msg->copts.cb)
+		return msg->copts.cb(&msg->copts, ok);
+
+	return 0;
+}
+
+int cldc_nop(struct cldc_session *sess, const struct cldc_call_opts *copts)
+{
+	struct cldc_msg *msg;
+
+	/* create NOP message */
+	msg = cldc_new_msg(sess, copts, cmo_nop, sizeof(struct cld_msg_hdr));
+	if (!msg)
+		return -ENOMEM;
+
+	msg->cb = generic_end_cb;
+
+	return sess_send(sess, msg);
+}
+

@@ -95,6 +95,10 @@ extern struct cld_client *cldcli_new(const char *remote_host, int remote_port,
 extern int cldc_new_sess(struct cldc *cldc, const struct cldc_call_opts *copts,
 			 const void *addr, size_t addr_len,
 			 struct cldc_session **sess_out);
+extern int cldc_end_sess(struct cldc_session *sess,
+				const struct cldc_call_opts *copts);
+extern int cldc_nop(struct cldc_session *sess,
+		    const struct cldc_call_opts *copts);
 
 static inline bool seqid_after_eq(uint64_t a_, uint64_t b_)
 {
