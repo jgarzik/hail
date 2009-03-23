@@ -153,6 +153,7 @@ extern void resp_err(struct server_socket *, struct session *,
 		     struct cld_msg_hdr *, enum cle_err_codes);
 extern void resp_ok(struct server_socket *, struct session *,
 		    struct cld_msg_hdr *);
+extern bool authsign(void *buf, size_t buflen);
 
 /* util.c */
 extern int write_pid_file(const char *pid_fn);

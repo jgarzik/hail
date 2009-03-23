@@ -5,5 +5,6 @@ sbin_PROGRAMS	= cld
 
 cld_SOURCES	= cldb.h cld.h \
 		  cldb.c msg.c server.c session.c util.c
-cld_LDADD	= @GLIB_LIBS@ @DB4_LIBS@ @EVENT_LIBS@ @ARGP_LIBS@
+cld_LDADD	= @CRYPTO_LIBS@ @GLIB_LIBS@ @DB4_LIBS@ @EVENT_LIBS@ \
+		  @ARGP_LIBS@
 

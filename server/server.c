@@ -17,6 +17,7 @@
  *
  */
 
+#define _GNU_SOURCE
 #include "cld-config.h"
 
 #include <sys/types.h>
@@ -30,6 +31,8 @@
 #include <locale.h>
 #include <argp.h>
 #include <netdb.h>
+#include <openssl/sha.h>
+#include <openssl/hmac.h>
 #include "cld.h"
 
 #define PROGRAM_NAME "cld"
@@ -117,6 +120,66 @@ void resp_ok(struct server_socket *sock, struct session *sess,
 	resp_err(sock, sess, msg, CLE_OK);
 }
 
+static const char *user_key(const char *user)
+{
+	/* TODO: better auth scheme.
+	 * for now, use simple username==password auth scheme
+	 */
+	if (!user || !*user ||
+	    (strnlen(user, 32) >= 32))
+		return NULL;
+
+	return user;	/* our secret key */
+}
+
+static bool authcheck(struct cld_msg_hdr *msg, size_t msg_len)
+{
+	const char *key;
+	unsigned char md[SHA_DIGEST_LENGTH];
+	unsigned int md_len = 0;
+	void *p = msg;
+
+	if (msg_len < (sizeof(*msg) + SHA_DIGEST_LENGTH))
+		return false;
+
+	key = user_key(msg->user);
+	if (!key)
+		return false;
+
+	HMAC(EVP_sha1(), key, strlen(key), (unsigned char *) msg,
+	     msg_len - SHA_DIGEST_LENGTH, md, &md_len);
+
+	if (md_len != SHA_DIGEST_LENGTH)
+		return false; /* BUG */
+
+	if (memcmp(md, p + msg_len - SHA_DIGEST_LENGTH, SHA_DIGEST_LENGTH))
+		return false;
+	
+	return true;
+}
+
+bool authsign(void *buf, size_t buflen)
+{
+	const struct cld_msg_hdr *msg = buf;
+	const char *key;
+	unsigned char md[SHA_DIGEST_LENGTH];
+	unsigned int md_len = 0;
+
+	key = user_key(msg->user);
+	if (!key)
+		return false;
+
+	HMAC(EVP_sha1(), key, strlen(key), buf, buflen - SHA_DIGEST_LENGTH,
+	     md, &md_len);
+
+	if (md_len != SHA_DIGEST_LENGTH)
+		syslog(LOG_ERR, "authsign BUG: md_len != SHA_DIGEST_LENGTH");
+
+	memcpy(buf + buflen - SHA_DIGEST_LENGTH, md, SHA_DIGEST_LENGTH);
+
+	return true;
+}
+
 static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 		   const struct client *cli,
 		   uint8_t *raw_msg, size_t msg_len)
@@ -141,6 +204,12 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 	if (sess && ((sess->addr_len != cli->addr_len) ||
 	    memcmp(&sess->addr, &cli->addr, sess->addr_len))) {
 		resp_rc = CLE_SESS_INVAL;
+		goto err_out;
+	}
+
+	/* verify username/password via HMAC signature */
+	if (!authcheck(msg, msg_len)) {
+		resp_rc = CLE_SIG_INVAL;
 		goto err_out;
 	}
 

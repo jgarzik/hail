@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
+#include <openssl/sha.h>
 #include "cld.h"
 
 enum {
@@ -400,7 +401,7 @@ bool msg_get(struct msg_params *mp, bool metadata_only)
 	name_len = GUINT32_FROM_LE(inode->ino_len);
 	data_size = GUINT32_FROM_LE(inode->size);
 
-	resp_len = sizeof(*resp) + name_len;
+	resp_len = sizeof(*resp) + name_len + SHA_DIGEST_LENGTH;
 	resp = malloc(resp_len);
 	if (!resp) {
 		resp_rc = CLE_OOM;

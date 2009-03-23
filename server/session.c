@@ -25,6 +25,7 @@
 #include <string.h>
 #include <errno.h>
 #include <syslog.h>
+#include <openssl/sha.h>
 #include "cld.h"
 
 static void session_retry(int fd, short events, void *userdata);
@@ -461,19 +462,26 @@ bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
 		return false;
 
 	if (copy_msg) {
-		msg = malloc(msglen);
+		msg = malloc(msglen + SHA_DIGEST_LENGTH);
 		if (!msg) {
 			free(om);
 			return false;
 		}
 
 		memcpy(msg, msg_, msglen);
+		msglen += SHA_DIGEST_LENGTH;
 	} else
 		msg = msg_;
 
 	om->msg = msg;
 	om->msglen = msglen;
 	om->next_retry = current_time + CLD_RETRY_START;
+
+	if (!authsign(msg, msglen)) {
+		free(msg);
+		free(om);
+		return false;
+	}
 
 	/* if out_q empty, start retry timer */
 	if (!sess->out_q) {

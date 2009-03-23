@@ -76,6 +76,7 @@ enum cle_err_codes {
 	CLE_DIR_NOTEMPTY	= 15,		/* dir not empty */
 	CLE_INTERNAL_ERR	= 16,		/* nonspecific internal err */
 	CLE_TIMEOUT		= 17,		/* session timed out */
+	CLE_SIG_INVAL		= 18,		/* HMAC sig bad / auth failed */
 };
 
 enum cld_open_modes {
@@ -106,6 +107,7 @@ struct cld_msg_hdr {
 	uint8_t		sid[CLD_SID_SZ];	/* client id */
 	uint8_t		op;			/* operation code */
 	uint8_t		res1[7];
+	char		user[32];
 };
 
 struct cld_msg_resp {

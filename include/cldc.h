@@ -43,10 +43,10 @@ struct cldc_msg {
 
 	time_t		expire_time;
 
+	int		retries;
+
 	int		data_len;
 	uint8_t		data[0];
-
-	int		retries;
 };
 
 struct cldc_fh {
@@ -77,6 +77,9 @@ struct cldc_session {
 	uint64_t	next_seqid_in_tr;
 	uint64_t	next_seqid_out;
 
+	char		user[32];
+	char		secret_key[128];
+
 	bool		confirmed;
 };
 
@@ -98,6 +101,7 @@ struct cldc {
 
 extern int cldc_new_sess(struct cldc *cldc, const struct cldc_call_opts *copts,
 			 const void *addr, size_t addr_len,
+			 const char *user, const char *secret_key,
 			 struct cldc_session **sess_out);
 extern int cldc_end_sess(struct cldc_session *sess,
 				const struct cldc_call_opts *copts);
