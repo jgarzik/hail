@@ -86,7 +86,7 @@ static int cldc_rx_generic(struct cldc_session *sess,
 	tmp = sess->out_msg;
 	while (tmp) {
 		req = tmp->data;
-		if (req->seqid == resp->hdr.seqid)
+		if (req->seqid == resp->seqid_in)
 			break;
 		tmp = tmp->next;
 	}
@@ -170,18 +170,6 @@ static int cldc_rx_event(struct cldc_session *sess,
 
 static int cldc_rx_not_master(struct cldc_session *sess,
 			   const void *buf, size_t buflen)
-{
-	return -55;	/* FIXME */
-}
-
-static int cldc_rx_get(struct cldc_session *sess,
-			   const void *buf, size_t buflen, bool meta_only)
-{
-	return -55;	/* FIXME */
-}
-
-static int cldc_rx_ping(struct cldc_session *sess,
-			const void *buf, size_t buflen)
 {
 	return -55;	/* FIXME */
 }
@@ -271,19 +259,17 @@ int cldc_receive_pkt(struct cldc *cldc,
 	case cmo_end_sess:
 	case cmo_open:
 	case cmo_data_s:
+	case cmo_get_meta:
+	case cmo_get:
 		return cldc_rx_generic(sess, buf, buflen);
 	case cmo_not_master:
 		return cldc_rx_not_master(sess, buf, buflen);
 	case cmo_event:
 		return cldc_rx_event(sess, buf, buflen);
-	case cmo_get_meta:
-		return cldc_rx_get(sess, buf, buflen, false);
-	case cmo_get:
-		return cldc_rx_get(sess, buf, buflen, true);
 	case cmo_data_c:
 		return cldc_rx_data_c(sess, buf, buflen);
 	case cmo_ping:
-		return cldc_rx_ping(sess, buf, buflen);
+		return ack_seqid(sess, msg->seqid);
 	case cmo_ack:
 		return -4;
 	}
