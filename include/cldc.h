@@ -80,11 +80,6 @@ struct cldc_session {
 	bool		confirmed;
 };
 
-enum cldc_event {
-	CLDC_EVT_NONE,
-	CLDC_EVT_SESS_FAILED,
-};
-
 struct cldc {
 	/* public: set by app */
 	void		*private;
@@ -94,7 +89,8 @@ struct cldc {
 	ssize_t		(*pkt_send)(void *private,
 				const void *addr, size_t addrlen,
 				const void *buf, size_t buflen);
-	void		(*event)(void *private, enum cldc_event evt);
+	void		(*event)(void *private, struct cldc_session *,
+				 struct cldc_fh *, uint32_t);
 
 	/* private: managed by lib */
 	GHashTable	*sessions;

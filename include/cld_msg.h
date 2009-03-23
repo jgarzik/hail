@@ -93,6 +93,7 @@ enum cld_events {
 	CE_DELETED		= (1 << 1),	/* inode deleted */
 	CE_LOCKED		= (1 << 2),	/* lock acquired */
 	CE_MASTER_FAILOVER	= (1 << 3),	/* master failover */
+	CE_SESS_FAILED		= (1 << 4),
 };
 
 enum cld_lock_flags {

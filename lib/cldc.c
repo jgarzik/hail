@@ -165,7 +165,28 @@ static int cldc_rx_data_c(struct cldc_session *sess,
 static int cldc_rx_event(struct cldc_session *sess,
 			   const void *buf, size_t buflen)
 {
-	return -55;	/* FIXME */
+	const struct cld_msg_event *ev = buf;
+	struct cldc_fh *fh = NULL;
+	int i;
+
+	if (buflen < sizeof(*ev))
+		return -8;
+	
+	for (i = 0; i < sess->fh->len; i++) {
+		fh = &g_array_index(sess->fh, struct cldc_fh, i);
+		if (fh->fh_le == ev->fh)
+			break;
+		else
+			fh = NULL;
+	}
+
+	if (!fh)
+		return -11;
+	
+	sess->cldc->event(sess->cldc->private, sess, fh,
+			  GUINT32_FROM_LE(ev->events));
+
+	return 0;
 }
 
 static int cldc_rx_not_master(struct cldc_session *sess,
@@ -344,7 +365,7 @@ static void sess_expire(struct cldc_session *sess)
 
 	cldc->timer_ctl(cldc->private, false, NULL, 0);
 
-	cldc->event(cldc->private, CLDC_EVT_SESS_FAILED);
+	cldc->event(cldc->private, sess, NULL, CE_SESS_FAILED);
 }
 
 static int sess_timer(struct cldc *cldc, void *priv)
