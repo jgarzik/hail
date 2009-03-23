@@ -35,6 +35,7 @@ struct session;
 struct raw_session {
 	uint8_t			sid[CLD_SID_SZ]; /* session id */
 	char			addr[64];	/* IP address */
+	char			user[CLD_MAX_USERNAME];	/* username */
 	uint64_t		last_contact;	/* time of last contact */
 	uint64_t		next_fh;	/* next fh */
 };

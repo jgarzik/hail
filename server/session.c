@@ -326,6 +326,7 @@ static void session_ping(struct session *sess)
 	resp.seqid = next_seqid_le(&sess->next_seqid_out);
 	memcpy(&resp.sid, &sess->sid, CLD_SID_SZ);
 	resp.op = cmo_ping;
+	strcpy(resp.user, sess->user);
 
 	sess_sendmsg(sess, &resp, sizeof(resp), true);
 
@@ -387,6 +388,10 @@ static void session_timeout(int fd, short events, void *userdata)
 static void session_encode(struct raw_session *raw, const struct session *sess)
 {
 	memcpy(raw, sess, CLD_SID_SZ + CLD_IPADDR_SZ);
+
+	strncpy(raw->user, sess->user, sizeof(raw->user));
+	raw->user[sizeof(raw->user) - 1] = 0;
+
 	raw->last_contact = GUINT64_TO_LE(sess->last_contact);
 	raw->next_fh = GUINT64_TO_LE(sess->next_fh);
 }
@@ -558,6 +563,10 @@ bool msg_new_sess(struct msg_params *mp, const struct client *cli)
 	/* build raw_session database record */
 	memcpy(&sess->sid, &msg->sid, sizeof(sess->sid));
 	memcpy(&sess->addr, &cli->addr, sizeof(sess->addr));
+
+	strncpy(sess->user, msg->user, sizeof(sess->user));
+	sess->user[sizeof(sess->user) - 1] = 0;
+
 	sess->sock = mp->sock;
 	sess->addr_len = cli->addr_len;
 	strncpy(sess->ipaddr, cli->addr_host, sizeof(sess->ipaddr));

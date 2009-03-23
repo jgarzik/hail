@@ -30,6 +30,9 @@ enum {
 
 	CLD_INODE_NAME_MAX	= 256,		/* max total pathname len */
 
+	CLD_MAX_USERNAME	= 32,		/* includes req. nul */
+	CLD_MAX_SECRET_KEY	= 128,		/* includes req. nul */
+
 	CLD_MAX_DATA_MSGS	= 1024,		/* max data msgs in a stream */
 };
 

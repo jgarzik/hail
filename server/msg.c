@@ -223,6 +223,7 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 
 		me.hdr.seqid = next_seqid_le(&sess->next_seqid_out);
 		memcpy(&me.hdr.sid, h->sid, sizeof(me.hdr.sid));
+		strcpy(me.hdr.user, sess->user);
 		me.fh = h->fh;
 		me.events = GUINT32_TO_LE(deleted ? CE_DELETED : CE_UPDATED);
 
@@ -340,6 +341,7 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 
 		me.hdr.seqid = next_seqid_le(&sess->next_seqid_out);
 		memcpy(&me.hdr.sid, lock->sid, sizeof(me.hdr.sid));
+		strcpy(me.hdr.user, sess->user);
 		me.fh = lock->fh;
 		me.events = GUINT32_TO_LE(CE_LOCKED);
 
@@ -443,6 +445,7 @@ bool msg_get(struct msg_params *mp, bool metadata_only)
 		memset(dr, 0, sizeof(*dr));
 		memcpy(&dr->hdr.magic, CLD_MAGIC, CLD_MAGIC_SZ);
 		memcpy(dr->hdr.sid, sess->sid, CLD_SID_SZ);
+		strcpy(dr->hdr.user, sess->user);
 		dr->hdr.op = cmo_data_c;
 
 		i = 0;

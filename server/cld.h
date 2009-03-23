@@ -74,6 +74,8 @@ struct session {
 	GList			*out_q;		/* outgoing pkts (to client) */
 	struct event		retry_timer;
 
+	char			user[CLD_MAX_USERNAME];
+
 	bool			ping_open;	/* sent PING, waiting for ack */
 };
 

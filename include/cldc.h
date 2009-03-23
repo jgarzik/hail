@@ -77,8 +77,8 @@ struct cldc_session {
 	uint64_t	next_seqid_in_tr;
 	uint64_t	next_seqid_out;
 
-	char		user[32];
-	char		secret_key[128];
+	char		user[CLD_MAX_USERNAME];
+	char		secret_key[CLD_MAX_SECRET_KEY];
 
 	bool		confirmed;
 };
