@@ -26,3 +26,6 @@ ltmain.sh
 cld
 cld*.tar.gz
 cld-config.h*
+
+# ignore Doxygen output directory
+gendoc

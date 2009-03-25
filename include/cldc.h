@@ -9,6 +9,7 @@ struct cldc_msg;
 struct cldc_session;
 struct cldc_call_opts;
 
+/** per-operation application options */
 struct cldc_call_opts {
 	/* app-owned */
 	int		(*cb)(struct cldc_call_opts *, enum cle_err_codes);
@@ -24,16 +25,18 @@ struct cldc_call_opts {
 	} u;
 };
 
+/** internal per-data stream information */
 struct cldc_stream {
-	uint64_t	strid_le;
-	uint32_t	size;
-	uint32_t	next_seg;
-	void		*bufp;
-	uint32_t	size_left;
-	struct cldc_call_opts copts;
-	char		buf[0];
+	uint64_t	strid_le;	/**< stream id, LE */
+	uint32_t	size;		/**< total bytes in stream */
+	uint32_t	next_seg;	/**< next segment number expected */
+	void		*bufp;		/**< pointer to next input loc */
+	uint32_t	size_left;	/**< bytes remaining */
+	struct cldc_call_opts copts;	/**< call options */
+	char		buf[0];		/**< the raw data stream bytes */
 };
 
+/** an outgoing message, from client to server */
 struct cldc_msg {
 	uint64_t	seqid;
 
@@ -54,12 +57,14 @@ struct cldc_msg {
 	uint8_t		data[0];
 };
 
+/** an open file handle associated with a session */
 struct cldc_fh {
 	uint64_t	fh_le;			/* fh id, LE */
 	struct cldc_session *sess;
 	bool		valid;
 };
 
+/** application-supplied facilities */
 struct cldc_ops {
 	bool		(*timer_ctl)(void *private, bool add,
 				     int (*cb)(struct cldc *, void *),
@@ -71,6 +76,7 @@ struct cldc_ops {
 				 struct cldc_fh *, uint32_t);
 };
 
+/** a single CLD client session */
 struct cldc_session {
 	uint8_t		sid[CLD_SID_SZ];	/* client id */
 
@@ -99,6 +105,24 @@ struct cldc_session {
 
 	bool		confirmed;
 };
+
+/**
+ * Packet received from remote host
+ *
+ * Called by app when a packet is received from a remote host
+ * over the network.
+ *
+ * @param sess Session associated with received packet
+ * @param net_addr Opaque network address
+ * @param net_addrlen Size of opaque network address
+ * @param buf Pointer to data buffer containing packet
+ * @param buflen Length of received packet
+ * @return Zero for success, non-zero on error
+ */
+
+extern int cldc_receive_pkt(struct cldc_session *sess,
+		     const void *net_addr, size_t net_addrlen,
+		     const void *buf, size_t buflen);
 
 extern int cldc_new_sess(const struct cldc_ops *ops,
 		  const struct cldc_call_opts *copts,

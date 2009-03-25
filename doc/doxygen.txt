@@ -1,0 +1,11 @@
+
+To generate doxygen documentation:
+
+1) rm -rf gendoc && mkdir gendoc
+
+2) doxygen
+
+(optional, to generate refman.pdf)
+
+3) cd gendoc/latex && make
+
