@@ -2,6 +2,7 @@
 #define __CLDC_H__
 
 #include <sys/types.h>
+#include <stdbool.h>
 #include <cld_msg.h>
 
 struct cldc;
