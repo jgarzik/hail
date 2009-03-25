@@ -95,17 +95,17 @@ static int lock_compare(DB *db, const DBT *a_dbt, const DBT *b_dbt)
 	v = ai - bi;
 	if (v)
 		return v;
-	
+
 	/* compare creation times */
 	v = at - bt;
 	if (v)
 		return v;
-	
+
 	/* compare SIDs */
 	v = memcmp(a->sid, b->sid, sizeof(a->sid));
 	if (v)
 		return v;
-	
+
 	/* compare file handles */
 	return afh - bfh;
 }

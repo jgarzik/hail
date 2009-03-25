@@ -15,8 +15,13 @@ struct cldc_call_opts {
 	void		*private;
 
 	/* private; lib-owned */
-	uint8_t		resp_buf[sizeof(struct cld_msg_get_resp) +
-				 CLD_INODE_NAME_MAX];
+	enum cld_msg_ops op;
+	union {
+		struct {
+			struct cld_msg_get_resp resp;
+			char inode_name[CLD_INODE_NAME_MAX];
+		} get;
+	} u;
 };
 
 struct cldc_stream {

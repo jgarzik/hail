@@ -154,7 +154,7 @@ static bool authcheck(struct cld_msg_hdr *msg, size_t msg_len)
 
 	if (memcmp(md, p + msg_len - SHA_DIGEST_LENGTH, SHA_DIGEST_LENGTH))
 		return false;
-	
+
 	return true;
 }
 

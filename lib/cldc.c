@@ -148,7 +148,7 @@ static int cldc_rx_data_c(struct cldc_session *sess,
 	/* verify segment number is what we expect */
 	if (seg != str->next_seg)
 		return -10;
-	
+
 	if (seg_len > str->size_left)
 		return -10;
 
@@ -166,7 +166,7 @@ static int cldc_rx_data_c(struct cldc_session *sess,
 		memset(str, 0, sizeof(*str));
 		free(str);
 	}
-	
+
 	return 0;
 }
 
@@ -179,7 +179,7 @@ static int cldc_rx_event(struct cldc_session *sess,
 
 	if (buflen < sizeof(*ev))
 		return -8;
-	
+
 	for (i = 0; i < sess->fh->len; i++) {
 		fh = &g_array_index(sess->fh, struct cldc_fh, i);
 		if (fh->fh_le == ev->fh)
@@ -190,7 +190,7 @@ static int cldc_rx_event(struct cldc_session *sess,
 
 	if (!fh)
 		return -11;
-	
+
 	sess->cldc->event(sess->cldc->private, sess, fh,
 			  GUINT32_FROM_LE(ev->events));
 
@@ -247,7 +247,7 @@ static bool authcheck(struct cldc_session *sess, const void *buf, size_t buflen)
 	key = user_key(sess, msg->user);
 	if (!key)
 		return false;
-	
+
 	HMAC(EVP_sha1(), key, strlen(key), buf, buflen - SHA_DIGEST_LENGTH,
 	     md, &md_len);
 
@@ -270,7 +270,7 @@ static bool authsign(struct cldc_session *sess, void *buf, size_t buflen)
 	key = user_key(sess, msg->user);
 	if (!key)
 		return false;
-	
+
 	HMAC(EVP_sha1(), key, strlen(key), buf, buflen - SHA_DIGEST_LENGTH,
 	     md, &md_len);
 
@@ -391,7 +391,7 @@ static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 
 	msg->sess = sess;
 	msg->expire_time = tv.tv_sec + CLDC_MSG_EXPIRE;
-	
+
 	sess_next_seqid(sess, &msg->seqid);
 
 	msg->data_len = msg_len;
@@ -416,7 +416,7 @@ static void sess_msg_drop(struct cldc_session *sess)
 	while (tmp) {
 		msg = tmp->data;
 		tmp = tmp->next;
-		
+
 		if (!msg->done && msg->cb)
 			msg->cb(msg, NULL, 0, false);
 
@@ -504,7 +504,7 @@ static int sess_stream_open(struct cldc_session *sess,
 	memcpy(&str->copts, copts, sizeof(*copts));
 
 	sess->streams = g_list_append(sess->streams, str);
-	
+
 	return 0;
 }
 
@@ -988,10 +988,11 @@ static ssize_t get_end_cb(struct cldc_msg *msg, const void *resp_p,
 		resp_rc = CLE_TIMEOUT;
 	else {
 		const void *p;
-		void *q;
 
-		o = (struct cld_msg_get_resp *) &msg->copts.resp_buf;
-		
+		o = &msg->copts.u.get.resp;
+
+		msg->copts.op = cmo_get;
+
 		/* copy-and-swap */
 		XC64(inum);
 		XC32(ino_len);
@@ -1004,10 +1005,8 @@ static ssize_t get_end_cb(struct cldc_msg *msg, const void *resp_p,
 		/* copy inode name */
 		p = resp;
 		p += sizeof(struct cld_msg_get_resp);
-		q = o;
-		q += sizeof(struct cld_msg_get_resp);
-		memcpy(q, p, o->ino_len);
-		
+		memcpy(&msg->copts.u.get.inode_name, p, o->ino_len);
+
 		resp_rc = GUINT32_FROM_LE(resp->resp.code);
 	}
 
