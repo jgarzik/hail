@@ -3,6 +3,8 @@
 
 #include <sys/types.h>
 #include <stdbool.h>
+#include <event.h>
+#include <glib.h>
 #include <cld_msg.h>
 
 struct cldc;
@@ -68,7 +70,8 @@ struct cldc_fh {
 /** application-supplied facilities */
 struct cldc_ops {
 	bool		(*timer_ctl)(void *private, bool add,
-				     int (*cb)(struct cldc *, void *),
+				     int (*cb)(struct cldc_session *, void *),
+				     void *cb_private,
 				     time_t secs);
 	ssize_t		(*pkt_send)(void *private,
 				const void *addr, size_t addrlen,
@@ -105,6 +108,21 @@ struct cldc_session {
 	char		secret_key[CLD_MAX_SECRET_KEY];
 
 	bool		confirmed;
+};
+
+/** A UDP implementation of the CLD client protocol */
+struct cldc_udp {
+	uint8_t		addr[64];		/* server address */
+	size_t		addr_len;
+
+	int		fd;
+
+	struct event	timer_ev;
+
+	struct cldc_session *sess;
+
+	int		(*cb)(struct cldc_session *, void *);
+	void		*cb_private;
 };
 
 /**
@@ -149,6 +167,18 @@ extern int cldc_put(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 	     const void *data, size_t data_len);
 extern int cldc_get(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 	     bool metadata_only);
+
+extern void cldc_udp_free(struct cldc_udp *udp);
+extern int cldc_udp_new(const char *hostname, int port,
+		 struct cldc_udp **udp_out);
+extern bool cldc_udp_receive_pkt(struct cldc_udp *udp);
+extern ssize_t cldc_udp_pkt_send(void *private,
+			  const void *addr, size_t addrlen,
+			  const void *buf, size_t buflen);
+extern bool cldc_levent_timer(void *private, bool add,
+		       int (*cb)(struct cldc_session *, void *),
+		       void *cb_private,
+		       time_t secs);
 
 static inline bool seqid_after_eq(uint64_t a_, uint64_t b_)
 {

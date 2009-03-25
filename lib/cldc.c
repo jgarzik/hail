@@ -425,14 +425,13 @@ static void sess_expire(struct cldc_session *sess)
 	sess->expired = true;
 	sess_msg_drop(sess);
 
-	sess->ops->timer_ctl(sess->private, false, NULL, 0);
+	sess->ops->timer_ctl(sess->private, false, NULL, NULL, 0);
 
 	sess->ops->event(sess->private, sess, NULL, CE_SESS_FAILED);
 }
 
-static int sess_timer(struct cldc *cldc, void *priv)
+static int sess_timer(struct cldc_session *sess, void *priv)
 {
-	struct cldc_session *sess = priv;
 	struct cldc_msg *msg;
 	GList *tmp = sess->out_msg;
 
@@ -640,7 +639,8 @@ int cldc_new_sess(const struct cldc_ops *ops,
 	/* save session */
 	*sess_out = sess;
 
-	sess->ops->timer_ctl(sess->private, true, sess_timer, CLDC_MSG_RETRY);
+	sess->ops->timer_ctl(sess->private, true, sess_timer, sess,
+			     CLDC_MSG_RETRY);
 
 	return sess_send(sess, msg);
 }
