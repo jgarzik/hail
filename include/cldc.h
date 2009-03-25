@@ -60,10 +60,22 @@ struct cldc_fh {
 	bool		valid;
 };
 
+struct cldc_ops {
+	bool		(*timer_ctl)(void *private, bool add,
+				     int (*cb)(struct cldc *, void *),
+				     time_t secs);
+	ssize_t		(*pkt_send)(void *private,
+				const void *addr, size_t addrlen,
+				const void *buf, size_t buflen);
+	void		(*event)(void *private, struct cldc_session *,
+				 struct cldc_fh *, uint32_t);
+};
+
 struct cldc_session {
 	uint8_t		sid[CLD_SID_SZ];	/* client id */
 
-	struct cldc	*cldc;
+	const struct cldc_ops *ops;
+	void		*private;
 
 	uint8_t		addr[64];		/* server address */
 	size_t		addr_len;
@@ -88,26 +100,11 @@ struct cldc_session {
 	bool		confirmed;
 };
 
-struct cldc {
-	/* public: set by app */
-	void		*private;
-	bool		(*timer_ctl)(void *private, bool add,
-				     int (*cb)(struct cldc *, void *),
-				     time_t secs);
-	ssize_t		(*pkt_send)(void *private,
-				const void *addr, size_t addrlen,
-				const void *buf, size_t buflen);
-	void		(*event)(void *private, struct cldc_session *,
-				 struct cldc_fh *, uint32_t);
-
-	/* private: managed by lib */
-	GHashTable	*sessions;
-};
-
-extern int cldc_new_sess(struct cldc *cldc, const struct cldc_call_opts *copts,
-			 const void *addr, size_t addr_len,
-			 const char *user, const char *secret_key,
-			 struct cldc_session **sess_out);
+extern int cldc_new_sess(const struct cldc_ops *ops,
+		  const struct cldc_call_opts *copts,
+		  const void *addr, size_t addr_len,
+		  const char *user, const char *secret_key,
+		  struct cldc_session **sess_out);
 extern int cldc_end_sess(struct cldc_session *sess,
 				const struct cldc_call_opts *copts);
 extern int cldc_nop(struct cldc_session *sess,

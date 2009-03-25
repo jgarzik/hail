@@ -60,7 +60,6 @@ static const struct cld_msg_hdr def_msg_ack = {
 
 static int ack_seqid(struct cldc_session *sess, uint64_t seqid_le)
 {
-	struct cldc *cldc = sess->cldc;
 	char respbuf[sizeof(struct cld_msg_hdr) + SHA_DIGEST_LENGTH];
 	struct cld_msg_hdr *resp =
 		(struct cld_msg_hdr *) respbuf;
@@ -75,7 +74,7 @@ static int ack_seqid(struct cldc_session *sess, uint64_t seqid_le)
 		return -1;
 	}
 
-	return cldc->pkt_send(cldc->private, sess->addr, sess->addr_len,
+	return sess->ops->pkt_send(sess->private, sess->addr, sess->addr_len,
 			      &resp, sizeof(resp));
 }
 
@@ -191,8 +190,8 @@ static int cldc_rx_event(struct cldc_session *sess,
 	if (!fh)
 		return -11;
 
-	sess->cldc->event(sess->cldc->private, sess, fh,
-			  GUINT32_FROM_LE(ev->events));
+	sess->ops->event(sess->private, sess, fh,
+			 GUINT32_FROM_LE(ev->events));
 
 	return 0;
 }
@@ -282,12 +281,11 @@ static bool authsign(struct cldc_session *sess, void *buf, size_t buflen)
 	return true;
 }
 
-int cldc_receive_pkt(struct cldc *cldc,
+int cldc_receive_pkt(struct cldc_session *sess,
 		     const void *net_addr, size_t net_addrlen,
 		     const void *buf, size_t buflen)
 {
 	const struct cld_msg_hdr *msg = buf;
-	struct cldc_session *sess = NULL;
 	struct timeval tv;
 	uint64_t seqid;
 
@@ -297,11 +295,6 @@ int cldc_receive_pkt(struct cldc *cldc,
 	if (buflen < (sizeof(*msg) + SHA_DIGEST_LENGTH))
 		return -2;
 	if (memcmp(msg->magic, CLD_MAGIC, sizeof(msg->magic)))
-		return -2;
-
-	/* look up session by sid */
-	sess = g_hash_table_lookup(cldc->sessions, msg->sid);
-	if (!sess)
 		return -2;
 
 	/* check HMAC signature */
@@ -429,14 +422,12 @@ static void sess_msg_drop(struct cldc_session *sess)
 
 static void sess_expire(struct cldc_session *sess)
 {
-	struct cldc *cldc = sess->cldc;
-
 	sess->expired = true;
 	sess_msg_drop(sess);
 
-	cldc->timer_ctl(cldc->private, false, NULL, 0);
+	sess->ops->timer_ctl(sess->private, false, NULL, 0);
 
-	cldc->event(cldc->private, sess, NULL, CE_SESS_FAILED);
+	sess->ops->event(sess->private, sess, NULL, CE_SESS_FAILED);
 }
 
 static int sess_timer(struct cldc *cldc, void *priv)
@@ -455,7 +446,7 @@ static int sess_timer(struct cldc *cldc, void *priv)
 		tmp = tmp->next;
 
 		msg->retries++;
-		cldc->pkt_send(cldc->private,
+		sess->ops->pkt_send(sess->private,
 			       sess->addr, sess->addr_len,
 			       msg->data, msg->data_len);
 	}
@@ -466,8 +457,6 @@ static int sess_timer(struct cldc *cldc, void *priv)
 static int sess_send(struct cldc_session *sess,
 		     struct cldc_msg *msg)
 {
-	struct cldc *cldc = sess->cldc;
-
 	/* sign message */
 	if (!authsign(sess, msg->data, msg->data_len)) {
 		syslog(LOG_WARNING, "authsign failed");
@@ -478,7 +467,7 @@ static int sess_send(struct cldc_session *sess,
 	sess->out_msg = g_list_append(sess->out_msg, msg);
 
 	/* attempt first send */
-	if (cldc->pkt_send(cldc->private,
+	if (sess->ops->pkt_send(sess->private,
 		       sess->addr, sess->addr_len,
 		       msg->data, msg->data_len) < 0)
 		return -1;
@@ -593,7 +582,8 @@ static ssize_t new_sess_cb(struct cldc_msg *msg, const void *resp_p,
 	return 0;
 }
 
-int cldc_new_sess(struct cldc *cldc, const struct cldc_call_opts *copts,
+int cldc_new_sess(const struct cldc_ops *ops,
+		  const struct cldc_call_opts *copts,
 		  const void *addr, size_t addr_len,
 		  const char *user, const char *secret_key,
 		  struct cldc_session **sess_out)
@@ -617,6 +607,7 @@ int cldc_new_sess(struct cldc *cldc, const struct cldc_call_opts *copts,
 	if (!sess)
 		return -ENOMEM;
 
+	sess->ops = ops;
 	sess->fh = g_array_sized_new(FALSE, TRUE, sizeof(struct cldc_fh), 16);
 	strcpy(sess->user, user);
 	strcpy(sess->secret_key, secret_key);
@@ -633,7 +624,6 @@ int cldc_new_sess(struct cldc *cldc, const struct cldc_call_opts *copts,
 		(((uint64_t) rand()) << 32);
 
 	/* init other session vars */
-	sess->cldc = cldc;
 	memcpy(sess->addr, addr, addr_len);
 	sess->addr_len = addr_len;
 
@@ -650,9 +640,7 @@ int cldc_new_sess(struct cldc *cldc, const struct cldc_call_opts *copts,
 	/* save session */
 	*sess_out = sess;
 
-	g_hash_table_insert(cldc->sessions, sess->sid, sess);
-
-	cldc->timer_ctl(cldc->private, true, sess_timer, CLDC_MSG_RETRY);
+	sess->ops->timer_ctl(sess->private, true, sess_timer, CLDC_MSG_RETRY);
 
 	return sess_send(sess, msg);
 }
