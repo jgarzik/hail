@@ -6,7 +6,7 @@ then
 	exit 1
 fi
 
-../server/cld -P cld.pid -d "$PWD/data" -p 18181 --debug
+../server/cld -P cld.pid -d "$PWD/data" -p 18181 --debug 2
 
 sleep 3
 

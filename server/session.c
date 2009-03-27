@@ -456,11 +456,25 @@ static void session_retry(int fd, short events, void *userdata)
 		syslog(LOG_WARNING, "failed to re-add retry timer");
 }
 
+static unsigned long long sid2llu(const uint8_t *sid)
+{
+	const uint64_t *v_le = (const uint64_t *) sid;
+	uint64_t v = GUINT64_FROM_LE(*v_le);
+	return v;
+}
+
 bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
 		  bool copy_msg)
 {
 	void *msg;
 	struct session_outmsg *om;
+
+	if (debugging)
+		syslog(LOG_DEBUG, "sendmsg: sid %llx, msg %p, msglen %u, copy %s",
+		       sid2llu(sess->sid),
+		       msg_,
+		       (unsigned int) msglen,
+		       copy_msg ? "true" : "false");
 
 	om = malloc(sizeof(*om));
 	if (!om)

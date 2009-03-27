@@ -48,8 +48,8 @@ enum {
 static struct argp_option options[] = {
 	{ "data", 'd', "DIRECTORY", 0,
 	  "Store database environment in DIRECTORY" },
-	{ "debug", 'D', NULL, 0,
-	  "Enable debug output" },
+	{ "debug", 'D', "LEVEL", 0,
+	  "Set debug output to LEVEL (0 = off, 2 = max verbose)" },
 	{ "foreground", 'F', NULL, 0,
 	  "Run in foreground, do not fork" },
 	{ "port", 'p', "PORT", 0,
@@ -180,6 +180,31 @@ bool authsign(void *buf, size_t buflen)
 	return true;
 }
 
+static const char *opstr(enum cld_msg_ops op)
+{
+	switch (op) {
+	case cmo_nop:		return "cmo_nop";
+	case cmo_new_sess:	return "cmo_new_sess";
+	case cmo_open:		return "cmo_open";
+	case cmo_get_meta:	return "cmo_get_meta";
+	case cmo_get:		return "cmo_get";
+	case cmo_data_s:	return "cmo_data_s";
+	case cmo_put:		return "cmo_put";
+	case cmo_close:		return "cmo_close";
+	case cmo_del:		return "cmo_del";
+	case cmo_lock:		return "cmo_lock";
+	case cmo_unlock:	return "cmo_unlock";
+	case cmo_trylock:	return "cmo_trylock";
+	case cmo_ack:		return "cmo_ack";
+	case cmo_end_sess:	return "cmo_end_sess";
+	case cmo_ping:		return "cmo_ping";
+	case cmo_not_master:	return "cmo_not_master";
+	case cmo_event:		return "cmo_event";
+	case cmo_data_c:	return "cmo_data_c";
+	default:		return "(unknown)";
+	}
+}
+
 static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 		   const struct client *cli,
 		   uint8_t *raw_msg, size_t msg_len)
@@ -219,6 +244,9 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 	mp.sess = sess;
 	mp.msg = raw_msg;
 	mp.msg_len = msg_len;
+
+	if (debugging)
+		syslog(LOG_DEBUG, "    msg op %s", opstr(msg->op));
 
 	if (msg->op != cmo_new_sess) {
 		if (!sess) {
@@ -349,7 +377,8 @@ static void udp_srv_event(int fd, short events, void *userdata)
 	strcpy(cli.addr_host, host);
 
 	if (debugging)
-		syslog(LOG_DEBUG, "client %s message", host);
+		syslog(LOG_DEBUG, "client %s message (%d bytes)",
+		       host, (int) rrc);
 
 	if (am_master) {
 		rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
@@ -532,7 +561,12 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 		cld_srv.data_dir = arg;
 		break;
 	case 'D':
-		debugging = 1;
+		if (atoi(arg) >= 0 && atoi(arg) <= 2)
+			debugging = atoi(arg);
+		else {
+			fprintf(stderr, "invalid debug level: '%s'\n", arg);
+			argp_usage(state);
+		}
 		break;
 	case 'F':
 		cld_srv.flags |= SFL_FOREGROUND;
@@ -541,7 +575,7 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 		if (atoi(arg) > 0 && atoi(arg) < 65536)
 			cld_srv.port = arg;
 		else {
-			fprintf(stderr, "invalid port %s\n", arg);
+			fprintf(stderr, "invalid port: '%s'\n", arg);
 			argp_usage(state);
 		}
 		break;
@@ -574,6 +608,8 @@ int main (int argc, char *argv[])
 {
 	error_t aprc;
 	int rc = 1;
+	char debugstr[32] = "";
+	bool have_opts = false;
 
 	/* isspace() and strcasecmp() consistency requires this */
 	setlocale(LC_ALL, "C");
@@ -598,7 +634,7 @@ int main (int argc, char *argv[])
 	openlog(PROGRAM_NAME, LOG_PID, LOG_LOCAL3);
 
 	if (debugging)
-		syslog(LOG_INFO, "Verbose debug output enabled");
+		sprintf(debugstr, "debug %d", debugging);
 
 	if ((!(cld_srv.flags & SFL_FOREGROUND)) && (daemon(1, 0) < 0)) {
 		syslogerr("daemon");
@@ -635,7 +671,12 @@ int main (int argc, char *argv[])
 	if (rc)
 		goto err_out_pid;
 
-	syslog(LOG_INFO, "initialized");
+	have_opts = (debugging > 0);
+
+	syslog(LOG_INFO, "initialized%s%s%s",
+	       have_opts ? " (" : "",
+	       debugstr,
+	       have_opts ? ")" : "");
 
 	while (server_running) {
 		event_dispatch();
