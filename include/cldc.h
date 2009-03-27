@@ -147,6 +147,7 @@ extern int cldc_new_sess(const struct cldc_ops *ops,
 		  const struct cldc_call_opts *copts,
 		  const void *addr, size_t addr_len,
 		  const char *user, const char *secret_key,
+		  void *private,
 		  struct cldc_session **sess_out);
 extern int cldc_end_sess(struct cldc_session *sess,
 				const struct cldc_call_opts *copts);
@@ -171,7 +172,7 @@ extern int cldc_get(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 extern void cldc_udp_free(struct cldc_udp *udp);
 extern int cldc_udp_new(const char *hostname, int port,
 		 struct cldc_udp **udp_out);
-extern bool cldc_udp_receive_pkt(struct cldc_udp *udp);
+extern int cldc_udp_receive_pkt(struct cldc_udp *udp);
 extern ssize_t cldc_udp_pkt_send(void *private,
 			  const void *addr, size_t addrlen,
 			  const void *buf, size_t buflen);

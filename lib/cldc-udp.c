@@ -108,24 +108,27 @@ int cldc_udp_new(const char *hostname, int port,
 	return 0;
 }
 
-bool cldc_udp_receive_pkt(struct cldc_udp *udp)
+int cldc_udp_receive_pkt(struct cldc_udp *udp)
 {
 	char buf[2048];
-	ssize_t rc;
+	ssize_t rc, crc;
 
 	rc = recv(udp->fd, buf, sizeof(buf), MSG_DONTWAIT);
 	if (rc < 0) {
 		if (errno != EAGAIN)
-			return false;
+			return -errno;
 	}
 	if (rc <= 0)
-		return true;
+		return 0;
 
-	if (cldc_receive_pkt(udp->sess, udp->addr, udp->addr_len,
-			     buf, rc) < 0)
-		return false;
+	if (!udp->sess)
+		return -ENXIO;
+
+	crc = cldc_receive_pkt(udp->sess, udp->addr, udp->addr_len, buf, rc);
+	if (crc)
+		return crc;
 	
-	return true;
+	return 0;
 }
 
 ssize_t cldc_udp_pkt_send(void *private,

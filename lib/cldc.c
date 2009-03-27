@@ -293,18 +293,18 @@ int cldc_receive_pkt(struct cldc_session *sess,
 	cldc_current_time = tv.tv_sec;
 
 	if (buflen < (sizeof(*msg) + SHA_DIGEST_LENGTH))
-		return -2;
+		return -EPROTO;
 	if (memcmp(msg->magic, CLD_MAGIC, sizeof(msg->magic)))
-		return -2;
+		return -EPROTO;
 
 	/* check HMAC signature */
 	if (!authcheck(sess, buf, buflen))
-		return -12;
+		return -EACCES;
 
 	/* verify stored server addr matches pkt addr */
 	if (((sess->addr_len != net_addrlen) ||
 	    memcmp(sess->addr, net_addr, net_addrlen)))
-		return -3;
+		return -EBADE;
 
 	/* expire old sess outgoing messages */
 	if (cldc_current_time >= sess->msg_scan_time)
@@ -323,7 +323,7 @@ int cldc_receive_pkt(struct cldc_session *sess,
 					   sess->next_seqid_in))
 				return ack_seqid(sess, msg->seqid);
 
-			return -6;
+			return -EBADSLT;
 		}
 		sess->next_seqid_in++;
 		sess->next_seqid_in_tr++;
@@ -355,10 +355,11 @@ int cldc_receive_pkt(struct cldc_session *sess,
 	case cmo_ping:
 		return ack_seqid(sess, msg->seqid);
 	case cmo_ack:
-		return -4;
+		return -EBADRQC;
 	}
 
-	return -1;
+	/* unknown op code */
+	return -EBADRQC;
 }
 
 static void sess_next_seqid(struct cldc_session *sess, uint64_t *seqid)
@@ -585,6 +586,7 @@ int cldc_new_sess(const struct cldc_ops *ops,
 		  const struct cldc_call_opts *copts,
 		  const void *addr, size_t addr_len,
 		  const char *user, const char *secret_key,
+		  void *private,
 		  struct cldc_session **sess_out)
 {
 	struct cldc_session *sess;
@@ -606,6 +608,7 @@ int cldc_new_sess(const struct cldc_ops *ops,
 	if (!sess)
 		return -ENOMEM;
 
+	sess->private = private;
 	sess->ops = ops;
 	sess->fh = g_array_sized_new(FALSE, TRUE, sizeof(struct cldc_fh), 16);
 	strcpy(sess->user, user);
