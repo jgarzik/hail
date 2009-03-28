@@ -212,8 +212,9 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 	struct cld_msg_hdr *msg = (struct cld_msg_hdr *) raw_msg;
 	struct session *sess = NULL;
 	enum cle_err_codes resp_rc = CLE_OK;
-	struct cld_msg_resp resp;
+	struct cld_msg_resp *resp;
 	struct msg_params mp;
+	size_t alloc_len;
 
 	if (msg_len < sizeof(*msg)) {
 		resp_rc = CLE_BAD_PKT;
@@ -283,14 +284,21 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 		int rc;
 
 		/* transmit response (once, without retries) */
-		resp_copy(&resp, msg);
-		resp.hdr.seqid = next_seqid_le(&sess->next_seqid_out);
+		alloc_len = sizeof(*resp) + SHA_DIGEST_LENGTH;
+		resp = alloca(alloc_len);
+		memset(resp, 0, alloc_len);
+
+		resp_copy(resp, msg);
+		resp->hdr.seqid = next_seqid_le(&sess->next_seqid_out);
 
 		rc = session_dispose(txn, sess);
 
-		resp.code = GUINT32_TO_LE(rc == 0 ? CLE_OK : CLE_DB_ERR);
+		resp->code = GUINT32_TO_LE(rc == 0 ? CLE_OK : CLE_DB_ERR);
+
+		authsign(resp, alloc_len);
+
 		udp_tx(sock, (struct sockaddr *) &cli->addr, cli->addr_len,
-		       &resp, sizeof(resp));
+		       resp, alloc_len);
 
 		return (rc == 0) ? true : false;
 	}
@@ -325,11 +333,18 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 
 err_out:
 	/* transmit error response (once, without retries) */
-	resp_copy(&resp, msg);
-	resp.hdr.seqid = GUINT64_TO_LE(0xdeadbeef);
-	resp.code = GUINT32_TO_LE(resp_rc);
+	alloc_len = sizeof(*resp) + SHA_DIGEST_LENGTH;
+	resp = alloca(alloc_len);
+	memset(resp, 0, alloc_len);
+
+	resp_copy(resp, msg);
+	resp->hdr.seqid = GUINT64_TO_LE(0xdeadbeef);
+	resp->code = GUINT32_TO_LE(resp_rc);
+
+	authsign(resp, alloc_len);
+
 	udp_tx(sock, (struct sockaddr *) &cli->addr, cli->addr_len,
-	       &resp, sizeof(resp));
+	       resp, alloc_len);
 
 	return false;
 }

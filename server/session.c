@@ -566,7 +566,8 @@ bool msg_new_sess(struct msg_params *mp, const struct client *cli)
 	int rc;
 	struct timeval tv;
 	enum cle_err_codes resp_rc = CLE_OK;
-	struct cld_msg_resp resp;
+	struct cld_msg_resp *resp;
+	size_t alloc_len;
 
 	sess = session_new();
 	if (!sess) {
@@ -624,12 +625,22 @@ bool msg_new_sess(struct msg_params *mp, const struct client *cli)
 err_out:
 	session_free(sess);
 
-	resp_copy(&resp, msg);
-	resp.hdr.seqid = GUINT64_TO_LE(0xdeadbeef);
-	resp.code = GUINT32_TO_LE(resp_rc);
+	alloc_len = sizeof(*resp) + SHA_DIGEST_LENGTH;
+	resp = alloca(alloc_len);
+	memset(resp, 0, alloc_len);
+
+	resp_copy(resp, msg);
+	resp->hdr.seqid = GUINT64_TO_LE(0xdeadbeef);
+	resp->code = GUINT32_TO_LE(resp_rc);
+
+	authsign(resp, alloc_len);
 
 	udp_tx(mp->sock, (struct sockaddr *) &mp->cli->addr,
-	       mp->cli->addr_len, &resp, sizeof(resp));
+	       mp->cli->addr_len, resp, alloc_len);
+
+	if (debugging)
+		syslog(LOG_DEBUG, "NEW-SESS failed: %d", resp_rc);
+
 	return false;
 }
 
