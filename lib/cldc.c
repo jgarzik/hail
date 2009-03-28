@@ -387,7 +387,7 @@ static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 
 	sess_next_seqid(sess, &msg->seqid);
 
-	msg->data_len = msg_len;
+	msg->data_len = msg_len + SHA_DIGEST_LENGTH;
 	if (copts)
 		memcpy(&msg->copts, copts, sizeof(msg->copts));
 
