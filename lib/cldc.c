@@ -32,7 +32,6 @@
 #include <stdio.h>
 #include <netdb.h>
 #include <time.h>
-#include <syslog.h>
 #include <openssl/sha.h>
 #include <openssl/hmac.h>
 #include <glib.h>
@@ -70,7 +69,7 @@ static int ack_seqid(struct cldc_session *sess, uint64_t seqid_le)
 	strcpy(resp->user, sess->user);
 
 	if (!authsign(sess, respbuf, sizeof(respbuf))) {
-		syslog(LOG_WARNING, "authsign failed 2");
+		fprintf(stderr, "authsign failed 2\n");
 		return -1;
 	}
 
@@ -251,7 +250,7 @@ static bool authcheck(struct cldc_session *sess, const void *buf, size_t buflen)
 	     md, &md_len);
 
 	if (md_len != SHA_DIGEST_LENGTH)
-		syslog(LOG_ERR, "authcheck BUG: md_len != SHA_DIGEST_LENGTH");
+		fprintf(stderr, "authsign BUG: md_len != SHA_DIGEST_LENGTH\n");
 
 	if (memcmp(buf + buflen - SHA_DIGEST_LENGTH, md, SHA_DIGEST_LENGTH))
 		return false;
@@ -274,9 +273,9 @@ static bool authsign(struct cldc_session *sess, void *buf, size_t buflen)
 	     md, &md_len);
 
 	if (md_len != SHA_DIGEST_LENGTH)
-		syslog(LOG_ERR, "authsign BUG: md_len != SHA_DIGEST_LENGTH");
+		fprintf(stderr, "authsign BUG: md_len != SHA_DIGEST_LENGTH\n");
 
-	memcpy(buf + buflen - SHA_DIGEST_LENGTH, md, SHA_DIGEST_LENGTH);
+	memcpy(buf + (buflen - SHA_DIGEST_LENGTH), md, SHA_DIGEST_LENGTH);
 
 	return true;
 }
@@ -458,10 +457,8 @@ static int sess_send(struct cldc_session *sess,
 		     struct cldc_msg *msg)
 {
 	/* sign message */
-	if (!authsign(sess, msg->data, msg->data_len)) {
-		syslog(LOG_WARNING, "authsign failed");
+	if (!authsign(sess, msg->data, msg->data_len))
 		return -1;
-	}
 
 	/* add to list of outgoing packets, waiting to be ack'd */
 	sess->out_msg = g_list_append(sess->out_msg, msg);
