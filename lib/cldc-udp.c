@@ -34,10 +34,10 @@ void cldc_udp_free(struct cldc_udp *udp)
 {
 	if (!udp)
 		return;
-	
+
 	if (udp->fd >= 0)
 		close(udp->fd);
-	
+
 	free(udp);
 }
 
@@ -127,7 +127,7 @@ int cldc_udp_receive_pkt(struct cldc_udp *udp)
 	crc = cldc_receive_pkt(udp->sess, udp->addr, udp->addr_len, buf, rc);
 	if (crc)
 		return crc;
-	
+
 	return 0;
 }
 

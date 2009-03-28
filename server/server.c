@@ -146,13 +146,13 @@ static bool authcheck(struct cld_msg_hdr *msg, size_t msg_len)
 	if (!key)
 		return false;
 
-	HMAC(EVP_sha1(), key, strlen(key), (unsigned char *) msg,
-	     msg_len - SHA_DIGEST_LENGTH, md, &md_len);
+	HMAC(EVP_sha1(), key, strlen(key), p, msg_len - SHA_DIGEST_LENGTH,
+	     md, &md_len);
 
 	if (md_len != SHA_DIGEST_LENGTH)
 		return false; /* BUG */
 
-	if (memcmp(md, p + msg_len - SHA_DIGEST_LENGTH, SHA_DIGEST_LENGTH))
+	if (memcmp(md, p + (msg_len - SHA_DIGEST_LENGTH), SHA_DIGEST_LENGTH))
 		return false;
 
 	return true;
