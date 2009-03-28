@@ -74,7 +74,7 @@ static int ack_seqid(struct cldc_session *sess, uint64_t seqid_le)
 	}
 
 	return sess->ops->pkt_send(sess->private, sess->addr, sess->addr_len,
-			      &resp, sizeof(resp));
+				   resp, sizeof(respbuf));
 }
 
 static int cldc_rx_generic(struct cldc_session *sess,
