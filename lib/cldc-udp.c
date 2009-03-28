@@ -131,14 +131,21 @@ int cldc_udp_receive_pkt(struct cldc_udp *udp)
 	return 0;
 }
 
-ssize_t cldc_udp_pkt_send(void *private,
-			  const void *addr, size_t addrlen,
-			  const void *buf, size_t buflen)
+int cldc_udp_pkt_send(void *private,
+			const void *addr, size_t addrlen,
+			const void *buf, size_t buflen)
 {
 	struct cldc_udp *udp = private;
+	ssize_t rc;
 
 	/* we are connected, so we ignore addr and addrlen args */
-	return send(udp->fd, buf, buflen, MSG_DONTWAIT);
+	rc = send(udp->fd, buf, buflen, MSG_DONTWAIT);
+	if (rc < 0)
+		return -errno;
+	if (rc != buflen)
+		return -EILSEQ;
+	
+	return 0;
 }
 
 bool cldc_levent_timer(void *private, bool add,

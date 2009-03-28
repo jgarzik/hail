@@ -73,7 +73,7 @@ struct cldc_ops {
 				     int (*cb)(struct cldc_session *, void *),
 				     void *cb_private,
 				     time_t secs);
-	ssize_t		(*pkt_send)(void *private,
+	int		(*pkt_send)(void *private,
 				const void *addr, size_t addrlen,
 				const void *buf, size_t buflen);
 	void		(*event)(void *private, struct cldc_session *,
@@ -173,7 +173,7 @@ extern void cldc_udp_free(struct cldc_udp *udp);
 extern int cldc_udp_new(const char *hostname, int port,
 		 struct cldc_udp **udp_out);
 extern int cldc_udp_receive_pkt(struct cldc_udp *udp);
-extern ssize_t cldc_udp_pkt_send(void *private,
+extern int cldc_udp_pkt_send(void *private,
 			  const void *addr, size_t addrlen,
 			  const void *buf, size_t buflen);
 extern bool cldc_levent_timer(void *private, bool add,
