@@ -57,6 +57,14 @@ static const struct cld_msg_hdr def_msg_ack = {
 	.op		= cmo_ack,
 };
 
+void rand64(void *p)
+{
+	uint32_t *v = p;
+
+	v[0] = rand();
+	v[1] = rand();
+}
+
 static int ack_seqid(struct cldc_session *sess, uint64_t seqid_le)
 {
 	char respbuf[sizeof(struct cld_msg_hdr) + SHA_DIGEST_LENGTH];
@@ -658,8 +666,6 @@ int cldc_new_sess(const struct cldc_ops *ops,
 		  struct cldc_session **sess_out)
 {
 	struct cldc_session *sess;
-	uint32_t v;
-	void *p;
 	struct cldc_msg *msg;
 
 	if (addr_len > sizeof(sess->addr))
@@ -683,15 +689,8 @@ int cldc_new_sess(const struct cldc_ops *ops,
 	strcpy(sess->secret_key, secret_key);
 
 	/* create random SID, next_seqid_out */
-	p = &sess->sid;
-	v = rand();
-	memcpy(p, &v, sizeof(v));
-	v = rand();
-	memcpy(p + 4, &v, sizeof(v));
-
-	sess->next_seqid_out =
-		((uint64_t) rand()) |
-		(((uint64_t) rand()) << 32);
+	rand64(sess->sid);
+	rand64(&sess->next_seqid_out);
 
 	/* init other session vars */
 	memcpy(sess->addr, addr, addr_len);
