@@ -92,12 +92,23 @@ static int cldc_rx_generic(struct cldc_session *sess,
 	tmp = sess->out_msg;
 	while (tmp) {
 		req = tmp->data;
+
+		if (sess->verbose)
+			fprintf(stderr, "rx_gen: comparing req->seqid (%llu) with resp->seqid_in (%llu)\n",
+			        (unsigned long long)
+					GUINT64_FROM_LE(req->seqid),
+			        (unsigned long long)
+					GUINT64_FROM_LE(resp->seqid_in));
+
 		if (req->seqid == resp->seqid_in)
 			break;
 		tmp = tmp->next;
 	}
 	if (!tmp)
 		return -5;
+
+	if (sess->verbose)
+		fprintf(stderr, "rx_gen: issuing completion and acking\n");
 
 	if (!req->done) {
 		req->done = true;
@@ -280,6 +291,31 @@ static bool authsign(struct cldc_session *sess, void *buf, size_t buflen)
 	return true;
 }
 
+static const char *opstr(enum cld_msg_ops op)
+{
+	switch (op) {
+	case cmo_nop:		return "cmo_nop";
+	case cmo_new_sess:	return "cmo_new_sess";
+	case cmo_open:		return "cmo_open";
+	case cmo_get_meta:	return "cmo_get_meta";
+	case cmo_get:		return "cmo_get";
+	case cmo_data_s:	return "cmo_data_s";
+	case cmo_put:		return "cmo_put";
+	case cmo_close:		return "cmo_close";
+	case cmo_del:		return "cmo_del";
+	case cmo_lock:		return "cmo_lock";
+	case cmo_unlock:	return "cmo_unlock";
+	case cmo_trylock:	return "cmo_trylock";
+	case cmo_ack:		return "cmo_ack";
+	case cmo_end_sess:	return "cmo_end_sess";
+	case cmo_ping:		return "cmo_ping";
+	case cmo_not_master:	return "cmo_not_master";
+	case cmo_event:		return "cmo_event";
+	case cmo_data_c:	return "cmo_data_c";
+	default:		return "(unknown)";
+	}
+}
+
 int cldc_receive_pkt(struct cldc_session *sess,
 		     const void *net_addr, size_t net_addrlen,
 		     const void *buf, size_t buflen)
@@ -291,19 +327,45 @@ int cldc_receive_pkt(struct cldc_session *sess,
 	gettimeofday(&tv, NULL);
 	cldc_current_time = tv.tv_sec;
 
-	if (buflen < (sizeof(*msg) + SHA_DIGEST_LENGTH))
+	if (buflen < sizeof(*msg)) {
+		if (sess->verbose)
+			fprintf(stderr, "receive_pkt: msg too short\n");
 		return -EPROTO;
-	if (memcmp(msg->magic, CLD_MAGIC, sizeof(msg->magic)))
+	}
+
+	if (sess->verbose)
+		fprintf(stderr, "receive pkt: len %u, "
+			"op %s, seqid %llu, user %s\n",
+			(unsigned int) buflen,
+			opstr(msg->op),
+			(unsigned long long) GUINT64_FROM_LE(msg->seqid),
+			msg->user);
+
+	if (buflen < (sizeof(*msg) + SHA_DIGEST_LENGTH)) {
+		if (sess->verbose)
+			fprintf(stderr, "receive_pkt: bad len\n");
 		return -EPROTO;
+	}
+	if (memcmp(msg->magic, CLD_MAGIC, sizeof(msg->magic))) {
+		if (sess->verbose)
+			fprintf(stderr, "receive_pkt: bad magic\n");
+		return -EPROTO;
+	}
 
 	/* check HMAC signature */
-	if (!authcheck(sess, buf, buflen))
+	if (!authcheck(sess, buf, buflen)) {
+		if (sess->verbose)
+			fprintf(stderr, "receive_pkt: invalid auth\n");
 		return -EACCES;
+	}
 
 	/* verify stored server addr matches pkt addr */
 	if (((sess->addr_len != net_addrlen) ||
-	    memcmp(sess->addr, net_addr, net_addrlen)))
+	    memcmp(sess->addr, net_addr, net_addrlen))) {
+		if (sess->verbose)
+			fprintf(stderr, "receive_pkt: server address mismatch\n");
 		return -EBADE;
+	}
 
 	/* expire old sess outgoing messages */
 	if (cldc_current_time >= sess->msg_scan_time)
@@ -322,6 +384,8 @@ int cldc_receive_pkt(struct cldc_session *sess,
 					   sess->next_seqid_in))
 				return ack_seqid(sess, msg->seqid);
 
+			if (sess->verbose)
+				fprintf(stderr, "receive_pkt: bad seqid\n");
 			return -EBADSLT;
 		}
 		sess->next_seqid_in++;
@@ -443,6 +507,9 @@ static int sess_timer(struct cldc_session *sess, void *priv)
 	while (tmp) {
 		msg = tmp->data;
 		tmp = tmp->next;
+
+		if (msg->done)
+			continue;
 
 		msg->retries++;
 		sess->ops->pkt_send(sess->private,

@@ -84,6 +84,8 @@ struct cldc_ops {
 struct cldc_session {
 	uint8_t		sid[CLD_SID_SZ];	/* client id */
 
+	bool		verbose;
+
 	const struct cldc_ops *ops;
 	void		*private;
 
