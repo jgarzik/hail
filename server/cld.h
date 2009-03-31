@@ -133,6 +133,7 @@ extern bool msg_ack(struct msg_params *);
 extern bool msg_get(struct msg_params *, bool);
 
 /* session.c */
+extern unsigned long long sid2llu(const uint8_t *sid);
 extern uint64_t next_seqid_le(uint64_t *seq);
 extern guint sess_hash(gconstpointer v);
 extern gboolean sess_equal(gconstpointer _a, gconstpointer _b);
@@ -145,6 +146,7 @@ extern int session_remove_locks(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 				cldino_t inum, bool *waiter);
 
 /* server.c */
+extern const char *opstr(enum cld_msg_ops op);
 extern struct server cld_srv;
 extern int debugging;
 extern time_t current_time;

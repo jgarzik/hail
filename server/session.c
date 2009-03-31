@@ -68,6 +68,8 @@ static struct session *session_new(void)
 
 	sess->next_fh = 2;
 
+	sess->next_seqid_out = ((uint64_t) rand() << 32) | rand();
+
 	evtimer_set(&sess->timer, session_timeout, sess);
 	evtimer_set(&sess->retry_timer, session_retry, sess);
 
@@ -418,6 +420,13 @@ static void om_free(struct session_outmsg *om)
 	free(om);
 }
 
+unsigned long long sid2llu(const uint8_t *sid)
+{
+	const uint64_t *v_le = (const uint64_t *) sid;
+	uint64_t v = GUINT64_FROM_LE(*v_le);
+	return v;
+}
+
 static int sess_retry_output(struct session *sess)
 {
 	GList *tmp, *tmp1;
@@ -426,13 +435,23 @@ static int sess_retry_output(struct session *sess)
 
 	tmp = sess->out_q;
 	while (tmp) {
+		struct cld_msg_hdr *outmsg;
+
 		tmp1 = tmp;
 		tmp = tmp->next;
 
 		om = tmp1->data;
+		outmsg = om->msg;
 
 		if (current_time < om->next_retry)
 			continue;
+
+		if (debugging)
+			syslog(LOG_DEBUG, "retry: sid %llx, op %s, seqid %llu",
+			       sid2llu(outmsg->sid),
+			       opstr(outmsg->op),
+			       (unsigned long long)
+					GUINT64_FROM_LE(outmsg->seqid));
 
 		rc = udp_tx(sess->sock, (struct sockaddr *) &sess->addr,
 			    sess->addr_len, om->msg, om->msglen);
@@ -456,25 +475,22 @@ static void session_retry(int fd, short events, void *userdata)
 		syslog(LOG_WARNING, "failed to re-add retry timer");
 }
 
-static unsigned long long sid2llu(const uint8_t *sid)
-{
-	const uint64_t *v_le = (const uint64_t *) sid;
-	uint64_t v = GUINT64_FROM_LE(*v_le);
-	return v;
-}
-
 bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
 		  bool copy_msg)
 {
 	void *msg;
 	struct session_outmsg *om;
 
-	if (debugging)
-		syslog(LOG_DEBUG, "sendmsg: sid %llx, msg %p, msglen %u, copy %s",
+	if (debugging) {
+		struct cld_msg_hdr *hdr = msg_;
+
+		syslog(LOG_DEBUG, "sendmsg: sid %llx, op %s, msglen %u, seqid %llu, copy %s",
 		       sid2llu(sess->sid),
-		       msg_,
+		       opstr(hdr->op),
 		       (unsigned int) msglen,
+		       (unsigned long long) GUINT64_FROM_LE(hdr->seqid),
 		       copy_msg ? "true" : "false");
+	}
 
 	om = malloc(sizeof(*om));
 	if (!om)
@@ -540,6 +556,10 @@ bool msg_ack(struct msg_params *mp)
 		if (msg->seqid != outmsg->seqid)
 			continue;
 
+		if (debugging)
+			syslog(LOG_DEBUG, "    expiring seqid %llu",
+		           (unsigned long long) GUINT64_FROM_LE(outmsg->seqid));
+
 		if (outmsg->op == cmo_ping)
 			sess->ping_open = false;
 
@@ -586,6 +606,7 @@ bool msg_new_sess(struct msg_params *mp, const struct client *cli)
 	sess->addr_len = cli->addr_len;
 	strncpy(sess->ipaddr, cli->addr_host, sizeof(sess->ipaddr));
 	sess->last_contact = current_time;
+	sess->next_seqid_in = GUINT64_FROM_LE(msg->seqid) + 1;
 
 	session_encode(&raw_sess, sess);
 
@@ -634,6 +655,12 @@ err_out:
 	resp->code = GUINT32_TO_LE(resp_rc);
 
 	authsign(resp, alloc_len);
+
+	if (debugging)
+		syslog(LOG_DEBUG, "new_sess err: sid %llx, op %s, seqid %llu",
+		       sid2llu(resp->hdr.sid),
+		       opstr(resp->hdr.op),
+		       (unsigned long long) GUINT64_FROM_LE(resp->hdr.seqid));
 
 	udp_tx(mp->sock, (struct sockaddr *) &mp->cli->addr,
 	       mp->cli->addr_len, resp, alloc_len);

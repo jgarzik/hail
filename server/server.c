@@ -180,7 +180,7 @@ bool authsign(void *buf, size_t buflen)
 	return true;
 }
 
-static const char *opstr(enum cld_msg_ops op)
+const char *opstr(enum cld_msg_ops op)
 {
 	switch (op) {
 	case cmo_nop:		return "cmo_nop";
@@ -247,7 +247,9 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 	mp.msg_len = msg_len;
 
 	if (debugging)
-		syslog(LOG_DEBUG, "    msg op %s", opstr(msg->op));
+		syslog(LOG_DEBUG, "    msg op %s, seqid %llu",
+		       opstr(msg->op),
+		       (unsigned long long) GUINT64_FROM_LE(msg->seqid));
 
 	if (msg->op != cmo_new_sess) {
 		if (!sess) {
@@ -259,14 +261,24 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 
 		if (msg->op != cmo_ack) {
 			/* eliminate duplicates; do not return any response */
-			if (GUINT64_FROM_LE(msg->seqid) != sess->next_seqid_in)
+			if (GUINT64_FROM_LE(msg->seqid) != sess->next_seqid_in) {
+				if (debugging)
+					syslog(LOG_DEBUG, "dropping dup");
 				return false;
+			}
 
 			/* received message - update session */
 			sess->next_seqid_in++;
 		}
 	} else {
 		if (sess) {
+			/* eliminate duplicates; do not return any response */
+			if (GUINT64_FROM_LE(msg->seqid) != sess->next_seqid_in) {
+				if (debugging)
+					syslog(LOG_DEBUG, "dropping dup");
+				return false;
+			}
+
 			resp_rc = CLE_SESS_EXISTS;
 			goto err_out;
 		}
@@ -296,6 +308,13 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 		resp->code = GUINT32_TO_LE(rc == 0 ? CLE_OK : CLE_DB_ERR);
 
 		authsign(resp, alloc_len);
+
+		if (debugging)
+			syslog(LOG_DEBUG, "end_sess msg: sid %llx, op %s, seqid %llu",
+			       sid2llu(resp->hdr.sid),
+			       opstr(resp->hdr.op),
+			       (unsigned long long)
+					GUINT64_FROM_LE(resp->hdr.seqid));
 
 		udp_tx(sock, (struct sockaddr *) &cli->addr, cli->addr_len,
 		       resp, alloc_len);
@@ -342,6 +361,13 @@ err_out:
 	resp->code = GUINT32_TO_LE(resp_rc);
 
 	authsign(resp, alloc_len);
+
+	if (debugging)
+		syslog(LOG_DEBUG, "udp_rx err: sid %llx, op %s, seqid %llu, code %d",
+		       sid2llu(resp->hdr.sid),
+		       opstr(resp->hdr.op),
+		       (unsigned long long) GUINT64_FROM_LE(resp->hdr.seqid),
+		       resp_rc);
 
 	udp_tx(sock, (struct sockaddr *) &cli->addr, cli->addr_len,
 	       resp, alloc_len);
