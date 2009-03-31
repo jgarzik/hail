@@ -374,9 +374,13 @@ int cldc_receive_pkt(struct cldc_session *sess,
 	/* verify (or set, for new-sess) sequence id */
 	seqid = GUINT64_FROM_LE(msg->seqid);
 	if (msg->op == cmo_new_sess) {
-		sess->next_seqid_in = seqid;
+		sess->next_seqid_in = seqid + 1;
 		sess->next_seqid_in_tr =
 			sess->next_seqid_in - CLDC_MSG_REMEMBER;
+
+		if (sess->verbose)
+			fprintf(stderr, "receive_pkt: setting next_seqid_in to %llu\n",
+				(unsigned long long) seqid);
 	} else if (msg->op != cmo_not_master) {
 		if (seqid != sess->next_seqid_in) {
 			if (seqid_in_range(seqid,
