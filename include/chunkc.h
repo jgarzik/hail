@@ -1,6 +1,7 @@
 #ifndef __STC_H__
 #define __STC_H__
 
+#include <sys/types.h>
 #include <openssl/ssl.h>
 #include <stdbool.h>
 #include <stdint.h>
