@@ -291,7 +291,6 @@ bool stc_put(struct st_client *stc, const char *key,
 	     size_t (*read_cb)(void *, size_t, size_t, void *),
 	     uint64_t len, void *user_data)
 {
-	GByteArray *all_data;
 	char netbuf[4096];
 	struct chunksrv_req req;
 	struct chunksrv_req resp;
@@ -309,10 +308,6 @@ bool stc_put(struct st_client *stc, const char *key,
 	req.data_len = GUINT64_TO_LE(content_len);
 	strcpy(req.user, stc->user);
 	strcpy(req.key, key);
-
-	all_data = g_byte_array_new();
-	if (!all_data)
-		return false;
 
 	/* sign request */
 	chreq_sign(&req, stc->key, req.checksum);
@@ -346,11 +341,9 @@ bool stc_put(struct st_client *stc, const char *key,
 		goto err_out;
 	}
 
-	g_byte_array_free(all_data, TRUE);
 	return true;
 
 err_out:
-	g_byte_array_free(all_data, TRUE);
 	return false;
 }
 
