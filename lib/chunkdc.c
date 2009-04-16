@@ -205,7 +205,7 @@ static size_t all_data_cb(void *ptr, size_t size, size_t nmemb, void *user_data)
 
 bool stc_get(struct st_client *stc, const char *key,
 	     size_t (*write_cb)(void *, size_t, size_t, void *),
-	     void *user_data, bool want_headers)
+	     void *user_data)
 {
 	char netbuf[4096];
 	struct chunksrv_req req;
@@ -261,8 +261,7 @@ bool stc_get(struct st_client *stc, const char *key,
 	return true;
 }
 
-void *stc_get_inline(struct st_client *stc, const char *key,
-		     bool want_headers, size_t *len)
+void *stc_get_inline(struct st_client *stc, const char *key, size_t *len)
 {
 	bool rcb;
 	void *mem;
@@ -272,7 +271,7 @@ void *stc_get_inline(struct st_client *stc, const char *key,
 	if (!all_data)
 		return NULL;
 
-	rcb = stc_get(stc, key, all_data_cb, all_data, want_headers);
+	rcb = stc_get(stc, key, all_data_cb, all_data);
 	if (!rcb) {
 		g_byte_array_free(all_data, TRUE);
 		return NULL;

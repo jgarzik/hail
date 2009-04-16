@@ -84,7 +84,7 @@ static void test(int n_objects, bool encrypt)
 		k = tmpl->data;
 		len = 0;
 
-		mem = stc_get_inline(stc, k, false, &len);
+		mem = stc_get_inline(stc, k, &len);
 		OK(mem);
 		OK(len == strlen(val));
 		OK(!memcmp(val, mem, strlen(val)));

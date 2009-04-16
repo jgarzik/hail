@@ -46,7 +46,7 @@ static void test(bool encrypt)
 	stc_free_keylist(klist);
 
 	/* get object */
-	mem = stc_get_inline(stc, key, false, &len);
+	mem = stc_get_inline(stc, key, &len);
 	OK(mem);
 	OK(len == strlen(val));
 	OK(!memcmp(val, mem, strlen(val)));

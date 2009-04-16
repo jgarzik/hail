@@ -87,7 +87,7 @@ static void test(bool encrypt)
 	gettimeofday(&ta, NULL);
 
 	/* get object */
-	mem = stc_get_inline(stc, key, false, &len);
+	mem = stc_get_inline(stc, key, &len);
 	OK(mem);
 	OK(len == (N_BUFS * BUFSZ));
 

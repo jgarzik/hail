@@ -42,9 +42,9 @@ extern struct st_client *stc_new(const char *service_host, int port,
 
 extern bool stc_get(struct st_client *stc, const char *key,
 	     size_t (*write_cb)(void *, size_t, size_t, void *),
-	     void *user_data, bool want_headers);
+	     void *user_data);
 extern void *stc_get_inline(struct st_client *stc,
-			    const char *key, bool want_headers, size_t *len);
+			    const char *key, size_t *len);
 extern bool stc_put(struct st_client *stc, const char *key,
 	     size_t (*read_cb)(void *, size_t, size_t, void *),
 	     uint64_t len, void *user_data);
