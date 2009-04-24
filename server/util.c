@@ -147,6 +147,19 @@ static struct {
 	char		*vol_path;
 	struct listen_cfg tmp_listen;
 } cfg_context;
+ 
+static bool str_n_isspace(const char *s, size_t n)
+{
+	char c;
+	size_t i;
+
+	for (i = 0; i < n; i++) {
+		c = *s++;
+		if (!isspace(c))
+			return false;
+	}
+	return true;
+}
 
 static void cfg_elm_text (GMarkupParseContext *context,
 			  const gchar	*text,
@@ -155,7 +168,10 @@ static void cfg_elm_text (GMarkupParseContext *context,
 			  GError	**error)
 {
 	free(cfg_context.text);
-	cfg_context.text = g_strndup(text, text_len);
+	if (str_n_isspace(text, text_len))
+		cfg_context.text = NULL;
+	else
+		cfg_context.text = g_strndup(text, text_len);
 }
 
 static void cfg_elm_start (GMarkupParseContext *context,
@@ -234,6 +250,15 @@ static void cfg_elm_end (GMarkupParseContext *context,
 
 	else if (!strcmp(element_name, "Listen")) {
 		struct listen_cfg *cfg;
+
+		if (cfg_context.text) {
+			syslog(LOG_WARNING,
+			       "cfgfile: Extra text '%s' in Listen",
+			       cfg_context.text);
+			free(cfg_context.text);
+			cfg_context.text = NULL;
+			return;
+		}
 
 		cfg_context.in_listen = false;
 
