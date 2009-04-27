@@ -3,6 +3,7 @@
 #include "chunkd-config.h"
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/ioctl.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
@@ -16,6 +17,7 @@
 #include <netdb.h>
 #include <chunk_msg.h>
 #include <chunksrv.h>
+#include <errno.h>
 
 #if 0
 static int _strcasecmp(const unsigned char *a, const char *b)
@@ -203,14 +205,13 @@ static size_t all_data_cb(void *ptr, size_t size, size_t nmemb, void *user_data)
 	return len;
 }
 
-bool stc_get(struct st_client *stc, const char *key,
-	     size_t (*write_cb)(void *, size_t, size_t, void *),
-	     void *user_data)
+/*
+ * Request the transfer in the chunk server.
+ */
+static bool stc_get_req(struct st_client *stc, const char *key, uint64_t *plen)
 {
-	char netbuf[4096];
 	struct chunksrv_req req;
 	struct chunksrv_resp_get resp;
-	uint64_t content_len;
 
 	if (stc->verbose)
 		fprintf(stderr, "libstc: GET(%s)\n", key);
@@ -244,7 +245,19 @@ bool stc_get(struct st_client *stc, const char *key,
 	if (!net_read(stc, &resp.mtime, sizeof(resp) - sizeof(resp.req)))
 		return false;
 
-	content_len = GUINT64_FROM_LE(resp.req.data_len);
+	*plen = GUINT64_FROM_LE(resp.req.data_len);
+	return true;
+}
+
+bool stc_get(struct st_client *stc, const char *key,
+	     size_t (*write_cb)(void *, size_t, size_t, void *),
+	     void *user_data)
+{
+	char netbuf[4096];
+	uint64_t content_len;
+
+	if (!stc_get_req(stc, key, &content_len))
+		return false;
 
 	/* read response data */
 	while (content_len) {
@@ -284,6 +297,85 @@ void *stc_get_inline(struct st_client *stc, const char *key, size_t *len)
 
 	g_byte_array_free(all_data, FALSE);
 	return mem;
+}
+
+/*
+ * Set stc to be used for streaming transfers.
+ * In chunkd protocol, this delivers the size of the presumed object,
+ * and clients are expected to fetch exactly psize amount.
+ */
+bool stc_get_start(struct st_client *stc, const char *key, int *pfd,
+		   uint64_t *psize)
+{
+
+	if (!stc_get_req(stc, key, psize))
+		return false;
+
+	*pfd = stc->fd;
+	return true;
+}
+
+/*
+ * Get next chunk for the stream set by stc_get_start.
+ * N.B.: This should be called and will not block, even if no data was
+ * reported on the fd by the OS. This is the only sane way to fetch what
+ * SSL layer may keep buffered.
+ * Therefore, we cannot use zero return as an EOF indicator and will
+ * return a -EPIPE (normally not possible on read in UNIX). Fortunately,
+ * applications know the object lengths as reported by stc_get_start.
+ */
+size_t stc_get_recv(struct st_client *stc, void *data, size_t req_len)
+{
+	size_t xfer_len;
+	size_t done_cnt;
+	int avail;
+	ssize_t rc;
+
+	done_cnt = 0;
+	if (stc->ssl) {
+		for (;;) {
+			if (done_cnt == req_len)
+				break;
+			if (ioctl(stc->fd, FIONREAD, &avail))
+				return errno;
+			if (avail == 0) {
+				if ((avail = SSL_pending(stc->ssl)) == 0)
+					break;
+			}
+
+			if ((xfer_len = avail) > req_len - done_cnt)
+				xfer_len = req_len - done_cnt;
+
+			rc = SSL_read(stc->ssl, data + done_cnt, xfer_len);
+			if (rc <= 0) {
+				if (done_cnt)
+					break;
+				rc = SSL_get_error(stc->ssl, rc);
+				if (rc == SSL_ERROR_ZERO_RETURN)
+					return -EPIPE;
+				if (rc == SSL_ERROR_WANT_READ ||
+				    rc == SSL_ERROR_WANT_WRITE)
+					continue;
+				return -EIO;
+			}
+
+			done_cnt += rc;
+		}
+	} else {
+		if (ioctl(stc->fd, FIONREAD, &avail))
+			return errno;
+		if (avail) {
+			if ((xfer_len = avail) > req_len)
+				xfer_len = req_len;
+
+			rc = read(stc->fd, data, xfer_len);
+			if (rc < 0)
+				return errno;
+
+			done_cnt += rc;
+		}
+	}
+	return done_cnt;
 }
 
 bool stc_put(struct st_client *stc, const char *key,
@@ -339,6 +431,125 @@ bool stc_put(struct st_client *stc, const char *key,
 		fprintf(stderr, "PUT resp code: %d\n", resp.resp_code);
 		goto err_out;
 	}
+
+	return true;
+
+err_out:
+	return false;
+}
+
+/*
+ * Start quasy-asynchronous putting. Only one such putting
+ * may be outstanding at a time for every st_client.
+ *
+ * We return the fd for the polling here because we do not like
+ * library users poking around stc->fd, an implementation detail.
+ */
+bool stc_put_start(struct st_client *stc, const char *key, uint64_t cont_len,
+		   int *pfd)
+{
+	struct chunksrv_req req;
+
+	if (strlen(key) >= CHD_KEY_SZ) {
+		if (stc->verbose)
+			fprintf(stderr, "libstc: PUT(%s) key too long\n", key);
+		return false;
+	}
+
+	if (stc->verbose)
+		fprintf(stderr, "libstc: PUT(%s, %Lu) start\n", key,
+			(unsigned long long) cont_len);
+
+	/* initialize request */
+	memset(&req, 0, sizeof(req));
+	memcpy(req.magic, CHUNKD_MAGIC, CHD_MAGIC_SZ);
+	req.op = CHO_PUT;
+	req.nonce = rand();
+	req.data_len = GUINT64_TO_LE(cont_len);
+	strcpy(req.user, stc->user);
+	strcpy(req.key, key);
+
+	/* sign request */
+	chreq_sign(&req, stc->key, req.checksum);
+
+	/* write request */
+	if (!net_write(stc, &req, sizeof(req)))
+		goto err_out;
+
+	*pfd = stc->fd;
+	return true;
+
+err_out:
+	return false;
+}
+
+/*
+ * Try to send a chunk of data after stc_put_start.
+ *
+ * This commonly returns less then was requested, in order to allow
+ * libevent-driven programs to function without undue blocking.
+ * Don't be alarmed, use the fd returned from stc_put_start to know
+ * when to retry.
+ *
+ * We probably should check that the sum of all len equals to what we
+ * sent to chunkd in stc_put_start, but oh well. Don't overrun.
+ */
+size_t stc_put_send(struct st_client *stc, void *data, size_t len)
+{
+	size_t done_cnt;
+	ssize_t rc;
+
+	if (!len)
+		return 0;
+
+	if (stc->ssl) {
+		done_cnt = 0;
+
+		while (len) {
+			rc = SSL_write(stc->ssl, data, len);
+			if (rc <= 0) {
+				rc = SSL_get_error(stc->ssl, rc);
+				if (rc == SSL_ERROR_ZERO_RETURN)
+					return -EPIPE;
+				if (rc == SSL_ERROR_WANT_READ)
+					continue;
+				if (rc == SSL_ERROR_WANT_WRITE)
+					break;
+				return -EIO;
+			}
+
+			len -= rc;
+			data += rc;
+			done_cnt += rc;
+		}
+	} else {
+		rc = write(stc->fd, data, len);
+		if (rc < 0)
+			return -errno;
+		done_cnt = rc;
+	}
+	return done_cnt;
+}
+
+/*
+ * Finish what stc_put_start began. The return code reports if the
+ * request was processed by chunkd. No matter what, once this returns,
+ * the st_client can accept new stc_put_start.
+ */
+bool stc_put_sync(struct st_client *stc)
+{
+	struct chunksrv_req resp;
+
+	/* read response header */
+	if (!net_read(stc, &resp, sizeof(resp)))
+		goto err_out;
+
+	/* check response code */
+	if (stc->verbose)
+		fprintf(stderr, "libstc: PUT sync resp code: %d\n",
+			resp.resp_code);
+	if (resp.resp_code != Success)
+		goto err_out;
 
 	return true;
 

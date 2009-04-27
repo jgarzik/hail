@@ -15,24 +15,59 @@ enum {
 	BUFSZ		= 1024 * 1024,
 };
 
-static unsigned long read_offset;
-
-static size_t read_cb(void *ptr, size_t size, size_t nmemb, void *user_data)
+static bool send_buf(struct st_client *stc, int sfd, void *buf, size_t buf_len)
 {
-	size_t len = size * nmemb;
-	unsigned long slop_ofs, slop_len;
+	int sent;
+	fd_set rset, wset;
+	int rc;
 
-	if (read_offset >= (N_BUFS * BUFSZ))
-		return 0;
+	/*
+	 * This is a trick. We poll the receive side in case SSL needs it.
+	 */
+	sent = 0;
+	while (buf_len) {
+		FD_ZERO(&wset);
+		FD_SET(sfd, &wset);
+		FD_SET(sfd, &rset);
+		rc = select(sfd + 1, &rset, &wset, NULL, NULL);
+		OK(rc >= 0);
+		OK(FD_ISSET(sfd, &rset) || FD_ISSET(sfd, &wset));
 
-	slop_ofs = read_offset & (BUFSZ - 1);
-	slop_len = BUFSZ - slop_ofs;
-	len = MIN(len, slop_len);
-	memcpy(ptr, user_data + slop_ofs, len);
+		rc = stc_put_send(stc, buf + sent, buf_len);
+		OK(rc >= 0);
+		sent += rc;
+		buf_len -= rc;
+	}
+	return true;
+}
 
-	read_offset += len;
+static bool recv_buf(struct st_client *stc, int rfd, void *buf, size_t buf_len)
+{
+	int rcvd;
+	fd_set rset;
+	int rc;
 
-	return len;
+	/*
+	 * This is a trick. We must check if SSL library had something
+	 * prebuffered first, or else select may hang forever.
+	 */
+	rcvd = 0;
+	for (;;) {
+		rc = stc_get_recv(stc, buf + rcvd, buf_len);
+		OK(rc >= 0);
+		rcvd += rc;
+		buf_len -= rc;
+
+		if (buf_len == 0)
+			break;
+
+		FD_ZERO(&rset);
+		FD_SET(rfd, &rset);
+		rc = select(rfd + 1, &rset, NULL, NULL, NULL);
+		OK(rc >= 0);
+		OK(FD_ISSET(rfd, &rset));
+	}
+	return true;
 }
 
 static void test(bool encrypt)
@@ -43,9 +78,10 @@ static void test(bool encrypt)
 	bool rcb;
 	char key[64] = "deadbeef";
 	size_t len = 0;
-	void *mem, *p;
 	char data[BUFSZ];
+	char rbuf[BUFSZ];
 	struct timeval ta, tb;
+	int sfd, rfd;
 	int i;
 
 	memset(data, 0xdeadbeef, sizeof(data));
@@ -59,7 +95,13 @@ static void test(bool encrypt)
 	gettimeofday(&ta, NULL);
 
 	/* store object */
-	rcb = stc_put(stc, key, read_cb, N_BUFS * BUFSZ, data);
+	rcb = stc_put_start(stc, key, N_BUFS * BUFSZ, &sfd);
+	OK(rcb);
+	for (i = 0; i < N_BUFS; i++) {
+		rcb = send_buf(stc, sfd, data, BUFSZ);
+		OK(rcb);
+	}
+	rcb = stc_put_sync(stc);
 	OK(rcb);
 
 	gettimeofday(&tb, NULL);
@@ -86,9 +128,9 @@ static void test(bool encrypt)
 
 	gettimeofday(&ta, NULL);
 
-	/* get object */
-	mem = stc_get_inline(stc, key, &len);
-	OK(mem);
+	/* initiate get object */
+	rcb = stc_get_start(stc, key, &rfd, &len);
+	OK(rcb);
 	OK(len == (N_BUFS * BUFSZ));
 
 	gettimeofday(&tb, NULL);
@@ -96,11 +138,11 @@ static void test(bool encrypt)
 	printdiff(&ta, &tb, N_BUFS,
 		  encrypt ? "large-object SSL GET" : "large-object GET", "MB");
 
-	/* verify object contents */
-	p = mem;
+	/* get and verify object contents */
 	for (i = 0; i < N_BUFS; i++) {
-		OK(!memcmp(p, data, BUFSZ));
-		p += BUFSZ;
+		rcb = recv_buf(stc, rfd, rbuf, BUFSZ);
+		OK(rcb);
+		OK(!memcmp(rbuf, data, BUFSZ));
 	}
 
 	/* delete object */
@@ -121,7 +163,6 @@ int main(int argc, char *argv[])
 
 	test(false);
 
-	read_offset = 0;
 	test(true);
 
 	return 0;
