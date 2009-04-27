@@ -112,6 +112,10 @@ static struct {
 	[SignatureDoesNotMatch] =
 	{ "SignatureDoesNotMatch", 403,
 	  "The calculated request signature does not match your provided one" },
+
+	[InvalidCookie] =
+	{ "InvalidCookie", 400,
+	  "Cookie check failed" },
 };
 
 static error_t parse_opt (int key, char *arg, struct argp_state *state)

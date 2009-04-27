@@ -177,13 +177,14 @@ bool object_put(struct client *cli)
 	const char *user = cli->creq.user;
 	const char *key = cli->creq.key;
 	uint64_t content_len = GUINT64_FROM_LE(cli->creq.data_len);
+	enum errcode err;
 
 	if (!user)
 		return cli_err(cli, AccessDenied);
  
-	cli->out_bo = fs_obj_new(key);
+	cli->out_bo = fs_obj_new(key, &err);
 	if (!cli->out_bo)
-		return cli_err(cli, InternalError);
+		return cli_err(cli, err);
 
 	SHA1_Init(&cli->out_hash);
 	cli->out_len = content_len;

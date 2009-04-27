@@ -148,7 +148,8 @@ struct server {
 };
 
 /* be-fs.c */
-extern struct backend_obj *fs_obj_new(const char *cookie);
+extern struct backend_obj *fs_obj_new(const char *cookie,
+				      enum errcode *err_code);
 extern struct backend_obj *fs_obj_open(const char *cookie,
 				       enum errcode *err_code);
 extern ssize_t fs_obj_write(struct backend_obj *bo, const void *ptr, size_t len);

@@ -117,7 +117,8 @@ static bool cookie_valid(const char *cookie)
 	return true;
 }
 
-struct backend_obj *fs_obj_new(const char *cookie)
+struct backend_obj *fs_obj_new(const char *cookie,
+			       enum errcode *err_code)
 {
 	struct fs_obj *obj;
 	char *fn = NULL;
@@ -126,24 +127,35 @@ struct backend_obj *fs_obj_new(const char *cookie)
 
 	memset(&hdr, 0, sizeof(hdr));
 
-	if (!cookie_valid(cookie))
+	if (!cookie_valid(cookie)) {
+		if (debugging)
+			syslog(LOG_ERR, "Bad cookie '%s'", cookie);
+		*err_code = InvalidCookie;
 		return NULL;
+	}
 
 	obj = fs_obj_alloc();
-	if (!obj)
+	if (!obj) {
+		*err_code = InternalError;
 		return NULL;
+	}
 
 	/* build local fs pathname */
 	fn = fs_obj_pathname(cookie);
 	if (!fn) {
 		syslog(LOG_ERR, "OOM in object_put");
+		*err_code = InternalError;
 		goto err_out;
 	}
 
 	obj->out_fd = open(fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
 	if (obj->out_fd < 0) {
-		if (errno != EEXIST)
+		if (errno != EEXIST) {
 			syslogerr(fn);
+			*err_code = InternalError;
+		} else {
+			*err_code = NoSuchKey;
+		}
 		goto err_out;
 	}
 
@@ -156,6 +168,7 @@ struct backend_obj *fs_obj_new(const char *cookie)
 		else
 			syslog(LOG_ERR, "obj hdr write(%s) failed for %s",
 				fn, "unknown raisins!!!");
+		*err_code = InternalError;
 		goto err_out;
 	}
 
@@ -177,19 +190,25 @@ struct backend_obj *fs_obj_open(const char *cookie,
 	struct be_fs_obj_hdr hdr;
 	ssize_t rrc;
 
-	if (!cookie_valid(cookie))
+	if (!cookie_valid(cookie)) {
+		if (debugging)
+			syslog(LOG_ERR, "Bad cookie '%s'", cookie);
+		*err_code = InvalidCookie;
 		return NULL;
-
-	*err_code = InternalError;
+	}
 
 	obj = fs_obj_alloc();
-	if (!obj)
+	if (!obj) {
+		*err_code = InternalError;
 		return NULL;
+	}
 
 	/* build local fs pathname */
 	obj->in_fn = fs_obj_pathname(cookie);
-	if (!obj->in_fn)
+	if (!obj->in_fn) {
+		*err_code = InternalError;
 		goto err_out;
+	}
 
 	obj->in_fd = open(obj->in_fn, O_RDONLY);
 	if (obj->in_fd < 0) {
@@ -197,12 +216,15 @@ struct backend_obj *fs_obj_open(const char *cookie,
 		       obj->in_fn, strerror(errno));
 		if (errno == ENOENT)
 			*err_code = NoSuchKey;
+		else
+			*err_code = InternalError;
 		goto err_out_fn;
 	}
 
 	if (fstat(obj->in_fd, &st) < 0) {
 		syslog(LOG_ERR, "fstat obj(%s) failed: %s", obj->in_fn,
 			strerror(errno));
+		*err_code = InternalError;
 		goto err_out_fd;
 	}
 
@@ -215,6 +237,7 @@ struct backend_obj *fs_obj_open(const char *cookie,
 		else
 			syslog(LOG_ERR, "invalid object header for %s",
 				obj->in_fn);
+		*err_code = InternalError;
 		goto err_out_fd;
 	}
 
