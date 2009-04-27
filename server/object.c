@@ -89,6 +89,10 @@ static bool object_put_end(struct client *cli)
 
 	cli_out_end(cli);
 
+	if (debugging)
+		syslog(LOG_DEBUG, "REQ(write) seq %x done code %d",
+		       resp->nonce, resp->resp_code);
+
 	rc = cli_writeq(cli, resp, sizeof(*resp), cli_cb_free, resp);
 	if (rc) {
 		free(resp);
@@ -151,6 +155,10 @@ bool cli_evt_data_in(struct client *cli, unsigned int events)
 			return cli_err(cli, InternalError);
 		}
 	}
+
+	if (debugging)
+		syslog(LOG_DEBUG, "REQ(write) seq %x avail %ld",
+		       cli->creq.nonce, (long)avail);
 
 	while (avail > 0) {
 		bytes = fs_obj_write(cli->out_bo, p, avail);

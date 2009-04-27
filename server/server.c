@@ -750,10 +750,12 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 	cli->state = evt_recycle;
 
 	if (debugging)
-		syslog(LOG_DEBUG, "REQ(op %s, key %s, user %s)",
+		syslog(LOG_DEBUG, "REQ(op %s, key %s, user %s) seq %x len %lld",
 		       op2str(req->op),
 		       req->key,
-		       req->user);
+		       req->user,
+		       req->nonce,
+		       (long long) GUINT64_FROM_LE(req->data_len));
 
 	/*
 	 * operations on objects
