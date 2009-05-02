@@ -59,7 +59,14 @@ static void pathname_parse(char *path, size_t path_len,
 	char *lsl;
 	int ofs;
 
-	lsl = memrchr(path, path_len, '/');
+	lsl = memrchr(path, '/', path_len);
+	if (!lsl) {	/* We check user paths to start with a slash, but... */
+		pinfo->dir = path;
+		pinfo->dir_len = 0;
+		pinfo->base = path;
+		pinfo->base_len = path_len;
+		return;
+	}
 	ofs = lsl - path + 1;
 
 	pinfo->dir = path;
