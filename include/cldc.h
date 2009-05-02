@@ -7,10 +7,7 @@
 #include <glib.h>
 #include <cld_msg.h>
 
-struct cldc;
-struct cldc_msg;
 struct cldc_session;
-struct cldc_call_opts;
 
 /** per-operation application options */
 struct cldc_call_opts {
