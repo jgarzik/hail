@@ -568,18 +568,18 @@ struct raw_inode *cldb_inode_new(DB_TXN *txn, char *name, size_t name_len,
 		return NULL;
 
 	/* build in-memory inode */
-	ino = calloc(1, sizeof(*ino) + name_len + ALIGN8(name_len));
-	if (!ino)
+	mem = calloc(1, sizeof(*ino) + name_len + ALIGN8(name_len));
+	if (!mem)
 		return NULL;
 
+	ino = mem;
 	ino->inum = cldino_to_le(new_inum);
 	ino->ino_len = GUINT32_TO_LE(name_len);
 	ino->time_create =
 	ino->time_modify = GUINT64_TO_LE(current_time);
 	ino->flags = GUINT32_TO_LE(flags);
 
-	mem = ino + sizeof(*ino);
-	memcpy(mem, name, name_len);
+	memcpy(mem + sizeof(*ino), name, name_len);
 
 	return ino;
 }
