@@ -682,7 +682,7 @@ int cldb_handle_get(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 	if (h_out)
 		*h_out = NULL;
 
-	memcpy(&hkey.sid, &sid, CLD_SID_SZ);
+	memcpy(&hkey.sid, sid, CLD_SID_SZ);
 	hkey.fh = GUINT64_TO_LE(fh);
 
 	memset(&key, 0, sizeof(key));
@@ -737,7 +737,7 @@ int cldb_handle_del(DB_TXN *txn, uint8_t *sid, uint64_t fh)
 	DBT key;
 	struct raw_handle_key hkey;
 
-	memcpy(&hkey.sid, &sid, CLD_SID_SZ);
+	memcpy(&hkey.sid, sid, CLD_SID_SZ);
 	hkey.fh = GUINT64_TO_LE(fh);
 
 	memset(&key, 0, sizeof(key));
