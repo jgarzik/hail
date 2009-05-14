@@ -439,7 +439,6 @@ int cldb_inode_get(DB_TXN *txn, cldino_t inum,
 	DB *db_inode = cld_srv.cldb.inodes;
 	int rc;
 	DBT key, val;
-	bool err = false;
 	cldino_t inum_le = cldino_to_le(inum);
 
 	if (inode_out)
@@ -452,18 +451,19 @@ int cldb_inode_get(DB_TXN *txn, cldino_t inum,
 	key.data = &inum_le;
 	key.size = sizeof(inum_le);
 
-	if (inode_out)
-		val.flags = DB_DBT_MALLOC;
+	val.flags = DB_DBT_MALLOC;
 
 	rc = db_inode->get(db_inode, txn, &key, &val, flags);
 	if (rc && ((rc != DB_NOTFOUND) || notfound_err)) {
 		dbenv->err(dbenv, rc, "db_inode->get");
-		err = true;
 	}
 
-	if (!err && (rc == 0) && inode_out)
-		*inode_out = val.data;
-
+	if (rc == 0) {
+		if (inode_out)
+			*inode_out = val.data;
+		else
+			free(val.data);
+	}
 	return rc;
 }
 
@@ -475,7 +475,6 @@ int cldb_inode_get_byname(DB_TXN *txn, char *name, size_t name_len,
 	DB *db_inode_names = cld_srv.cldb.inode_names;
 	int rc;
 	DBT key, val;
-	bool err = false;
 
 	if (inode_out)
 		*inode_out = NULL;
@@ -487,18 +486,19 @@ int cldb_inode_get_byname(DB_TXN *txn, char *name, size_t name_len,
 	key.data = name;
 	key.size = name_len;
 
-	if (inode_out)
-		val.flags = DB_DBT_MALLOC;
+	val.flags = DB_DBT_MALLOC;
 
 	rc = db_inode_names->get(db_inode_names, txn, &key, &val, flags);
 	if (rc && ((rc != DB_NOTFOUND) || notfound_err)) {
 		dbenv->err(dbenv, rc, "db_inode_names->get");
-		err = true;
 	}
 
-	if (!err && (rc == 0) && inode_out)
-		*inode_out = val.data;
-
+	if (rc == 0) {
+		if (inode_out)
+			*inode_out = val.data;
+		else
+			free(val.data);
+	}
 	return rc;
 }
 
@@ -592,7 +592,6 @@ int cldb_data_get(DB_TXN *txn, cldino_t inum,
 	DB *db_data = cld_srv.cldb.data;
 	int rc;
 	DBT key, val;
-	bool err = false;
 	cldino_t inum_le = cldino_to_le(inum);
 
 	*data_out = NULL;
@@ -609,10 +608,9 @@ int cldb_data_get(DB_TXN *txn, cldino_t inum,
 	rc = db_data->get(db_data, txn, &key, &val, rmw ? DB_RMW : 0);
 	if (rc && ((rc != DB_NOTFOUND) || notfound_err)) {
 		dbenv->err(dbenv, rc, "db_data->get");
-		err = true;
 	}
 
-	if (!err) {
+	if (!rc) {
 		*data_out = val.data;
 		*data_len = val.size;
 	}
@@ -692,15 +690,18 @@ int cldb_handle_get(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 	key.data = &hkey;
 	key.size = sizeof(hkey);
 
-	if (h_out)
-		val.flags = DB_DBT_MALLOC;
+	val.flags = DB_DBT_MALLOC;
 
 	rc = db_handle->get(db_handle, txn, &key, &val, flags);
 	if (rc)
 		dbenv->err(dbenv, rc, "db_handle->put");
 
-	if ((rc == 0) && h_out)
-		*h_out = val.data;
+	if (rc == 0) {
+		if (h_out)
+			*h_out = val.data;
+		else
+			free(val.data);
+	}
 
 	return rc;
 }
@@ -760,7 +761,7 @@ int cldb_lock_del(DB_TXN *txn, uint8_t *sid, uint64_t fh, cldino_t inum)
 	int rc;
 	DBT key, val;
 	cldino_t inum_le = cldino_to_le(inum);
-	struct raw_lock *lock;
+	struct raw_lock lock;
 	int gflags;
 
 	rc = db_locks->cursor(db_locks, txn, &cur, 0);
@@ -774,6 +775,10 @@ int cldb_lock_del(DB_TXN *txn, uint8_t *sid, uint64_t fh, cldino_t inum)
 	/* key: inode number */
 	key.data = &inum_le;
 	key.size = sizeof(inum_le);
+
+	val.flags = DB_DBT_USERMEM;
+	val.data = &lock;
+	val.ulen = sizeof(lock);
 
 	/* loop through all locks attached to this inum, searching
 	 * for matching lock
@@ -791,11 +796,9 @@ int cldb_lock_del(DB_TXN *txn, uint8_t *sid, uint64_t fh, cldino_t inum)
 
 		gflags = DB_NEXT_DUP;
 
-		lock = val.data;
-
 		/* if we have a matching (sid,fh), delete rec and end loop */
-		if (!memcmp(lock->sid, sid, sizeof(lock->sid)) &&
-		    (fh == GUINT64_FROM_LE(lock->fh))) {
+		if (!memcmp(lock.sid, sid, sizeof(lock.sid)) &&
+		    (fh == GUINT64_FROM_LE(lock.fh))) {
 			rc = cur->del(cur, 0);
 			if (rc) {
 				db_locks->err(db_locks, rc, "cursor del");
@@ -819,7 +822,7 @@ static int cldb_lock_find(DB_TXN *txn, uint8_t *sid, uint64_t fh, cldino_t inum,
 	int rc, gflags;
 	DBT key, val;
 	cldino_t inum_le = cldino_to_le(inum);
-	struct raw_lock *lock;
+	struct raw_lock lock;
 	uint32_t lflags;
 
 	rc = db_locks->cursor(db_locks, txn, &cur, 0);
@@ -833,6 +836,10 @@ static int cldb_lock_find(DB_TXN *txn, uint8_t *sid, uint64_t fh, cldino_t inum,
 	/* key: inode number */
 	key.data = &inum_le;
 	key.size = sizeof(inum_le);
+
+	val.flags = DB_DBT_USERMEM;
+	val.data = &lock;
+	val.ulen = sizeof(lock);
 
 	/* loop through locks associated with this inode, searching
 	 * for a conflicting acquired lock
@@ -851,8 +858,7 @@ static int cldb_lock_find(DB_TXN *txn, uint8_t *sid, uint64_t fh, cldino_t inum,
 
 		gflags = DB_NEXT_DUP;
 
-		lock = val.data;
-		lflags = GUINT32_FROM_LE(lock->flags);
+		lflags = GUINT32_FROM_LE(lock.flags);
 
 		/* pending locks do not conflict */
 		if (lflags & CLFL_PENDING)

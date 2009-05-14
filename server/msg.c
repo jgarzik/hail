@@ -542,7 +542,7 @@ bool msg_open(struct msg_params *mp)
 	pathname_parse(name, name_len, &pinfo);
 
 	/* read inode from db, if it exists */
-	rc = cldb_inode_get_byname(txn, name, name_len, &inode, true, true);
+	rc = cldb_inode_get_byname(txn, name, name_len, &inode, false, DB_RMW);
 	if (rc && (rc != DB_NOTFOUND)) {
 		resp_rc = CLE_DB_ERR;
 		goto err_out;
@@ -583,7 +583,7 @@ bool msg_open(struct msg_params *mp)
 
 		/* read parent, to which we will add new child inode */
 		rc = cldb_inode_get_byname(txn, pinfo.dir, pinfo.dir_len,
-				    &parent, true, true);
+				    &parent, true, 0);
 		if (rc) {
 			resp_rc = CLE_DB_ERR;
 			goto err_out;
@@ -1092,7 +1092,7 @@ bool msg_del(struct msg_params *mp)
 
 	/* read parent, to which we will add new child inode */
 	rc = cldb_inode_get_byname(txn, pinfo.dir, pinfo.dir_len,
-			    &parent, true, true);
+			    &parent, true, DB_RMW);
 	if (rc) {
 		resp_rc = CLE_DB_ERR;
 		goto err_out;
@@ -1107,7 +1107,7 @@ bool msg_del(struct msg_params *mp)
 	}
 
 	/* read inode to be deleted */
-	rc = cldb_inode_get_byname(txn, name, name_len, &ino, false, DB_RMW);
+	rc = cldb_inode_get_byname(txn, name, name_len, &ino, false, 0);
 	if (rc) {
 		if (rc == DB_NOTFOUND)
 			resp_rc = CLE_INODE_INVAL;
