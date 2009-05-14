@@ -397,7 +397,8 @@ int cldc_receive_pkt(struct cldc_session *sess,
 				return ack_seqid(sess, msg->seqid);
 
 			if (sess->verbose)
-				fprintf(stderr, "receive_pkt: bad seqid\n");
+				fprintf(stderr, "receive_pkt: bad seqid %llu\n",
+					(unsigned long long) seqid);
 			return -EBADSLT;
 		}
 		sess->next_seqid_in++;
@@ -976,7 +977,7 @@ int cldc_put(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 
 	sess = fh->sess;
 
-	/* create UNLOCK message */
+	/* create PUT message */
 	msg = cldc_new_msg(sess, copts, cmo_put, sizeof(struct cld_msg_put));
 	if (!msg)
 		return -ENOMEM;
