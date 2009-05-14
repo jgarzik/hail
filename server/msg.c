@@ -158,8 +158,10 @@ static bool dirdata_append(void **data, size_t *data_len,
 	new_len		= orig_len + rec_alloc;
 
 	mem = realloc(*data, new_len);
-	if (!mem)
+	if (!mem) {
+		syslog(LOG_CRIT, "out of memory for data [%lu]", new_len);
 		return false;
+	}
 
 	/* store 16-bit string length, little endian */
 	p = mem + orig_len;
@@ -431,11 +433,10 @@ bool msg_get(struct msg_params *mp, bool metadata_only)
 		int i, seg_len;
 		void *p;
 		char dbuf[CLD_MAX_UDP_SEG];
-		struct cld_msg_data *dr =
-			(struct cld_msg_data *) &dbuf;
+		struct cld_msg_data *dr = (struct cld_msg_data *) &dbuf;
 
 		rc = cldb_data_get(txn, inum, &data_mem, &data_mem_len,
-				   true, false);
+				   false, false);
 
 		/* treat not-found as zero length file, as we may
 		 * not yet have created the data record
@@ -491,7 +492,7 @@ bool msg_get(struct msg_params *mp, bool metadata_only)
 	return true;
 
 err_out:
-	resp_err(mp->sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
+	resp_err(mp->sock, sess, &msg->hdr, resp_rc);
 	free(h);
 	free(inode);
 	free(data_mem);
@@ -572,7 +573,7 @@ bool msg_open(struct msg_params *mp)
 		/* create new in-memory inode */
 		inode = cldb_inode_new(txn, pinfo.base, pinfo.base_len, 0);
 		if (!inode) {
-			syslog(LOG_CRIT, "out of memory");
+			syslog(LOG_CRIT, "cannot allocate new inode");
 			resp_rc = CLE_OOM;
 			goto err_out;
 		}
@@ -600,7 +601,6 @@ bool msg_open(struct msg_params *mp)
 		/* append new record to inode's directory data */
 		if (!dirdata_append(&parent_data, &parent_len,
 				    pinfo.base, pinfo.base_len)) {
-			syslog(LOG_CRIT, "out of memory");
 			resp_rc = CLE_OOM;
 			goto err_out;
 		}
@@ -627,7 +627,7 @@ bool msg_open(struct msg_params *mp)
 	/* alloc & init new handle; updates session's next_fh */
 	h = cldb_handle_new(mp->sess, inum, msg_mode, msg_events);
 	if (!h) {
-		syslog(LOG_CRIT, "out of memory");
+		syslog(LOG_CRIT, "cannot allocate handle");
 		resp_rc = CLE_OOM;
 		goto err_out;
 	}
@@ -655,7 +655,7 @@ bool msg_open(struct msg_params *mp)
 	raw_sess = session_new_raw(mp->sess);
 
 	if (!raw_sess) {
-		syslog(LOG_CRIT, "out of memory");
+		syslog(LOG_CRIT, "cannot allocate session");
 		resp_rc = CLE_OOM;
 		goto err_out;
 	}
@@ -681,7 +681,7 @@ bool msg_open(struct msg_params *mp)
 	return true;
 
 err_out:
-	resp_err(mp->sock, mp->sess, (struct cld_msg_hdr *) msg, resp_rc);
+	resp_err(mp->sock, mp->sess, &msg->hdr, resp_rc);
 	free(parent_data);
 	free(parent);
 	free(inode);
@@ -692,6 +692,7 @@ err_out:
 bool msg_put(struct msg_params *mp)
 {
 	struct cld_msg_put *msg = mp->msg;
+	struct session *sess = mp->sess;
 	uint64_t fh;
 	struct raw_handle *h = NULL;
 	struct raw_inode *inode = NULL;
@@ -701,7 +702,6 @@ bool msg_put(struct msg_params *mp)
 	cldino_t inum;
 	uint32_t omode;
 	DB_TXN *txn = mp->txn;
-	struct session *sess = mp->sess;
 
 	/* make sure input data as large as expected */
 	if (mp->msg_len < sizeof(*msg))
@@ -710,7 +710,7 @@ bool msg_put(struct msg_params *mp)
 	fh = GUINT64_FROM_LE(msg->fh);
 
 	/* read handle from db, for validation */
-	rc = cldb_handle_get(txn, mp->sess->sid, fh, &h, 0);
+	rc = cldb_handle_get(txn, sess->sid, fh, &h, 0);
 	if (rc) {
 		resp_rc = CLE_FH_INVAL;
 		goto err_out;
@@ -739,7 +739,7 @@ bool msg_put(struct msg_params *mp)
 		goto err_out;
 	}
 
-	memcpy(mem, mp->msg, mp->msg_len);
+	memcpy(mem, msg, mp->msg_len);
 
 	/* store PUT message in PUT msg queue */
 	sess->put_q = g_list_append(sess->put_q, mem);
@@ -750,7 +750,7 @@ bool msg_put(struct msg_params *mp)
 	return true;
 
 err_out:
-	resp_err(mp->sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
+	resp_err(mp->sock, sess, &msg->hdr, resp_rc);
 	free(h);
 	free(inode);
 	return false;
@@ -918,14 +918,14 @@ static bool try_commit_data(struct msg_params *mp,
 		goto err_out;
 	}
 
-	resp_ok(mp->sock, sess, (struct cld_msg_hdr *) pmsg);
+	resp_ok(mp->sock, sess, &pmsg->hdr);
 	free(pmsg);
 	free(h);
 	free(inode);
 	return true;
 
 err_out:
-	resp_err(mp->sock, sess, (struct cld_msg_hdr *) pmsg, resp_rc);
+	resp_err(mp->sock, sess, &pmsg->hdr, resp_rc);
 	free(pmsg);
 	free(h);
 	free(inode);
@@ -935,11 +935,11 @@ err_out:
 bool msg_data(struct msg_params *mp)
 {
 	struct cld_msg_data *msg = mp->msg;
+	struct session *sess = mp->sess;
 	GList *tmp;
 	void *mem = NULL;
 	enum cle_err_codes resp_rc = CLE_OK;
 	uint32_t seg_len;
-	struct session *sess = mp->sess;
 
 	/* make sure input data as large as expected */
 	if (mp->msg_len < sizeof(*msg))
@@ -987,7 +987,7 @@ bool msg_data(struct msg_params *mp)
 	return try_commit_data(mp, msg->strid, tmp);
 
 err_out:
-	resp_err(mp->sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
+	resp_err(mp->sock, sess, &msg->hdr, resp_rc);
 	return false;
 }
 
@@ -1045,12 +1045,12 @@ bool msg_close(struct msg_params *mp)
 		}
 	}
 
-	resp_ok(mp->sock, sess, (struct cld_msg_hdr *) msg);
+	resp_ok(mp->sock, sess, &msg->hdr);
 	free(h);
 	return true;
 
 err_out:
-	resp_err(mp->sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
+	resp_err(mp->sock, sess, &msg->hdr, resp_rc);
 	free(h);
 	return false;
 }
@@ -1206,14 +1206,14 @@ bool msg_del(struct msg_params *mp)
 		goto err_out;
 	}
 
-	resp_ok(mp->sock, mp->sess, (struct cld_msg_hdr *) msg);
+	resp_ok(mp->sock, mp->sess, &msg->hdr);
 	free(ino);
 	free(parent);
 	free(parent_data);
 	return true;
 
 err_out:
-	resp_err(mp->sock, mp->sess, (struct cld_msg_hdr *) msg, resp_rc);
+	resp_err(mp->sock, mp->sess, &msg->hdr, resp_rc);
 	free(ino);
 	free(parent);
 	free(parent_data);
@@ -1260,12 +1260,12 @@ bool msg_unlock(struct msg_params *mp)
 		goto err_out;
 	}
 
-	resp_ok(mp->sock, sess, (struct cld_msg_hdr *) msg);
+	resp_ok(mp->sock, sess, &msg->hdr);
 	free(h);
 	return true;
 
 err_out:
-	resp_err(mp->sock, sess, (struct cld_msg_hdr *) msg, resp_rc);
+	resp_err(mp->sock, sess, &msg->hdr, resp_rc);
 	free(h);
 	return false;
 }
@@ -1323,12 +1323,12 @@ bool msg_lock(struct msg_params *mp, bool wait)
 	}
 
 	/* lock was acquired immediately */
-	resp_ok(mp->sock, mp->sess, (struct cld_msg_hdr *) msg);
+	resp_ok(mp->sock, mp->sess, &msg->hdr);
 	free(h);
 	return true;
 
 err_out:
-	resp_err(mp->sock, mp->sess, (struct cld_msg_hdr *) msg, resp_rc);
+	resp_err(mp->sock, mp->sess, &msg->hdr, resp_rc);
 	free(h);
 	return false;
 }
