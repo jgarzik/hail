@@ -983,6 +983,8 @@ int cldc_put(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 		return -ENOMEM;
 
 	put = (struct cld_msg_put *) msg->data;
+	put->fh = fh->fh_le;
+	put->data_size = data_len;
 
 	memset(datamsg, 0, sizeof(datamsg));
 
