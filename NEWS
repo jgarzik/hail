@@ -1,3 +1,19 @@
+Version 0.2 - May 15, 2009
+
+- Client: package and ship pkg-config-enabled libchunkdc
+- Client: add streaming API
+- Client: improve debug output
+- Protocol: sign all messages w/ HMAC
+- Server: add sendfile(2) support, when OS provides it
+- Server: enable TCP_NODELAY, pkt delay really hurt performance
+- Server: improve debug output
+- Server: store PID file in /var/run by default
+- Server: check for invalid text in configuration file
+- Test: print diagnostic timing information to stderr
+- Test: add no-op test
+- Support building on FreeBSD 7.1, OpenSolaris
+- many bug fixes, internal improvements and cleanups
+
 Version 0.1 - March 15, 2009
 
 - initial release

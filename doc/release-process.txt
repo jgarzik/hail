@@ -15,10 +15,11 @@ likely useful to you, unless you are a chunkd maintainer.
 
 	$ vi NEWS
 
-4) commit changes to NEWS and configure.ac, with a commit message
-   along the lines of "Release version 0.3"
+4) commit changes to NEWS and configure.ac, regenerate local configure,
+   with a commit message along the lines of "Release version 0.3"
 
 	$ git commit -a
+	$ ./autogen.sh
 
 5) tag release, with just-committed (in configure.ac) version number:
 
