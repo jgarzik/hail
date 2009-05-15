@@ -1,12 +1,12 @@
 Name:           chunkd
-Version:        0.2git
-Release:        2%{?dist}
+Version:        0.3git
+Release:        1%{?dist}
 Summary:        Data storage daemon
 
 Group:          System Environment/Base
 License:        GPLv2
 URL:            http://www.kernel.org/pub/software/network/distsrv/
-Source0:        chunkd-0.2git.1234abc.tar.gz
+Source0:        chunkd-%{version}.tar.gz
 Source2:        chunkd.init
 Source3:        chunkd.sysconf
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
@@ -85,6 +85,12 @@ fi
 %{_includedir}/*.h
 
 %changelog
+* Fri May 15 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3git-1%{?dist}
+- Bump version to 0.3git
+
+* Fri May 15 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-1%{?dist}
+- Version 0.2
+
 * Wed Mar 18 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2git-2%{?dist}
 - package and ship libchunkdc
 

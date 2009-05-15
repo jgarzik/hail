@@ -32,7 +32,7 @@ m4_define([libchunkdc_revision], [libchunkdc_interface_age])
 m4_define([libchunkdc_age], [m4_eval(libchunkdc_binary_age - libchunkdc_interface_age)])
 m4_define([libchunkdc_version], [libchunkdc_major_version().libchunkdc_minor_version().libchunkdc_micro_version()libchunkdc_extraversion()])
 
-AC_INIT([chunkd], [0.2],
+AC_INIT([chunkd], [0.3git],
         [http://www.kernel.org/pub/software/network/distsrv/])
 
 AC_PREREQ(2.52)
