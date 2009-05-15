@@ -292,36 +292,8 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 	case cmo_new_sess:
 		return msg_new_sess(&mp, cli);
 
-	case cmo_end_sess: {
-		int rc;
-
-		/* transmit response (once, without retries) */
-		alloc_len = sizeof(*resp) + SHA_DIGEST_LENGTH;
-		resp = alloca(alloc_len);
-		memset(resp, 0, alloc_len);
-
-		resp_copy(resp, msg);
-		resp->hdr.seqid = next_seqid_le(&sess->next_seqid_out);
-
-		rc = session_dispose(txn, sess);
-
-		resp->code = GUINT32_TO_LE(rc == 0 ? CLE_OK : CLE_DB_ERR);
-
-		authsign(resp, alloc_len);
-
-		if (debugging)
-			syslog(LOG_DEBUG, "end_sess msg: sid %llx, op %s, seqid %llu",
-			       sid2llu(resp->hdr.sid),
-			       opstr(resp->hdr.op),
-			       (unsigned long long)
-					GUINT64_FROM_LE(resp->hdr.seqid));
-
-		udp_tx(sock, (struct sockaddr *) &cli->addr, cli->addr_len,
-		       resp, alloc_len);
-
-		return (rc == 0) ? true : false;
-	}
-
+	case cmo_end_sess:
+		return msg_end_sess(&mp, cli);
 	case cmo_open:
 		return msg_open(&mp);
 	case cmo_get:

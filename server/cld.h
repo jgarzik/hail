@@ -138,6 +138,7 @@ extern uint64_t next_seqid_le(uint64_t *seq);
 extern guint sess_hash(gconstpointer v);
 extern gboolean sess_equal(gconstpointer _a, gconstpointer _b);
 extern bool msg_new_sess(struct msg_params *, const struct client *);
+extern bool msg_end_sess(struct msg_params *, const struct client *);
 extern struct raw_session *session_new_raw(const struct session *sess);
 extern bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
 		  bool copy_msg);
