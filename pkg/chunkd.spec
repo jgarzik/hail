@@ -1,5 +1,5 @@
 Name:           chunkd
-Version:        0.3git
+Version:        0.3
 Release:        1%{?dist}
 Summary:        Data storage daemon
 
@@ -85,8 +85,8 @@ fi
 %{_includedir}/*.h
 
 %changelog
-* Fri May 15 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3git-1%{?dist}
-- Bump version to 0.3git
+* Fri May 15 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-1%{?dist}
+- Version 0.3
 
 * Fri May 15 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-1%{?dist}
 - Version 0.2

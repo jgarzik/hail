@@ -9,3 +9,6 @@ general:
 	- network protocol should include 'start-tls' command,
 	  and not require separate port for SSL
 
+autotools:
+	- stuff package version into RPM specfile, at configure time
+
