@@ -67,6 +67,18 @@ static void pathname_parse(char *path, size_t path_len,
 		pinfo->base_len = path_len;
 		return;
 	}
+	if (lsl == path) {	/* Special-case root. */
+		pinfo->dir = path;
+		pinfo->dir_len = 1;
+		if (path_len == 1) {
+			pinfo->base = path;
+			pinfo->base_len = 1;
+		} else {
+			pinfo->base = path + 1;
+			pinfo->base_len = path_len - 1;
+		}
+		return;
+	}
 	ofs = lsl - path + 1;
 
 	pinfo->dir = path;
@@ -615,8 +627,11 @@ void msg_open(struct msg_params *mp)
 
 		/* read parent inode data, if any */
 		rc = cldb_data_get(txn, cldino_from_le(parent->inum),
-				   &parent_data, &parent_len, true, true);
-		if (rc) {
+				   &parent_data, &parent_len, false, true);
+		if (rc == DB_NOTFOUND) {
+			parent_data = NULL;
+			parent_len = 0;
+		} else if (rc) {
 			resp_rc = CLE_DB_ERR;
 			goto err_out;
 		}

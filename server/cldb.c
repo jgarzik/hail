@@ -540,8 +540,6 @@ int cldb_inode_put(DB_TXN *txn, struct raw_inode *inode, int put_flags)
 struct raw_inode *cldb_inode_new(DB_TXN *txn, char *name, size_t name_len,
 				 uint32_t flags)
 {
-	struct raw_inode *ino;
-	void *mem;
 	int rc, limit = 100000;
 	bool found = false;
 	cldino_t new_inum = 0;
@@ -566,6 +564,15 @@ struct raw_inode *cldb_inode_new(DB_TXN *txn, char *name, size_t name_len,
 
 	if (!found)
 		return NULL;
+
+	return cldb_inode_mem(name, name_len, flags, new_inum);
+}
+
+struct raw_inode *cldb_inode_mem(char *name, size_t name_len,
+				 uint32_t flags, cldino_t new_inum)
+{
+	struct raw_inode *ino;
+	void *mem;
 
 	/* build in-memory inode */
 	mem = calloc(1, sizeof(*ino) + name_len + ALIGN8(name_len));

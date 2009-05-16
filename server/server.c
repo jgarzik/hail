@@ -79,6 +79,8 @@ struct server cld_srv = {
 	.port			= CLD_DEF_PORT,
 };
 
+static void ensure_root(void);
+
 int udp_tx(struct server_socket *sock, struct sockaddr *addr,
 	   socklen_t addr_len, const void *data, size_t data_len)
 {
@@ -638,6 +640,7 @@ int main (int argc, char *argv[])
 	event_init();
 
 	cldb_init();
+	ensure_root();
 
 	evtimer_set(&cld_srv.chkpt_timer, cldb_checkpoint, NULL);
 	add_chkpt_timer();
@@ -679,5 +682,67 @@ err_out_pid:
 err_out:
 	closelog();
 	return rc;
+}
+
+/*
+ * Check if root inode exists, create if not.
+ */
+static void ensure_root()
+{
+	DB_ENV *dbenv = cld_srv.cldb.env;
+	DB_TXN *txn;
+	struct raw_inode *inode;
+	int rc;
+
+	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
+		exit(1);
+	}
+
+	rc = cldb_inode_get_byname(txn, "/", sizeof("/")-1, &inode, false, 0);
+	if (rc == 0) {
+		if (debugging)
+			syslog(LOG_DEBUG, "Root inode found, ino %llu\n",
+			       (unsigned long long) cldino_from_le(inode->inum));
+	} else if (rc == DB_NOTFOUND) {
+		inode = cldb_inode_mem("/", sizeof("/")-1, CIFL_DIR, INO_ROOT);
+		if (!inode) {
+			syslog(LOG_CRIT, "Cannot allocate new root inode");
+			goto err_;
+		}
+
+		// inode->time_modify = GUINT64_TO_LE(time(NULL));
+		// inode->version = GUINT32_TO_LE(1);
+
+		rc = cldb_inode_put(txn, inode, 0);
+		if (rc) {
+			free(inode);
+			syslog(LOG_CRIT, "Cannot allocate new root inode");
+			goto err_;
+		}
+
+		if (debugging)
+			syslog(LOG_DEBUG, "Root inode created, ino %llu\n",
+			       (unsigned long long) cldino_from_le(inode->inum));
+		free(inode);
+	} else {
+		dbenv->err(dbenv, rc, "Root inode lookup");
+		goto err_;
+	}
+	/* Might as well cache the inode here, maybe later */
+
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_commit");
+		exit(1);
+	}
+	return;
+
+ err_:
+	rc = txn->abort(txn);
+	if (rc)
+		dbenv->err(dbenv, rc, "DB_ENV->txn_abort");
+	exit(1);
 }
 

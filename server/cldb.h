@@ -138,6 +138,8 @@ extern int cldb_inode_get_byname(DB_TXN *txn, char *name, size_t name_len,
 		   int flags);
 extern struct raw_inode *cldb_inode_new(DB_TXN *txn, char *name, size_t name_len,
 				 uint32_t flags);
+extern struct raw_inode *cldb_inode_mem(char *name, size_t name_len,
+				 uint32_t flags, cldino_t new_inum);
 extern size_t raw_ino_size(const struct raw_inode *ino);
 
 extern int cldb_data_put(DB_TXN *txn, cldino_t inum,
