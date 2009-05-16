@@ -82,7 +82,6 @@ struct session {
 struct msg_params {
 	struct server_socket	*sock;
 	const struct client	*cli;
-	DB_TXN			*txn;
 	struct session		*sess;
 
 	void			*msg;
@@ -122,23 +121,23 @@ struct server {
 
 /* msg.c */
 extern int inode_lock_rescan(DB_TXN *txn, cldino_t inum);
-extern bool msg_open(struct msg_params *);
-extern bool msg_put(struct msg_params *);
-extern bool msg_data(struct msg_params *);
-extern bool msg_close(struct msg_params *);
-extern bool msg_del(struct msg_params *);
-extern bool msg_unlock(struct msg_params *);
-extern bool msg_lock(struct msg_params *, bool);
-extern bool msg_ack(struct msg_params *);
-extern bool msg_get(struct msg_params *, bool);
+extern void msg_open(struct msg_params *);
+extern void msg_put(struct msg_params *);
+extern void msg_data(struct msg_params *);
+extern void msg_close(struct msg_params *);
+extern void msg_del(struct msg_params *);
+extern void msg_unlock(struct msg_params *);
+extern void msg_lock(struct msg_params *, bool);
+extern void msg_ack(struct msg_params *);
+extern void msg_get(struct msg_params *, bool);
 
 /* session.c */
 extern unsigned long long sid2llu(const uint8_t *sid);
 extern uint64_t next_seqid_le(uint64_t *seq);
 extern guint sess_hash(gconstpointer v);
 extern gboolean sess_equal(gconstpointer _a, gconstpointer _b);
-extern bool msg_new_sess(struct msg_params *, const struct client *);
-extern bool msg_end_sess(struct msg_params *, const struct client *);
+extern void msg_new_sess(struct msg_params *, const struct client *);
+extern void msg_end_sess(struct msg_params *, const struct client *);
 extern struct raw_session *session_new_raw(const struct session *sess);
 extern bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
 		  bool copy_msg);

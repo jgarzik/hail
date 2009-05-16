@@ -205,7 +205,7 @@ const char *opstr(enum cld_msg_ops op)
 	}
 }
 
-static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
+static void udp_rx(struct server_socket *sock,
 		   const struct client *cli,
 		   uint8_t *raw_msg, size_t msg_len)
 {
@@ -241,7 +241,6 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 
 	mp.sock = sock;
 	mp.cli = cli;
-	mp.txn = txn;
 	mp.sess = sess;
 	mp.msg = raw_msg;
 	mp.msg_len = msg_len;
@@ -264,7 +263,7 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 			if (GUINT64_FROM_LE(msg->seqid) != sess->next_seqid_in) {
 				if (debugging)
 					syslog(LOG_DEBUG, "dropping dup");
-				return false;
+				return;
 			}
 
 			/* received message - update session */
@@ -276,7 +275,7 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 			if (GUINT64_FROM_LE(msg->seqid) != sess->next_seqid_in) {
 				if (debugging)
 					syslog(LOG_DEBUG, "dropping dup");
-				return false;
+				return;
 			}
 
 			resp_rc = CLE_SESS_EXISTS;
@@ -289,38 +288,26 @@ static bool udp_rx(struct server_socket *sock, DB_TXN *txn,
 		resp_ok(sock, sess, msg);
 		break;
 
-	case cmo_new_sess:
-		return msg_new_sess(&mp, cli);
+	case cmo_new_sess:	msg_new_sess(&mp, cli); break;
+	case cmo_end_sess:	msg_end_sess(&mp, cli); break;
+	case cmo_open:		msg_open(&mp); break;
+	case cmo_get:		msg_get(&mp, false); break;
+	case cmo_get_meta:	msg_get(&mp, true); break;
+	case cmo_put:		msg_put(&mp); break;
+	case cmo_data_s:	msg_data(&mp); break;
+	case cmo_close:		msg_close(&mp); break;
+	case cmo_del:		msg_del(&mp); break;
+	case cmo_unlock:	msg_unlock(&mp); break;
+	case cmo_lock:		msg_lock(&mp, true); break;
+	case cmo_trylock:	msg_lock(&mp, false); break;
+	case cmo_ack:		msg_ack(&mp); break;
 
-	case cmo_end_sess:
-		return msg_end_sess(&mp, cli);
-	case cmo_open:
-		return msg_open(&mp);
-	case cmo_get:
-		return msg_get(&mp, false);
-	case cmo_get_meta:
-		return msg_get(&mp, true);
-	case cmo_put:
-		return msg_put(&mp);
-	case cmo_data_s:
-		return msg_data(&mp);
-	case cmo_close:
-		return msg_close(&mp);
-	case cmo_del:
-		return msg_del(&mp);
-	case cmo_unlock:
-		return msg_unlock(&mp);
-	case cmo_lock:
-		return msg_lock(&mp, true);
-	case cmo_trylock:
-		return msg_lock(&mp, false);
-	case cmo_ack:
-		return msg_ack(&mp);
 	default:
-		return false;
+		/* do nothing */
+		break;
 	}
 
-	return true;
+	return;
 
 err_out:
 	/* transmit error response (once, without retries) */
@@ -343,8 +330,6 @@ err_out:
 
 	udp_tx(sock, (struct sockaddr *) &cli->addr, cli->addr_len,
 	       resp, alloc_len);
-
-	return false;
 }
 
 static void udp_srv_event(int fd, short events, void *userdata)
@@ -356,10 +341,6 @@ static void udp_srv_event(int fd, short events, void *userdata)
 	struct msghdr hdr;
 	struct iovec iov[2];
 	uint8_t raw_msg[CLD_RAW_MSG_SZ], ctl_msg[CLD_RAW_MSG_SZ];
-	int rc;
-	DB_ENV *dbenv = cld_srv.cldb.env;
-	DB_TXN *txn;
-	const char *dberrmsg;
 
 	current_time = time(NULL);
 
@@ -393,23 +374,10 @@ static void udp_srv_event(int fd, short events, void *userdata)
 		syslog(LOG_DEBUG, "client %s message (%d bytes)",
 		       host, (int) rrc);
 
-	if (am_master) {
-		rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
-		if (rc) {
-			dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
-			return;
-		}
+	if (am_master)
+		udp_rx(sock, &cli, raw_msg, rrc);
 
-		if (udp_rx(sock, txn, &cli, raw_msg, rrc)) {
-			rc = txn->commit(txn, 0);
-			dberrmsg = "DB_ENV->txn_commit";
-		} else {
-			rc = txn->abort(txn);
-			dberrmsg = "DB_ENV->txn_abort";
-		}
-		if (rc)
-			dbenv->err(dbenv, rc, dberrmsg);
-	} else {
+	else {
 		struct cld_msg_hdr *msg = (struct cld_msg_hdr *) raw_msg;
 		struct cld_msg_resp resp;
 

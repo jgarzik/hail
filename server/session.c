@@ -541,7 +541,7 @@ bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
 	return true;
 }
 
-bool msg_ack(struct msg_params *mp)
+void msg_ack(struct msg_params *mp)
 {
 	struct cld_msg_hdr *outmsg, *msg = mp->msg;
 	GList *tmp, *tmp1;
@@ -549,7 +549,7 @@ bool msg_ack(struct msg_params *mp)
 	struct session_outmsg *om;
 
 	if (!sess->out_q)
-		return true;
+		return;
 
 	/* look through output queue */
 	tmp = sess->out_q;
@@ -579,17 +579,14 @@ bool msg_ack(struct msg_params *mp)
 	if (!sess->out_q)
 		if (evtimer_del(&sess->retry_timer) < 0)
 			syslog(LOG_WARNING, "failed to delete retry timer");
-
-	return true;
 }
 
-bool msg_new_sess(struct msg_params *mp, const struct client *cli)
+void msg_new_sess(struct msg_params *mp, const struct client *cli)
 {
 	struct cld_msg_hdr *msg = mp->msg;
 	DB *db = cld_srv.cldb.sessions;
 	struct raw_session raw_sess;
 	struct session *sess = NULL;
-	DB_TXN *txn = mp->txn;
 	DBT key, val;
 	int rc;
 	struct timeval tv;
@@ -631,7 +628,7 @@ bool msg_new_sess(struct msg_params *mp, const struct client *cli)
 	/* attempt to store session; if session already exists,
 	 * this should fail
 	 */
-	rc = db->put(db, txn, &key, &val, DB_NOOVERWRITE);
+	rc = db->put(db, NULL, &key, &val, DB_NOOVERWRITE);
 	if (rc) {
 		if (rc == DB_KEYEXIST)
 			resp_rc = CLE_SESS_EXISTS;
@@ -649,7 +646,7 @@ bool msg_new_sess(struct msg_params *mp, const struct client *cli)
 		syslog(LOG_WARNING, "evtimer_add session_new failed");
 
 	resp_ok(mp->sock, sess, msg);
-	return true;
+	return;
 
 err_out:
 	session_free(sess);
@@ -675,11 +672,9 @@ err_out:
 
 	if (debugging)
 		syslog(LOG_DEBUG, "NEW-SESS failed: %d", resp_rc);
-
-	return false;
 }
 
-bool msg_end_sess(struct msg_params *mp, const struct client *cli)
+void msg_end_sess(struct msg_params *mp, const struct client *cli)
 {
 	int rc;
 	struct server_socket *sock = mp->sock;
@@ -687,7 +682,9 @@ bool msg_end_sess(struct msg_params *mp, const struct client *cli)
 	struct session *sess = mp->sess;
 	struct cld_msg_resp *resp;
 	size_t alloc_len;
-	DB_TXN *txn = mp->txn;
+	enum cle_err_codes resp_rc = CLE_OK;
+	DB_ENV *dbenv = cld_srv.cldb.env;
+	DB_TXN *txn;
 
 	/* transmit response (once, without retries) */
 	alloc_len = sizeof(*resp) + SHA_DIGEST_LENGTH;
@@ -697,9 +694,26 @@ bool msg_end_sess(struct msg_params *mp, const struct client *cli)
 	resp_copy(resp, msg);
 	resp->hdr.seqid = next_seqid_le(&sess->next_seqid_out);
 
-	rc = session_dispose(txn, sess);
+	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
+		resp_rc = CLE_DB_ERR;
+		goto do_code;
+	}
 
-	resp->code = GUINT32_TO_LE(rc == 0 ? CLE_OK : CLE_DB_ERR);
+	rc = session_dispose(txn, sess);
+	if (rc) {
+		resp_rc = CLE_DB_ERR;
+		txn->abort(txn);
+		goto do_code;
+	}
+
+	rc = txn->commit(txn, 0);
+	if (rc)
+		resp_rc = CLE_DB_ERR;
+
+do_code:
+	resp->code = GUINT32_TO_LE(resp_rc);
 
 	authsign(resp, alloc_len);
 
@@ -712,7 +726,5 @@ bool msg_end_sess(struct msg_params *mp, const struct client *cli)
 
 	udp_tx(sock, (struct sockaddr *) &cli->addr, cli->addr_len,
 	       resp, alloc_len);
-
-	return (rc == 0) ? true : false;
 }
 

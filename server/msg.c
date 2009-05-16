@@ -362,7 +362,7 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 	return rc;
 }
 
-bool msg_get(struct msg_params *mp, bool metadata_only)
+void msg_get(struct msg_params *mp, bool metadata_only)
 {
 	struct cld_msg_get *msg = mp->msg;
 	struct cld_msg_get_resp *resp;
@@ -378,14 +378,22 @@ bool msg_get(struct msg_params *mp, bool metadata_only)
 	size_t data_mem_len = 0;
 	int rc;
 	struct session *sess = mp->sess;
-	DB_TXN *txn = mp->txn;
+	DB_ENV *dbenv = cld_srv.cldb.env;
+	DB_TXN *txn;
 
 	/* make sure input data as large as expected */
 	if (mp->msg_len < sizeof(*msg))
-		return false;
+		return;
 
 	/* get filehandle from input msg */
 	fh = GUINT64_FROM_LE(msg->fh);
+
+	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
+		resp_rc = CLE_DB_ERR;
+		goto err_out_noabort;
+	}
 
 	/* read handle from db */
 	rc = cldb_handle_get(txn, sess->sid, fh, &h, 0);
@@ -486,20 +494,27 @@ bool msg_get(struct msg_params *mp, bool metadata_only)
 		sess_sendmsg(sess, dr, sizeof(*dr), true);
 	}
 
+	rc = txn->commit(txn, 0);
+	if (rc)
+		dbenv->err(dbenv, rc, "msg_get read-only txn commit");
+
 	free(h);
 	free(inode);
 	free(data_mem);
-	return true;
+	return;
 
 err_out:
+	rc = txn->abort(txn);
+	if (rc)
+		dbenv->err(dbenv, rc, "msg_get txn abort");
+err_out_noabort:
 	resp_err(mp->sock, sess, &msg->hdr, resp_rc);
 	free(h);
 	free(inode);
 	free(data_mem);
-	return false;
 }
 
-bool msg_open(struct msg_params *mp)
+void msg_open(struct msg_params *mp)
 {
 	struct cld_msg_open *msg = mp->msg;
 	struct cld_msg_open_resp resp;
@@ -516,18 +531,26 @@ bool msg_open(struct msg_params *mp)
 	uint64_t fh;
 	cldino_t inum;
 	enum cle_err_codes resp_rc = CLE_OK;
-	DB_TXN *txn = mp->txn;
+	DB_ENV *dbenv = cld_srv.cldb.env;
+	DB_TXN *txn;
 
 	/* make sure input data as large as expected */
 	if (mp->msg_len < sizeof(*msg))
-		return false;
+		return;
 
 	msg_mode = GUINT32_FROM_LE(msg->mode);
 	msg_events = GUINT32_FROM_LE(msg->events);
 	name_len = GUINT16_FROM_LE(msg->name_len);
 
 	if (mp->msg_len < (sizeof(*msg) + name_len))
-		return false;
+		return;
+
+	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
+		resp_rc = CLE_DB_ERR;
+		goto err_out_noabort;
+	}
 
 	name = mp->msg + sizeof(*msg);
 
@@ -667,6 +690,13 @@ bool msg_open(struct msg_params *mp)
 		goto err_out;
 	}
 
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "msg_open txn commit");
+		resp_rc = CLE_DB_ERR;
+		goto err_out_noabort;
+	}
+
 	free(parent_data);
 	free(parent);
 	free(inode);
@@ -678,18 +708,21 @@ bool msg_open(struct msg_params *mp)
 	resp.fh = GUINT64_TO_LE(fh);
 	sess_sendmsg(mp->sess, &resp, sizeof(resp), true);
 
-	return true;
+	return;
 
 err_out:
+	rc = txn->abort(txn);
+	if (rc)
+		dbenv->err(dbenv, rc, "msg_get txn abort");
+err_out_noabort:
 	resp_err(mp->sock, mp->sess, &msg->hdr, resp_rc);
 	free(parent_data);
 	free(parent);
 	free(inode);
 	free(raw_sess);
-	return false;
 }
 
-bool msg_put(struct msg_params *mp)
+void msg_put(struct msg_params *mp)
 {
 	struct cld_msg_put *msg = mp->msg;
 	struct session *sess = mp->sess;
@@ -701,13 +734,21 @@ bool msg_put(struct msg_params *mp)
 	int rc;
 	cldino_t inum;
 	uint32_t omode;
-	DB_TXN *txn = mp->txn;
+	DB_ENV *dbenv = cld_srv.cldb.env;
+	DB_TXN *txn;
 
 	/* make sure input data as large as expected */
 	if (mp->msg_len < sizeof(*msg))
-		return false;
+		return;
 
 	fh = GUINT64_FROM_LE(msg->fh);
+
+	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
+		resp_rc = CLE_DB_ERR;
+		goto err_out_noabort;
+	}
 
 	/* read handle from db, for validation */
 	rc = cldb_handle_get(txn, sess->sid, fh, &h, 0);
@@ -732,6 +773,10 @@ bool msg_put(struct msg_params *mp)
 		goto err_out;
 	}
 
+	rc = txn->commit(txn, 0);
+	if (rc)
+		dbenv->err(dbenv, rc, "msg_put read-only txn commit");
+
 	/* copy message */
 	mem = malloc(mp->msg_len);
 	if (!mem) {
@@ -747,16 +792,19 @@ bool msg_put(struct msg_params *mp)
 	free(h);
 	free(inode);
 	resp_ok(mp->sock, sess, &msg->hdr);
-	return true;
+	return;
 
 err_out:
+	rc = txn->abort(txn);
+	if (rc)
+		dbenv->err(dbenv, rc, "msg_get txn abort");
+err_out_noabort:
 	resp_err(mp->sock, sess, &msg->hdr, resp_rc);
 	free(h);
 	free(inode);
-	return false;
 }
 
-static bool try_commit_data(struct msg_params *mp,
+static void try_commit_data(struct msg_params *mp,
 			uint64_t strid, GList *pmsg_ent)
 {
 	struct cld_msg_put *pmsg = pmsg_ent->data;
@@ -773,7 +821,8 @@ static bool try_commit_data(struct msg_params *mp,
 	struct cld_msg_data **darr;
 	struct session *sess = mp->sess;
 	bool have_end_seg = false;
-	DB_TXN *txn = mp->txn;
+	DB_ENV *dbenv = cld_srv.cldb.env;
+	DB_TXN *txn;
 
 	data_size = GUINT32_FROM_LE(pmsg->data_size);
 	tmp_size = 0;
@@ -813,14 +862,14 @@ static bool try_commit_data(struct msg_params *mp,
 
 	/* return if data stream not yet 100% received */
 	if (!have_end_seg || tmp_size < data_size)
-		return true;		/* nothing to do */
+		return;		/* nothing to do */
 
 	/* stream parameter bounds checking */
 	if ((tmp_seg >= CLD_MAX_DATA_MSGS) ||
 	    (nseg > CLD_MAX_DATA_MSGS) ||
 	    (tmp_size > data_size)) {
 		resp_rc = CLE_DATA_INVAL;
-		goto err_out;
+		goto err_out_noabort;
 	}
 
 	/* create array to store pointers to each data packet */
@@ -850,7 +899,7 @@ static bool try_commit_data(struct msg_params *mp,
 		/* prevent duplicate segment numbers */
 		if (darr[tmp_seg]) {
 			resp_rc = CLE_DATA_INVAL;
-			goto err_out;
+			goto err_out_noabort;
 		}
 		darr[tmp_seg] = dmsg;
 	}
@@ -862,10 +911,17 @@ static bool try_commit_data(struct msg_params *mp,
 	for (i = 0; i < nseg; i++)
 		if (!darr[i]) {
 			resp_rc = CLE_DATA_INVAL;
-			goto err_out;
+			goto err_out_noabort;
 		}
 
 	fh = GUINT64_FROM_LE(pmsg->fh);
+
+	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
+		resp_rc = CLE_DB_ERR;
+		goto err_out_noabort;
+	}
 
 	/* read handle from db */
 	rc = cldb_handle_get(txn, sess->sid, fh, &h, 0);
@@ -918,21 +974,31 @@ static bool try_commit_data(struct msg_params *mp,
 		goto err_out;
 	}
 
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "try_commit_data txn commit");
+		resp_rc = CLE_DB_ERR;
+		goto err_out_noabort;
+	}
+
 	resp_ok(mp->sock, sess, &pmsg->hdr);
 	free(pmsg);
 	free(h);
 	free(inode);
-	return true;
+	return;
 
 err_out:
+	rc = txn->abort(txn);
+	if (rc)
+		dbenv->err(dbenv, rc, "msg_get txn abort");
+err_out_noabort:
 	resp_err(mp->sock, sess, &pmsg->hdr, resp_rc);
 	free(pmsg);
 	free(h);
 	free(inode);
-	return false;
 }
 
-bool msg_data(struct msg_params *mp)
+void msg_data(struct msg_params *mp)
 {
 	struct cld_msg_data *msg = mp->msg;
 	struct session *sess = mp->sess;
@@ -943,12 +1009,12 @@ bool msg_data(struct msg_params *mp)
 
 	/* make sure input data as large as expected */
 	if (mp->msg_len < sizeof(*msg))
-		return false;
+		return;
 
 	seg_len = GUINT32_FROM_LE(msg->seg_len);
 
 	if (mp->msg_len < (sizeof(*msg) + seg_len))
-		return false;
+		return;
 
 	/* search for PUT message with seqid == our strid; that is how we
 	 * associate DATA messages with the initial PUT msg
@@ -984,14 +1050,14 @@ bool msg_data(struct msg_params *mp)
 	sess_sendmsg(sess, msg, sizeof(*msg), true);
 
 	/* scan DATA queue for completed stream; commit to db, if found */
-	return try_commit_data(mp, msg->strid, tmp);
+	try_commit_data(mp, msg->strid, tmp);
+	return;
 
 err_out:
 	resp_err(mp->sock, sess, &msg->hdr, resp_rc);
-	return false;
 }
 
-bool msg_close(struct msg_params *mp)
+void msg_close(struct msg_params *mp)
 {
 	struct cld_msg_close *msg = mp->msg;
 	uint64_t fh;
@@ -1000,14 +1066,22 @@ bool msg_close(struct msg_params *mp)
 	struct raw_handle *h = NULL;
 	cldino_t lock_inum = 0;
 	bool waiter = false;
-	DB_TXN *txn = mp->txn;
 	struct session *sess = mp->sess;
+	DB_ENV *dbenv = cld_srv.cldb.env;
+	DB_TXN *txn;
 
 	/* make sure input data as large as expected */
 	if (mp->msg_len < sizeof(*msg))
-		return false;
+		return;
 
 	fh = GUINT64_FROM_LE(msg->fh);
+
+	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
+		resp_rc = CLE_DB_ERR;
+		goto err_out_noabort;
+	}
 
 	/* read handle from db */
 	rc = cldb_handle_get(txn, sess->sid, fh, &h, DB_RMW);
@@ -1045,17 +1119,27 @@ bool msg_close(struct msg_params *mp)
 		}
 	}
 
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "msg_close txn commit");
+		resp_rc = CLE_DB_ERR;
+		goto err_out_noabort;
+	}
+
 	resp_ok(mp->sock, sess, &msg->hdr);
 	free(h);
-	return true;
+	return;
 
 err_out:
+	rc = txn->abort(txn);
+	if (rc)
+		dbenv->err(dbenv, rc, "msg_get txn abort");
+err_out_noabort:
 	resp_err(mp->sock, sess, &msg->hdr, resp_rc);
 	free(h);
-	return false;
 }
 
-bool msg_del(struct msg_params *mp)
+void msg_del(struct msg_params *mp)
 {
 	struct cld_msg_del *msg = mp->msg;
 	enum cle_err_codes resp_rc = CLE_OK;
@@ -1069,26 +1153,34 @@ bool msg_del(struct msg_params *mp)
 	DB *inodes = cld_srv.cldb.inodes;
 	DB *db_data = cld_srv.cldb.data;
 	DB *handle_idx = cld_srv.cldb.handle_idx;
-	DB_TXN *txn = mp->txn;
 	DBT key;
+	DB_ENV *dbenv = cld_srv.cldb.env;
+	DB_TXN *txn;
 
 	/* make sure input data as large as expected */
 	if (mp->msg_len < sizeof(*msg))
-		return false;
+		return;
 
 	name_len = GUINT16_FROM_LE(msg->name_len);
 
 	if (mp->msg_len < (sizeof(*msg) + name_len))
-		return false;
+		return;
 
 	name = mp->msg + sizeof(*msg);
 
 	if (!valid_inode_name(name, name_len) || (name_len < 2)) {
 		resp_rc = CLE_NAME_INVAL;
-		goto err_out;
+		goto err_out_noabort;
 	}
 
 	pathname_parse(name, name_len, &pinfo);
+
+	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
+		resp_rc = CLE_DB_ERR;
+		goto err_out_noabort;
+	}
 
 	/* read parent, to which we will add new child inode */
 	rc = cldb_inode_get_byname(txn, pinfo.dir, pinfo.dir_len,
@@ -1206,21 +1298,31 @@ bool msg_del(struct msg_params *mp)
 		goto err_out;
 	}
 
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "msg_del txn commit");
+		resp_rc = CLE_DB_ERR;
+		goto err_out_noabort;
+	}
+
 	resp_ok(mp->sock, mp->sess, &msg->hdr);
 	free(ino);
 	free(parent);
 	free(parent_data);
-	return true;
+	return;
 
 err_out:
+	rc = txn->abort(txn);
+	if (rc)
+		dbenv->err(dbenv, rc, "msg_get txn abort");
+err_out_noabort:
 	resp_err(mp->sock, mp->sess, &msg->hdr, resp_rc);
 	free(ino);
 	free(parent);
 	free(parent_data);
-	return false;
 }
 
-bool msg_unlock(struct msg_params *mp)
+void msg_unlock(struct msg_params *mp)
 {
 	struct cld_msg_unlock *msg = mp->msg;
 	uint64_t fh;
@@ -1229,14 +1331,22 @@ bool msg_unlock(struct msg_params *mp)
 	int rc;
 	enum cle_err_codes resp_rc = CLE_OK;
 	uint32_t omode;
-	DB_TXN *txn = mp->txn;
 	struct session *sess = mp->sess;
+	DB_ENV *dbenv = cld_srv.cldb.env;
+	DB_TXN *txn;
 
 	/* make sure input data as large as expected */
 	if (mp->msg_len < sizeof(*msg))
-		return false;
+		return;
 
 	fh = GUINT64_FROM_LE(msg->fh);
+
+	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
+		resp_rc = CLE_DB_ERR;
+		goto err_out_noabort;
+	}
 
 	/* read handle from db */
 	rc = cldb_handle_get(txn, sess->sid, fh, &h, 0);
@@ -1260,17 +1370,27 @@ bool msg_unlock(struct msg_params *mp)
 		goto err_out;
 	}
 
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "msg_unlock txn commit");
+		resp_rc = CLE_DB_ERR;
+		goto err_out_noabort;
+	}
+
 	resp_ok(mp->sock, sess, &msg->hdr);
 	free(h);
-	return true;
+	return;
 
 err_out:
+	rc = txn->abort(txn);
+	if (rc)
+		dbenv->err(dbenv, rc, "msg_get txn abort");
+err_out_noabort:
 	resp_err(mp->sock, sess, &msg->hdr, resp_rc);
 	free(h);
-	return false;
 }
 
-bool msg_lock(struct msg_params *mp, bool wait)
+void msg_lock(struct msg_params *mp, bool wait)
 {
 	struct cld_msg_lock *msg = mp->msg;
 	uint64_t fh;
@@ -1280,15 +1400,23 @@ bool msg_lock(struct msg_params *mp, bool wait)
 	enum cle_err_codes resp_rc = CLE_OK;
 	uint32_t lock_flags, omode;
 	bool acquired = false;
-	DB_TXN *txn = mp->txn;
+	DB_ENV *dbenv = cld_srv.cldb.env;
+	DB_TXN *txn;
 	struct session *sess = mp->sess;
 
 	/* make sure input data as large as expected */
 	if (mp->msg_len < sizeof(*msg))
-		return false;
+		return;
 
 	fh = GUINT64_FROM_LE(msg->fh);
 	lock_flags = GUINT32_FROM_LE(msg->flags);
+
+	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
+		resp_rc = CLE_DB_ERR;
+		goto err_out_noabort;
+	}
 
 	/* read handle from db */
 	rc = cldb_handle_get(txn, sess->sid, fh, &h, 0);
@@ -1316,6 +1444,13 @@ bool msg_lock(struct msg_params *mp, bool wait)
 		goto err_out;
 	}
 
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "msg_lock txn commit");
+		resp_rc = CLE_DB_ERR;
+		goto err_out_noabort;
+	}
+
 	/* lock was added, in the waiting-to-be-acquired state */
 	if (!acquired) {
 		resp_rc = CLE_LOCK_PENDING;
@@ -1325,11 +1460,14 @@ bool msg_lock(struct msg_params *mp, bool wait)
 	/* lock was acquired immediately */
 	resp_ok(mp->sock, mp->sess, &msg->hdr);
 	free(h);
-	return true;
+	return;
 
 err_out:
+	rc = txn->abort(txn);
+	if (rc)
+		dbenv->err(dbenv, rc, "msg_get txn abort");
+err_out_noabort:
 	resp_err(mp->sock, mp->sess, &msg->hdr, resp_rc);
 	free(h);
-	return false;
 }
 
