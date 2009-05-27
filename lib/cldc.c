@@ -732,6 +732,15 @@ int cldc_new_sess(const struct cldc_ops *ops,
 	return sess_send(sess, msg);
 }
 
+/*
+ * Force-clean the slate in the library. This may leave the server confused.
+ */
+void cldc_kill_sess(struct cldc_session *sess)
+{
+	sess->ops->timer_ctl(sess->private, false, NULL, NULL, 0);
+	sess_free(sess);
+}
+
 static ssize_t generic_end_cb(struct cldc_msg *msg, const void *resp_p,
 			      size_t resp_len, bool ok)
 {

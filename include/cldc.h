@@ -150,6 +150,7 @@ extern int cldc_new_sess(const struct cldc_ops *ops,
 		  const char *user, const char *secret_key,
 		  void *private,
 		  struct cldc_session **sess_out);
+extern void cldc_kill_sess(struct cldc_session *sess);
 extern int cldc_end_sess(struct cldc_session *sess,
 				const struct cldc_call_opts *copts);
 extern int cldc_nop(struct cldc_session *sess,
