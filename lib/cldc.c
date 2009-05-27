@@ -46,8 +46,6 @@ enum {
 	CLDC_MAX_DATA_PKTS	= (CLDC_MAX_DATA_SZ / CLDC_MAX_DATA_PKT_SZ) + 2,
 };
 
-static time_t cldc_current_time;
-
 static bool authsign(struct cldc_session *sess, void *buf, size_t buflen);
 
 static const struct cld_msg_hdr def_msg_ack = {
@@ -227,7 +225,7 @@ static int cldc_rx_not_master(struct cldc_session *sess,
 	return -55;	/* FIXME */
 }
 
-static void sess_expire_outmsg(struct cldc_session *sess)
+static void sess_expire_outmsg(struct cldc_session *sess, time_t current_time)
 {
 	GList *tmp, *tmp1;
 
@@ -239,13 +237,13 @@ static void sess_expire_outmsg(struct cldc_session *sess)
 		tmp = tmp->next;
 
 		msg = tmp1->data;
-		if (cldc_current_time > msg->expire_time) {
+		if (current_time > msg->expire_time) {
 			free(msg);
 			sess->out_msg = g_list_delete_link(sess->out_msg, tmp1);
 		}
 	}
 
-	sess->msg_scan_time = cldc_current_time + CLDC_MSG_SCAN;
+	sess->msg_scan_time = current_time + CLDC_MSG_SCAN;
 }
 
 static const char *user_key(struct cldc_session *sess, const char *user)
@@ -337,10 +335,11 @@ int cldc_receive_pkt(struct cldc_session *sess,
 {
 	const struct cld_msg_hdr *msg = buf;
 	struct timeval tv;
+	time_t current_time;
 	uint64_t seqid;
 
 	gettimeofday(&tv, NULL);
-	cldc_current_time = tv.tv_sec;
+	current_time = tv.tv_sec;
 
 	if (buflen < sizeof(*msg)) {
 		if (sess->verbose)
@@ -383,8 +382,8 @@ int cldc_receive_pkt(struct cldc_session *sess,
 	}
 
 	/* expire old sess outgoing messages */
-	if (cldc_current_time >= sess->msg_scan_time)
-		sess_expire_outmsg(sess);
+	if (current_time >= sess->msg_scan_time)
+		sess_expire_outmsg(sess, current_time);
 
 	/* verify (or set, for new-sess) sequence id */
 	seqid = GUINT64_FROM_LE(msg->seqid);
@@ -413,7 +412,7 @@ int cldc_receive_pkt(struct cldc_session *sess,
 		sess->next_seqid_in_tr++;
 	}
 
-	sess->expire_time = cldc_current_time + CLDC_SESS_EXPIRE;
+	sess->expire_time = current_time + CLDC_SESS_EXPIRE;
 
 	switch(msg->op) {
 	case cmo_nop:
@@ -519,8 +518,10 @@ static int sess_timer(struct cldc_session *sess, void *priv)
 {
 	struct cldc_msg *msg;
 	GList *tmp = sess->out_msg;
+	struct timeval tv;
 
-	if (cldc_current_time > sess->expire_time) {
+	gettimeofday(&tv, NULL);
+	if (tv.tv_sec > sess->expire_time) {
 		sess_expire(sess);
 		return 0;
 	}
@@ -538,6 +539,8 @@ static int sess_timer(struct cldc_session *sess, void *priv)
 			       msg->data, msg->data_len);
 	}
 
+	sess->ops->timer_ctl(sess->private, true, sess_timer, sess,
+			     CLDC_MSG_RETRY);
 	return CLDC_MSG_RETRY;
 }
 
@@ -676,6 +679,7 @@ int cldc_new_sess(const struct cldc_ops *ops,
 {
 	struct cldc_session *sess;
 	struct cldc_msg *msg;
+	struct timeval tv;
 
 	if (addr_len > sizeof(sess->addr))
 		return -EINVAL;
@@ -718,6 +722,9 @@ int cldc_new_sess(const struct cldc_ops *ops,
 
 	/* save session */
 	*sess_out = sess;
+
+	gettimeofday(&tv, NULL);
+	sess->expire_time = tv.tv_sec + CLDC_SESS_EXPIRE;
 
 	sess->ops->timer_ctl(sess->private, true, sess_timer, sess,
 			     CLDC_MSG_RETRY);
