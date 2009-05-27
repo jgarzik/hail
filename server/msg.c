@@ -1450,7 +1450,7 @@ void msg_lock(struct msg_params *mp, bool wait)
 
 	/* attempt to add lock */
 	rc = cldb_lock_add(txn, sess->sid, fh, inum,
-			   lock_flags & CLF_SHARED, wait, &acquired);
+			   (lock_flags & CLF_SHARED) != 0, wait, &acquired);
 	if (rc) {
 		if (rc == DB_KEYEXIST)
 			resp_rc = CLE_LOCK_CONFLICT;
