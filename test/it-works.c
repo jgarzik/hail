@@ -84,9 +84,7 @@ static int init(void)
 	if (rc)
 		return rc;
 
-#if 0
-	udp->sess->verbose = true;
-#endif
+	// udp->sess->verbose = true;
 
 	event_set(&udp_ev, udp->fd, EV_READ | EV_PERSIST, udp_event, udp);
 
