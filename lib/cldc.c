@@ -27,11 +27,9 @@
 #include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
-#include <fcntl.h>
 #include <errno.h>
-#include <stdio.h>
-#include <netdb.h>
 #include <time.h>
+#include <stdarg.h>
 #include <openssl/sha.h>
 #include <openssl/hmac.h>
 #include <glib.h>
@@ -65,6 +63,15 @@ void rand64(void *p)
 	v[1] = rand();
 }
 
+void cldc_log(const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
+}
+
 static int ack_seqid(struct cldc_session *sess, uint64_t seqid_le)
 {
 	char respbuf[sizeof(struct cld_msg_hdr) + SHA_DIGEST_LENGTH];
@@ -77,7 +84,7 @@ static int ack_seqid(struct cldc_session *sess, uint64_t seqid_le)
 	strcpy(resp->user, sess->user);
 
 	if (!authsign(sess, respbuf, sizeof(respbuf))) {
-		fprintf(stderr, "authsign failed 2\n");
+		sess->act_log("authsign failed 2\n");
 		return -1;
 	}
 
@@ -102,7 +109,7 @@ static int cldc_rx_generic(struct cldc_session *sess,
 		req = tmp->data;
 
 		if (sess->verbose)
-			fprintf(stderr, "rx_gen: comparing req->seqid (%llu) with resp->seqid_in (%llu)\n",
+			sess->act_log("rx_gen: comparing req->seqid (%llu) with resp->seqid_in (%llu)\n",
 			        (unsigned long long)
 					GUINT64_FROM_LE(req->seqid),
 			        (unsigned long long)
@@ -116,7 +123,7 @@ static int cldc_rx_generic(struct cldc_session *sess,
 		return -5;
 
 	if (sess->verbose)
-		fprintf(stderr, "rx_gen: issuing completion and acking\n");
+		sess->act_log("rx_gen: issuing completion and acking\n");
 
 	if (!req->done) {
 		req->done = true;
@@ -269,7 +276,7 @@ static bool authcheck(struct cldc_session *sess, const void *buf, size_t buflen)
 	     md, &md_len);
 
 	if (md_len != SHA_DIGEST_LENGTH)
-		fprintf(stderr, "authsign BUG: md_len != SHA_DIGEST_LENGTH\n");
+		sess->act_log("authsign BUG: md_len != SHA_DIGEST_LENGTH\n");
 
 	if (memcmp(buf + buflen - SHA_DIGEST_LENGTH, md, SHA_DIGEST_LENGTH))
 		return false;
@@ -292,7 +299,7 @@ static bool authsign(struct cldc_session *sess, void *buf, size_t buflen)
 	     md, &md_len);
 
 	if (md_len != SHA_DIGEST_LENGTH)
-		fprintf(stderr, "authsign BUG: md_len != SHA_DIGEST_LENGTH\n");
+		sess->act_log("authsign BUG: md_len != SHA_DIGEST_LENGTH\n");
 
 	memcpy(buf + (buflen - SHA_DIGEST_LENGTH), md, SHA_DIGEST_LENGTH);
 
@@ -337,12 +344,12 @@ int cldc_receive_pkt(struct cldc_session *sess,
 
 	if (buflen < sizeof(*msg)) {
 		if (sess->verbose)
-			fprintf(stderr, "receive_pkt: msg too short\n");
+			sess->act_log("receive_pkt: msg too short\n");
 		return -EPROTO;
 	}
 
 	if (sess->verbose)
-		fprintf(stderr, "receive pkt: len %u, "
+		sess->act_log("receive pkt: len %u, "
 			"op %s, seqid %llu, user %s\n",
 			(unsigned int) buflen,
 			opstr(msg->op),
@@ -351,19 +358,19 @@ int cldc_receive_pkt(struct cldc_session *sess,
 
 	if (buflen < (sizeof(*msg) + SHA_DIGEST_LENGTH)) {
 		if (sess->verbose)
-			fprintf(stderr, "receive_pkt: bad len\n");
+			sess->act_log("receive_pkt: bad len\n");
 		return -EPROTO;
 	}
 	if (memcmp(msg->magic, CLD_MAGIC, sizeof(msg->magic))) {
 		if (sess->verbose)
-			fprintf(stderr, "receive_pkt: bad magic\n");
+			sess->act_log("receive_pkt: bad magic\n");
 		return -EPROTO;
 	}
 
 	/* check HMAC signature */
 	if (!authcheck(sess, buf, buflen)) {
 		if (sess->verbose)
-			fprintf(stderr, "receive_pkt: invalid auth\n");
+			sess->act_log("receive_pkt: invalid auth\n");
 		return -EACCES;
 	}
 
@@ -371,7 +378,7 @@ int cldc_receive_pkt(struct cldc_session *sess,
 	if (((sess->addr_len != net_addrlen) ||
 	    memcmp(sess->addr, net_addr, net_addrlen))) {
 		if (sess->verbose)
-			fprintf(stderr, "receive_pkt: server address mismatch\n");
+			sess->act_log("receive_pkt: server address mismatch\n");
 		return -EBADE;
 	}
 
@@ -387,8 +394,9 @@ int cldc_receive_pkt(struct cldc_session *sess,
 			sess->next_seqid_in - CLDC_MSG_REMEMBER;
 
 		if (sess->verbose)
-			fprintf(stderr, "receive_pkt: setting next_seqid_in to %llu\n",
-				(unsigned long long) seqid);
+			sess->act_log("receive_pkt: "
+					 "setting next_seqid_in to %llu\n",
+					 (unsigned long long) seqid);
 	} else if (msg->op != cmo_not_master) {
 		if (seqid != sess->next_seqid_in) {
 			if (seqid_in_range(seqid,
@@ -397,7 +405,7 @@ int cldc_receive_pkt(struct cldc_session *sess,
 				return ack_seqid(sess, msg->seqid);
 
 			if (sess->verbose)
-				fprintf(stderr, "receive_pkt: bad seqid %llu\n",
+				sess->act_log("receive_pkt: bad seqid %llu\n",
 					(unsigned long long) seqid);
 			return -EBADSLT;
 		}
@@ -685,6 +693,7 @@ int cldc_new_sess(const struct cldc_ops *ops,
 
 	sess->private = private;
 	sess->ops = ops;
+	sess->act_log = ops->printf ? ops->printf : cldc_log;
 	sess->fh = g_array_sized_new(FALSE, TRUE, sizeof(struct cldc_fh), 16);
 	strcpy(sess->user, user);
 	strcpy(sess->secret_key, secret_key);

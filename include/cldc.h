@@ -75,6 +75,7 @@ struct cldc_ops {
 				const void *buf, size_t buflen);
 	void		(*event)(void *private, struct cldc_session *,
 				 struct cldc_fh *, uint32_t);
+	void		(*printf)(const char *fmt, ...);
 };
 
 /** a single CLD client session */
@@ -84,6 +85,7 @@ struct cldc_session {
 	bool		verbose;
 
 	const struct cldc_ops *ops;
+	void		(*act_log)(const char *fmt, ...);
 	void		*private;
 
 	uint8_t		addr[64];		/* server address */
