@@ -103,6 +103,7 @@ struct server {
 
 	char			*data_dir;	/* database/log dir */
 	char			*pid_file;	/* PID file */
+	int			pid_fd;
 
 	char			*port;		/* bind port */
 

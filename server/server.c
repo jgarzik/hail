@@ -627,6 +627,7 @@ int main (int argc, char *argv[])
 	rc = write_pid_file(cld_srv.pid_file);
 	if (rc < 0)
 		goto err_out;
+	cld_srv.pid_fd = rc;
 
 	/*
 	 * properly capture TERM and other signals
@@ -679,6 +680,7 @@ int main (int argc, char *argv[])
 
 err_out_pid:
 	unlink(cld_srv.pid_file);
+	close(cld_srv.pid_fd);
 err_out:
 	closelog();
 	return rc;
