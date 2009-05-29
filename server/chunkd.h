@@ -135,6 +135,7 @@ struct server {
 
 	char			*config;	/* master config file */
 	char			*pid_file;	/* PID file */
+	int			pid_fd;
 
 	GList			*listeners;
 	GList			*sockets;
