@@ -214,7 +214,7 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 
 	rc = hand_idx->cursor(hand_idx, txn, &cur, 0);
 	if (rc) {
-		hand_idx->err(hand_idx, rc, "inode_touch cursor");
+		hand_idx->err(hand_idx, rc, "inode_notify cursor");
 		return rc;
 	}
 
@@ -226,7 +226,7 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 		if (rc) {
 			if (rc != DB_NOTFOUND)
 				hand_idx->err(hand_idx, rc,
-					"inode_touch cursor get");
+					"inode_notify cursor get");
 			break;
 		}
 
@@ -254,7 +254,7 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 
 	rc = cur->close(cur);
 	if (rc)
-		hand_idx->err(hand_idx, rc, "inode_touch cursor close");
+		hand_idx->err(hand_idx, rc, "inode_notify cursor close");
 
 	return 0;
 }
@@ -1197,7 +1197,7 @@ void msg_del(struct msg_params *mp)
 		goto err_out_noabort;
 	}
 
-	/* read parent, to which we will add new child inode */
+	/* read parent, to be modified */
 	rc = cldb_inode_get_byname(txn, pinfo.dir, pinfo.dir_len,
 			    &parent, true, DB_RMW);
 	if (rc) {
