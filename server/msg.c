@@ -606,7 +606,7 @@ void msg_open(struct msg_params *mp)
 
 	if (create) {
 		/* create new in-memory inode */
-		inode = cldb_inode_new(txn, pinfo.base, pinfo.base_len, 0);
+		inode = cldb_inode_new(txn, name, name_len, 0);
 		if (!inode) {
 			syslog(LOG_CRIT, "cannot allocate new inode");
 			resp_rc = CLE_OOM;
