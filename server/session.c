@@ -195,7 +195,7 @@ static int session_remove(DB_TXN *txn, struct session *sess)
 	GArray *locks, *waiters;
 	int gflags;
 
-	memcpy(&hkey.sid, sess->sid, sizeof(sess->sid));
+	memcpy(hkey.sid, sess->sid, sizeof(sess->sid));
 	hkey.fh = 0;
 
 	locks = g_array_sized_new(FALSE, TRUE, sizeof(cldino_t), 128);
@@ -237,7 +237,7 @@ static int session_remove(DB_TXN *txn, struct session *sess)
 		h = pval.data;
 
 		/* verify same sid */
-		if (memcmp(h->sid, sess->sid, sizeof(sess->sid)))
+		if (memcmp(h->sid, sess->sid, CLD_SID_SZ))
 			break;
 
 		if (GUINT32_FROM_LE(h->mode) & COM_LOCK) {
@@ -334,7 +334,7 @@ static void session_ping(struct session *sess)
 	memset(&resp, 0, sizeof(resp));
 	memcpy(&resp.magic, CLD_MAGIC, CLD_MAGIC_SZ);
 	resp.seqid = next_seqid_le(&sess->next_seqid_out);
-	memcpy(&resp.sid, &sess->sid, CLD_SID_SZ);
+	memcpy(resp.sid, sess->sid, CLD_SID_SZ);
 	resp.op = cmo_ping;
 	strcpy(resp.user, sess->user);
 
@@ -597,7 +597,7 @@ void msg_new_sess(struct msg_params *mp, const struct client *cli)
 	}
 
 	/* build raw_session database record */
-	memcpy(&sess->sid, &msg->sid, sizeof(sess->sid));
+	memcpy(sess->sid, msg->sid, sizeof(sess->sid));
 	memcpy(&sess->addr, &cli->addr, sizeof(sess->addr));
 
 	strncpy(sess->user, msg->user, sizeof(sess->user));
@@ -615,7 +615,7 @@ void msg_new_sess(struct msg_params *mp, const struct client *cli)
 	memset(&val, 0, sizeof(val));
 
 	/* key: sid */
-	key.data = &raw_sess.sid;
+	key.data = raw_sess.sid;
 	key.size = sizeof(raw_sess.sid);
 
 	val.data = &raw_sess;

@@ -102,7 +102,7 @@ static int lock_compare(DB *db, const DBT *a_dbt, const DBT *b_dbt)
 		return v;
 
 	/* compare SIDs */
-	v = memcmp(a->sid, b->sid, sizeof(a->sid));
+	v = memcmp(a->sid, b->sid, CLD_SID_SZ);
 	if (v)
 		return v;
 
@@ -419,7 +419,7 @@ int cldb_session_put(DB_TXN *txn, struct raw_session *sess, int put_flags)
 
 	/* key: sid */
 	key.data = sess->sid;
-	key.size = sizeof(sess->sid);
+	key.size = CLD_SID_SZ;
 
 	val.data = sess;
 	val.size = sizeof(*sess);
@@ -687,7 +687,7 @@ int cldb_handle_get(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 	if (h_out)
 		*h_out = NULL;
 
-	memcpy(&hkey.sid, sid, CLD_SID_SZ);
+	memcpy(hkey.sid, sid, CLD_SID_SZ);
 	hkey.fh = GUINT64_TO_LE(fh);
 
 	memset(&key, 0, sizeof(key));
@@ -745,7 +745,7 @@ int cldb_handle_del(DB_TXN *txn, uint8_t *sid, uint64_t fh)
 	DBT key;
 	struct raw_handle_key hkey;
 
-	memcpy(&hkey.sid, sid, CLD_SID_SZ);
+	memcpy(hkey.sid, sid, CLD_SID_SZ);
 	hkey.fh = GUINT64_TO_LE(fh);
 
 	memset(&key, 0, sizeof(key));
@@ -804,7 +804,7 @@ int cldb_lock_del(DB_TXN *txn, uint8_t *sid, uint64_t fh, cldino_t inum)
 		gflags = DB_NEXT_DUP;
 
 		/* if we have a matching (sid,fh), delete rec and end loop */
-		if (!memcmp(lock.sid, sid, sizeof(lock.sid)) &&
+		if (!memcmp(lock.sid, sid, CLD_SID_SZ) &&
 		    (fh == GUINT64_FROM_LE(lock.fh))) {
 			rc = cur->del(cur, 0);
 			if (rc) {
@@ -821,7 +821,7 @@ out:
 	return rc;
 }
 
-static int cldb_lock_find(DB_TXN *txn, uint8_t *sid, uint64_t fh, cldino_t inum,
+static int cldb_lock_find(DB_TXN *txn, uint64_t fh, cldino_t inum,
 		   bool want_shared)
 {
 	DBC *cur;
@@ -896,7 +896,7 @@ int cldb_lock_add(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 		*acquired = false;
 
 	/* search for conflicting lock */
-	rc = cldb_lock_find(txn, sid, fh, inum, shared);
+	rc = cldb_lock_find(txn, fh, inum, shared);
 	if (rc && (rc != DB_NOTFOUND))
 		return rc;
 	if (rc == 0)

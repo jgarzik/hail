@@ -243,7 +243,7 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 		}
 
 		me.hdr.seqid = next_seqid_le(&sess->next_seqid_out);
-		memcpy(&me.hdr.sid, h->sid, sizeof(me.hdr.sid));
+		memcpy(me.hdr.sid, h->sid, sizeof(me.hdr.sid));
 		strcpy(me.hdr.user, sess->user);
 		me.fh = h->fh;
 		me.events = GUINT32_TO_LE(deleted ? CE_DELETED : CE_UPDATED);
@@ -363,7 +363,7 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 		 */
 
 		me.hdr.seqid = next_seqid_le(&sess->next_seqid_out);
-		memcpy(&me.hdr.sid, lock->sid, sizeof(me.hdr.sid));
+		memcpy(me.hdr.sid, lock->sid, sizeof(me.hdr.sid));
 		strcpy(me.hdr.user, sess->user);
 		me.fh = lock->fh;
 		me.events = GUINT32_TO_LE(CE_LOCKED);

@@ -73,12 +73,11 @@ void cldc_log(const char *fmt, ...)
 static int ack_seqid(struct cldc_session *sess, uint64_t seqid_le)
 {
 	char respbuf[sizeof(struct cld_msg_hdr) + SHA_DIGEST_LENGTH];
-	struct cld_msg_hdr *resp =
-		(struct cld_msg_hdr *) respbuf;
+	struct cld_msg_hdr *resp = (struct cld_msg_hdr *) respbuf;
 
 	memcpy(resp, &def_msg_ack, sizeof(*resp));
 	resp->seqid = seqid_le;
-	memcpy(&resp->sid, sess->sid, CLD_SID_SZ);
+	memcpy(resp->sid, sess->sid, CLD_SID_SZ);
 	strcpy(resp->user, sess->user);
 
 	if (!authsign(sess, respbuf, sizeof(respbuf))) {
@@ -478,7 +477,7 @@ static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 	hdr = (struct cld_msg_hdr *) &msg->data[0];
 	memcpy(&hdr->magic, CLD_MAGIC, CLD_MAGIC_SZ);
 	hdr->seqid = msg->seqid;
-	memcpy(&hdr->sid, sess->sid, CLD_SID_SZ);
+	memcpy(hdr->sid, sess->sid, CLD_SID_SZ);
 	hdr->op = op;
 	strcpy(hdr->user, sess->user);
 
