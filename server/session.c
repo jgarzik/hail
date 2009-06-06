@@ -346,7 +346,7 @@ static void session_ping(struct session *sess)
 static void session_timeout(int fd, short events, void *userdata)
 {
 	struct session *sess = userdata;
-	uint64_t sess_expire, *tmp64;
+	uint64_t sess_expire;
 	int rc;
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	DB_TXN *txn;
@@ -370,10 +370,8 @@ static void session_timeout(int fd, short events, void *userdata)
 			return;	/* timer added; do not time out session */
 	}
 
-	tmp64 = (uint64_t *) &sess->sid;
-	syslog(LOG_INFO, "session timeout, addr %s id %016llX",
-		sess->ipaddr,
-		(unsigned long long) GUINT64_FROM_LE(*tmp64));
+	syslog(LOG_INFO, "session timeout, addr %s sid " SIDFMT,
+		sess->ipaddr, SIDARG(sess->sid));
 
 	/* open transaction */
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
@@ -430,13 +428,6 @@ static void om_free(struct session_outmsg *om)
 	free(om);
 }
 
-unsigned long long sid2llu(const uint8_t *sid)
-{
-	const uint64_t *v_le = (const uint64_t *) sid;
-	uint64_t v = GUINT64_FROM_LE(*v_le);
-	return v;
-}
-
 static int sess_retry_output(struct session *sess)
 {
 	GList *tmp, *tmp1;
@@ -457,8 +448,9 @@ static int sess_retry_output(struct session *sess)
 			continue;
 
 		if (debugging)
-			syslog(LOG_DEBUG, "retry: sid %llx, op %s, seqid %llu",
-			       sid2llu(outmsg->sid),
+			syslog(LOG_DEBUG,
+			       "retry: sid " SIDFMT ", op %s, seqid %llu",
+			       SIDARG(outmsg->sid),
 			       opstr(outmsg->op),
 			       (unsigned long long)
 					GUINT64_FROM_LE(outmsg->seqid));
@@ -496,8 +488,8 @@ bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
 	if (debugging) {
 		struct cld_msg_hdr *hdr = msg_;
 
-		syslog(LOG_DEBUG, "sendmsg: sid %llx, op %s, msglen %u, seqid %llu, copy %s",
-		       sid2llu(sess->sid),
+		syslog(LOG_DEBUG, "sendmsg: sid " SIDFMT ", op %s, msglen %u, seqid %llu, copy %s",
+		       SIDARG(sess->sid),
 		       opstr(hdr->op),
 		       (unsigned int) msglen,
 		       (unsigned long long) GUINT64_FROM_LE(hdr->seqid),
@@ -666,8 +658,8 @@ err_out:
 	authsign(resp, alloc_len);
 
 	if (debugging)
-		syslog(LOG_DEBUG, "new_sess err: sid %llx, op %s, seqid %llu",
-		       sid2llu(resp->hdr.sid),
+		syslog(LOG_DEBUG, "new_sess err: sid " SIDFMT ", op %s, seqid %llu",
+		       SIDARG(resp->hdr.sid),
 		       opstr(resp->hdr.op),
 		       (unsigned long long) GUINT64_FROM_LE(resp->hdr.seqid));
 
@@ -722,8 +714,8 @@ do_code:
 	authsign(resp, alloc_len);
 
 	if (debugging)
-		syslog(LOG_DEBUG, "end_sess msg: sid %llx, op %s, seqid %llu",
-		       sid2llu(resp->hdr.sid),
+		syslog(LOG_DEBUG, "end_sess msg: sid " SIDFMT ", op %s, seqid %llu",
+		       SIDARG(resp->hdr.sid),
 		       opstr(resp->hdr.op),
 		       (unsigned long long)
 				GUINT64_FROM_LE(resp->hdr.seqid));

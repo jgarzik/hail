@@ -134,7 +134,6 @@ extern void msg_ack(struct msg_params *);
 extern void msg_get(struct msg_params *, bool);
 
 /* session.c */
-extern unsigned long long sid2llu(const uint8_t *sid);
 extern uint64_t next_seqid_le(uint64_t *seq);
 extern guint sess_hash(gconstpointer v);
 extern gboolean sess_equal(gconstpointer _a, gconstpointer _b);

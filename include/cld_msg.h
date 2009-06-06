@@ -36,6 +36,13 @@ enum {
 	CLD_MAX_DATA_MSGS	= 1024,		/**< max data msgs in a stream */
 };
 
+/*
+ * We use a unified format for sid so it can be searched in log files (* in vi).
+ */
+#define SIDFMT   "%016llX"
+#define SIDARG(sid)  sid2llu(sid)
+extern unsigned long long sid2llu(const uint8_t *sid);
+
 /** available RPC operations */
 enum cld_msg_ops {
 	/* client -> server */

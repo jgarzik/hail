@@ -9,7 +9,7 @@ LINK = $(LIBTOOL) --mode=link $(CC) $(CFLAGS) $(LDFLAGS) -o $@
 
 lib_LTLIBRARIES		= libcldc.la
 
-libcldc_la_SOURCES	= cldc.c cldc-udp.c
+libcldc_la_SOURCES	= cldc.c cldc-udp.c common.c
 
 libcldc_la_LDFLAGS = \
 	-version-info $(LIBCLDC_CURRENT):$(LIBCLDC_REVISION):$(LIBCLDC_AGE) \

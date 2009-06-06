@@ -324,8 +324,9 @@ err_out:
 	authsign(resp, alloc_len);
 
 	if (debugging)
-		syslog(LOG_DEBUG, "udp_rx err: sid %llx, op %s, seqid %llu, code %d",
-		       sid2llu(resp->hdr.sid),
+		syslog(LOG_DEBUG,
+		       "udp_rx err: sid " SIDFMT ", op %s, seqid %llu, code %d",
+		       SIDARG(resp->hdr.sid),
 		       opstr(resp->hdr.op),
 		       (unsigned long long) GUINT64_FROM_LE(resp->hdr.seqid),
 		       resp_rc);

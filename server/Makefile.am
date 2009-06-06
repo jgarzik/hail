@@ -4,6 +4,7 @@ INCLUDES	= -I$(top_srcdir)/include @GLIB_CFLAGS@
 sbin_PROGRAMS	= cld
 
 cld_SOURCES	= cldb.h cld.h \
+		  ../lib/common.c \
 		  cldb.c msg.c server.c session.c util.c
 cld_LDADD	= @CRYPTO_LIBS@ @GLIB_LIBS@ @DB4_LIBS@ @EVENT_LIBS@ \
 		  @ARGP_LIBS@
