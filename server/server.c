@@ -71,7 +71,7 @@ static bool server_running = true;
 static bool am_master = true;
 static bool dump_stats;
 int debugging = 0;
-time_t current_time;
+struct timeval current_time;
 
 struct server cld_srv = {
 	.data_dir		= "/spare/tmp/cld/lib",
@@ -258,7 +258,7 @@ static void udp_rx(struct server_socket *sock,
 			goto err_out;
 		}
 
-		sess->last_contact = time(NULL);
+		sess->last_contact = current_time.tv_sec;
 
 		if (msg->op != cmo_ack) {
 			/* eliminate duplicates; do not return any response */
@@ -344,7 +344,7 @@ static void udp_srv_event(int fd, short events, void *userdata)
 	struct iovec iov[2];
 	uint8_t raw_msg[CLD_RAW_MSG_SZ], ctl_msg[CLD_RAW_MSG_SZ];
 
-	current_time = time(NULL);
+	gettimeofday(&current_time, NULL);
 
 	memset(&cli, 0, sizeof(cli));
 
@@ -404,6 +404,8 @@ static void cldb_checkpoint(int fd, short events, void *userdata)
 {
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	int rc;
+
+	gettimeofday(&current_time, NULL);
 
 	if (debugging)
 		syslog(LOG_INFO, "db4 checkpoint");
@@ -597,8 +599,8 @@ int main (int argc, char *argv[])
 	/* isspace() and strcasecmp() consistency requires this */
 	setlocale(LC_ALL, "C");
 
-	current_time = time(NULL);
-	srand(current_time ^ getpid());
+	gettimeofday(&current_time, NULL);
+	srand(current_time.tv_sec ^ getpid());
 
 	/*
 	 * parse command line
@@ -708,14 +710,15 @@ static void ensure_root()
 			syslog(LOG_DEBUG, "Root inode found, ino %llu\n",
 			       (unsigned long long) cldino_from_le(inode->inum));
 	} else if (rc == DB_NOTFOUND) {
-		inode = cldb_inode_mem("/", sizeof("/")-1, CIFL_DIR, INO_ROOT);
+		inode = cldb_inode_mem("/", sizeof("/")-1, CIFL_DIR, CLD_INO_ROOT);
 		if (!inode) {
 			syslog(LOG_CRIT, "Cannot allocate new root inode");
 			goto err_;
 		}
 
-		// inode->time_modify = GUINT64_TO_LE(time(NULL));
-		// inode->version = GUINT32_TO_LE(1);
+		inode->time_create =
+		inode->time_modify = GUINT64_TO_LE(current_time.tv_sec);
+		inode->version = GUINT32_TO_LE(1);
 
 		rc = cldb_inode_put(txn, inode, 0);
 		if (rc) {

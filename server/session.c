@@ -351,15 +351,17 @@ static void session_timeout(int fd, short events, void *userdata)
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	DB_TXN *txn;
 
+	gettimeofday(&current_time, NULL);
+
 	sess_expire = sess->last_contact + CLD_SESS_TIMEOUT;
-	if (sess_expire > current_time) {
+	if (sess_expire > current_time.tv_sec) {
 		struct timeval tv;
 
 		if (!sess->ping_open &&
 		    (sess_expire > (sess->last_contact + (CLD_SESS_TIMEOUT / 2))))
 			session_ping(sess);
 
-		tv.tv_sec = ((sess_expire - current_time) / 2) + 1;
+		tv.tv_sec = ((sess_expire - current_time.tv_sec) / 2) + 1;
 		tv.tv_usec = 0;
 
 		if (evtimer_add(&sess->timer, &tv) < 0)
@@ -451,7 +453,7 @@ static int sess_retry_output(struct session *sess)
 		om = tmp1->data;
 		outmsg = om->msg;
 
-		if (current_time < om->next_retry)
+		if (current_time.tv_sec < om->next_retry)
 			continue;
 
 		if (debugging)
@@ -476,6 +478,8 @@ static void session_retry(int fd, short events, void *userdata)
 {
 	struct session *sess = userdata;
 	struct timeval tv = { CLD_RETRY_START, 0 };
+
+	gettimeofday(&current_time, NULL);
 
 	sess_retry_output(sess);
 
@@ -518,7 +522,7 @@ bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
 
 	om->msg = msg;
 	om->msglen = msglen;
-	om->next_retry = current_time + CLD_RETRY_START;
+	om->next_retry = current_time.tv_sec + CLD_RETRY_START;
 
 	if (!authsign(msg, msglen)) {
 		free(msg);
@@ -610,7 +614,7 @@ void msg_new_sess(struct msg_params *mp, const struct client *cli)
 	sess->sock = mp->sock;
 	sess->addr_len = cli->addr_len;
 	strncpy(sess->ipaddr, cli->addr_host, sizeof(sess->ipaddr));
-	sess->last_contact = current_time;
+	sess->last_contact = current_time.tv_sec;
 	sess->next_seqid_in = GUINT64_FROM_LE(msg->seqid) + 1;
 
 	session_encode(&raw_sess, sess);

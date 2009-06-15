@@ -59,8 +59,8 @@ struct raw_handle {
 };
 
 enum {
-	INO_ROOT		= 10,
-	INO_RESERVED_LAST	= 50,
+	CLD_INO_ROOT		= 10,
+	CLD_INO_RESERVED_LAST	= 50,
 };
 
 enum inode_flags {

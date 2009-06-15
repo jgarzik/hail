@@ -21,6 +21,7 @@
 
 
 #include <netinet/in.h>
+#include <sys/time.h>
 #include <event.h>
 #include <glib.h>
 #include "cldb.h"
@@ -150,7 +151,7 @@ extern int session_remove_locks(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 extern const char *opstr(enum cld_msg_ops op);
 extern struct server cld_srv;
 extern int debugging;
-extern time_t current_time;
+extern struct timeval current_time;
 extern int udp_tx(struct server_socket *, struct sockaddr *, socklen_t,
 	    const void *, size_t);
 extern void resp_copy(struct cld_msg_resp *resp, const struct cld_msg_hdr *src);

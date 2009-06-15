@@ -551,7 +551,7 @@ struct raw_inode *cldb_inode_new(DB_TXN *txn, char *name, size_t name_len,
 	while (limit-- > 0) {
 		new_inum = (cldino_t) rand();
 
-		if (new_inum <= INO_RESERVED_LAST)
+		if (new_inum <= CLD_INO_RESERVED_LAST)
 			continue;
 
 		rc = cldb_inode_get(txn, new_inum, NULL, false, 0);
@@ -583,7 +583,7 @@ struct raw_inode *cldb_inode_mem(char *name, size_t name_len,
 	ino->inum = cldino_to_le(new_inum);
 	ino->ino_len = GUINT32_TO_LE(name_len);
 	ino->time_create =
-	ino->time_modify = GUINT64_TO_LE(current_time);
+	ino->time_modify = GUINT64_TO_LE(current_time.tv_sec);
 	ino->flags = GUINT32_TO_LE(flags);
 
 	memcpy(mem + sizeof(*ino), name, name_len);
@@ -919,7 +919,7 @@ int cldb_lock_add(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 	lock.inum = cldino_to_le(inum);
 	memcpy(lock.sid, sid, sizeof(lock.sid));
 	lock.fh = GUINT64_TO_LE(fh);
-	lock.ctime = GUINT64_TO_LE(current_time);
+	lock.ctime = GUINT64_TO_LE(current_time.tv_sec);
 	lock.flags = GUINT32_TO_LE(lock_flags);
 
 	memset(&key, 0, sizeof(key));

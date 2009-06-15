@@ -263,7 +263,9 @@ static int inode_touch(DB_TXN *txn, struct raw_inode *ino)
 {
 	int rc;
 
-	ino->time_modify = GUINT64_TO_LE(current_time);
+	ino->time_modify = GUINT64_TO_LE(current_time.tv_sec);
+	if (!ino->time_create)
+		ino->time_create = ino->time_modify;
 	ino->version = GUINT32_TO_LE(GUINT32_FROM_LE(ino->version) + 1);
 
 	/* write parent inode */
