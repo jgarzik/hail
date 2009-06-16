@@ -99,7 +99,7 @@ static int cldc_rx_generic(struct cldc_session *sess,
 	GList *tmp;
 
 	if (buflen < sizeof(*resp))
-		return -8;
+		return -1008;
 
 	tmp = sess->out_msg;
 	while (tmp) {
@@ -117,7 +117,7 @@ static int cldc_rx_generic(struct cldc_session *sess,
 		tmp = tmp->next;
 	}
 	if (!tmp)
-		return -5;
+		return -1005;
 
 	if (sess->verbose)
 		sess->act_log("rx_gen: issuing completion and acking\n");
@@ -145,13 +145,13 @@ static int cldc_rx_data_c(struct cldc_session *sess,
 	const void *p;
 
 	if (buflen < sizeof(*data))
-		return -8;
+		return -1008;
 
 	seg = GUINT32_FROM_LE(data->seg);
 	seg_len = GUINT32_FROM_LE(data->seg_len);
 
 	if (buflen < (sizeof(*data) + seg_len))
-		return -8;
+		return -1008;
 
 	/* look for stream w/ our strid */
 	tmp = sess->streams;
@@ -164,14 +164,22 @@ static int cldc_rx_data_c(struct cldc_session *sess,
 
 	/* if not found, return */
 	if (!tmp)
-		return -9;
+		return -1009;
 
 	/* verify segment number is what we expect */
-	if (seg != str->next_seg)
-		return -10;
+	if (seg != str->next_seg) {
+		if (sess->verbose)
+			sess->act_log("rx_data: seg mismatch %u expect %u\n",
+				      seg, str->next_seg);
+		return -1010;
+	}
 
-	if (seg_len > str->size_left)
-		return -10;
+	if (seg_len > str->size_left) {
+		if (sess->verbose)
+			sess->act_log("rx_data: verflow seg_len %u left %u\n",
+				      seg_len, str->size_left);
+		return -1011;
+	}
 
 	p = data;
 	p += sizeof(*data);
@@ -205,7 +213,7 @@ static int cldc_rx_event(struct cldc_session *sess,
 	int i;
 
 	if (buflen < sizeof(*ev))
-		return -8;
+		return -1008;
 
 	for (i = 0; i < sess->fh->len; i++) {
 		fh = &g_array_index(sess->fh, struct cldc_fh, i);
@@ -216,7 +224,7 @@ static int cldc_rx_event(struct cldc_session *sess,
 	}
 
 	if (!fh)
-		return -11;
+		return -1011;
 
 	sess->ops->event(sess->private, sess, fh,
 			 GUINT32_FROM_LE(ev->events));
@@ -227,7 +235,7 @@ static int cldc_rx_event(struct cldc_session *sess,
 static int cldc_rx_not_master(struct cldc_session *sess,
 			   const void *buf, size_t buflen)
 {
-	return -55;	/* FIXME */
+	return -1055;	/* FIXME */
 }
 
 static void sess_expire_outmsg(struct cldc_session *sess, time_t current_time)
