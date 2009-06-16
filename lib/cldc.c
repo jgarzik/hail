@@ -179,9 +179,10 @@ static int cldc_rx_data_c(struct cldc_session *sess,
 
 	str->bufp += seg_len;
 	str->size_left -= seg_len;
+	str->next_seg++;
 
-	/* if no bytes left, process completion */
-	if (!str->size_left && str->copts.cb) {
+	/* if terminator, process completion */
+	if (seg_len == 0 && str->copts.cb) {
 		str->copts.cb(&str->copts, CLE_OK);
 		sess->streams = g_list_delete_link(sess->streams, tmp);
 		memset(str, 0, sizeof(*str));
