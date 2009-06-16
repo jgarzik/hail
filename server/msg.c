@@ -483,9 +483,7 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 
 		/* break up data_mem into individual packets */
 		while (data_mem_len > 0) {
-			seg_len = MIN(CLD_MAX_UDP_SEG, data_mem_len);
-
-			seg_len -= sizeof(*dr);
+			seg_len = MIN(CLD_MAX_UDP_SEG - sizeof(*dr), data_mem_len);
 
 			dr->hdr.seqid = next_seqid_le(&sess->next_seqid_out);
 			dr->strid = resp->resp.hdr.seqid;
