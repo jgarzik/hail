@@ -20,6 +20,8 @@ struct cldc_call_opts {
 	union {
 		struct {
 			struct cld_msg_get_resp resp;
+			char *buf;
+			unsigned int size;
 			char inode_name[CLD_INODE_NAME_MAX];
 		} get;
 	} u;

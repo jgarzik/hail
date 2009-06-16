@@ -183,6 +183,11 @@ static int cldc_rx_data_c(struct cldc_session *sess,
 
 	/* if terminator, process completion */
 	if (seg_len == 0 && str->copts.cb) {
+		if (str->size_left)
+			sess->act_log("rx_data: size %u short by %u\n",
+				      str->size, str->size_left);
+		str->copts.u.get.buf = str->buf;
+		str->copts.u.get.size = str->size - str->size_left;
 		str->copts.cb(&str->copts, CLE_OK);
 		sess->streams = g_list_delete_link(sess->streams, tmp);
 		memset(str, 0, sizeof(*str));
