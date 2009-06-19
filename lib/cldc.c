@@ -525,6 +525,7 @@ static void sess_expire(struct cldc_session *sess)
 	sess->ops->timer_ctl(sess->private, false, NULL, NULL, 0);
 
 	sess->ops->event(sess->private, sess, NULL, CE_SESS_FAILED);
+	/* FIXME why not sess_free here */
 }
 
 static int sess_timer(struct cldc_session *sess, void *priv)
