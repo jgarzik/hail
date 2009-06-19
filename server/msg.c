@@ -536,7 +536,7 @@ err_out:
 	if (rc)
 		dbenv->err(dbenv, rc, "msg_get txn abort");
 err_out_noabort:
-	resp_err(mp->sock, sess, &msg->hdr, resp_rc);
+	resp_err(sess, &msg->hdr, resp_rc);
 	free(h);
 	free(inode);
 	free(data_mem);
@@ -746,7 +746,7 @@ err_out:
 	if (rc)
 		dbenv->err(dbenv, rc, "msg_get txn abort");
 err_out_noabort:
-	resp_err(mp->sock, mp->sess, &msg->hdr, resp_rc);
+	resp_err(mp->sess, &msg->hdr, resp_rc);
 	free(parent_data);
 	free(parent);
 	free(inode);
@@ -822,7 +822,7 @@ void msg_put(struct msg_params *mp)
 
 	free(h);
 	free(inode);
-	resp_ok(mp->sock, sess, &msg->hdr);
+	resp_ok(sess, &msg->hdr);
 	return;
 
 err_out:
@@ -830,7 +830,7 @@ err_out:
 	if (rc)
 		dbenv->err(dbenv, rc, "msg_get txn abort");
 err_out_noabort:
-	resp_err(mp->sock, sess, &msg->hdr, resp_rc);
+	resp_err(sess, &msg->hdr, resp_rc);
 	free(h);
 	free(inode);
 }
@@ -1012,7 +1012,7 @@ static void try_commit_data(struct msg_params *mp,
 		goto err_out_noabort;
 	}
 
-	resp_ok(mp->sock, sess, &pmsg->hdr);
+	resp_ok(sess, &pmsg->hdr);
 	free(pmsg);
 	free(h);
 	free(inode);
@@ -1023,7 +1023,7 @@ err_out:
 	if (rc)
 		dbenv->err(dbenv, rc, "msg_get txn abort");
 err_out_noabort:
-	resp_err(mp->sock, sess, &pmsg->hdr, resp_rc);
+	resp_err(sess, &pmsg->hdr, resp_rc);
 	free(pmsg);
 	free(h);
 	free(inode);
@@ -1085,7 +1085,7 @@ void msg_data(struct msg_params *mp)
 	return;
 
 err_out:
-	resp_err(mp->sock, sess, &msg->hdr, resp_rc);
+	resp_err(sess, &msg->hdr, resp_rc);
 }
 
 void msg_close(struct msg_params *mp)
@@ -1157,7 +1157,7 @@ void msg_close(struct msg_params *mp)
 		goto err_out_noabort;
 	}
 
-	resp_ok(mp->sock, sess, &msg->hdr);
+	resp_ok(sess, &msg->hdr);
 	free(h);
 	return;
 
@@ -1166,7 +1166,7 @@ err_out:
 	if (rc)
 		dbenv->err(dbenv, rc, "msg_get txn abort");
 err_out_noabort:
-	resp_err(mp->sock, sess, &msg->hdr, resp_rc);
+	resp_err(sess, &msg->hdr, resp_rc);
 	free(h);
 }
 
@@ -1336,7 +1336,7 @@ void msg_del(struct msg_params *mp)
 		goto err_out_noabort;
 	}
 
-	resp_ok(mp->sock, mp->sess, &msg->hdr);
+	resp_ok(mp->sess, &msg->hdr);
 	free(ino);
 	free(parent);
 	free(parent_data);
@@ -1347,7 +1347,7 @@ err_out:
 	if (rc)
 		dbenv->err(dbenv, rc, "msg_get txn abort");
 err_out_noabort:
-	resp_err(mp->sock, mp->sess, &msg->hdr, resp_rc);
+	resp_err(mp->sess, &msg->hdr, resp_rc);
 	free(ino);
 	free(parent);
 	free(parent_data);
@@ -1408,7 +1408,7 @@ void msg_unlock(struct msg_params *mp)
 		goto err_out_noabort;
 	}
 
-	resp_ok(mp->sock, sess, &msg->hdr);
+	resp_ok(sess, &msg->hdr);
 	free(h);
 	return;
 
@@ -1417,7 +1417,7 @@ err_out:
 	if (rc)
 		dbenv->err(dbenv, rc, "msg_get txn abort");
 err_out_noabort:
-	resp_err(mp->sock, sess, &msg->hdr, resp_rc);
+	resp_err(sess, &msg->hdr, resp_rc);
 	free(h);
 }
 
@@ -1489,7 +1489,7 @@ void msg_lock(struct msg_params *mp, bool wait)
 	}
 
 	/* lock was acquired immediately */
-	resp_ok(mp->sock, mp->sess, &msg->hdr);
+	resp_ok(mp->sess, &msg->hdr);
 	free(h);
 	return;
 
@@ -1498,7 +1498,7 @@ err_out:
 	if (rc)
 		dbenv->err(dbenv, rc, "msg_get txn abort");
 err_out_noabort:
-	resp_err(mp->sock, mp->sess, &msg->hdr, resp_rc);
+	resp_err(mp->sess, &msg->hdr, resp_rc);
 	free(h);
 }
 

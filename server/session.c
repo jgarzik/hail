@@ -673,7 +673,7 @@ void msg_new_sess(struct msg_params *mp, const struct client *cli)
 	if (evtimer_add(&sess->timer, &tv) < 0)
 		syslog(LOG_WARNING, "evtimer_add session_new failed");
 
-	resp_ok(mp->sock, sess, msg);
+	resp_ok(sess, msg);
 	return;
 
 err_out:

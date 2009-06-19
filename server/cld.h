@@ -156,10 +156,9 @@ extern struct timeval current_time;
 extern int udp_tx(struct server_socket *, struct sockaddr *, socklen_t,
 	    const void *, size_t);
 extern void resp_copy(struct cld_msg_resp *resp, const struct cld_msg_hdr *src);
-extern void resp_err(struct server_socket *, struct session *,
+extern void resp_err(struct session *,
 		     struct cld_msg_hdr *, enum cle_err_codes);
-extern void resp_ok(struct server_socket *, struct session *,
-		    struct cld_msg_hdr *);
+extern void resp_ok(struct session *, struct cld_msg_hdr *);
 extern bool authsign(void *buf, size_t buflen);
 
 /* util.c */

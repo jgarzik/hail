@@ -104,7 +104,7 @@ void resp_copy(struct cld_msg_resp *resp, const struct cld_msg_hdr *src)
 	resp->seqid_in = src->seqid;
 }
 
-void resp_err(struct server_socket *sock, struct session *sess,
+void resp_err(struct session *sess,
 		     struct cld_msg_hdr *msg, enum cle_err_codes errcode)
 {
 	struct cld_msg_resp resp;
@@ -120,10 +120,9 @@ void resp_err(struct server_socket *sock, struct session *sess,
 	sess_sendmsg(sess, &resp, sizeof(resp), true);
 }
 
-void resp_ok(struct server_socket *sock, struct session *sess,
-		    struct cld_msg_hdr *msg)
+void resp_ok(struct session *sess, struct cld_msg_hdr *msg)
 {
-	resp_err(sock, sess, msg, CLE_OK);
+	resp_err(sess, msg, CLE_OK);
 }
 
 static const char *user_key(const char *user)
@@ -292,7 +291,7 @@ static void udp_rx(struct server_socket *sock,
 
 	switch(msg->op) {
 	case cmo_nop:
-		resp_ok(sock, sess, msg);
+		resp_ok(sess, msg);
 		break;
 
 	case cmo_new_sess:	msg_new_sess(&mp, cli); break;
