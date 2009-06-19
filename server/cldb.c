@@ -821,8 +821,7 @@ out:
 	return rc;
 }
 
-static int cldb_lock_find(DB_TXN *txn, uint64_t fh, cldino_t inum,
-		   bool want_shared)
+static int cldb_lock_find(DB_TXN *txn, cldino_t inum, bool want_shared)
 {
 	DBC *cur;
 	DB *db_locks = cld_srv.cldb.locks;
@@ -896,7 +895,7 @@ int cldb_lock_add(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 		*acquired = false;
 
 	/* search for conflicting lock */
-	rc = cldb_lock_find(txn, fh, inum, shared);
+	rc = cldb_lock_find(txn, inum, shared);
 	if (rc && (rc != DB_NOTFOUND))
 		return rc;
 	if (rc == 0)
