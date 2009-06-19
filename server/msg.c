@@ -820,9 +820,14 @@ void msg_put(struct msg_params *mp)
 	/* store PUT message in PUT msg queue */
 	sess->put_q = g_list_append(sess->put_q, mem);
 
+	/*
+	 * In all other cases we ack here, but in put we do it in
+	 * try_to_commit_data, so that we can report the result of commit.
+	 */
+	// resp_ok(sess, &msg->hdr);
+
 	free(h);
 	free(inode);
-	resp_ok(sess, &msg->hdr);
 	return;
 
 err_out:
@@ -1078,7 +1083,7 @@ void msg_data(struct msg_params *mp)
 	/* store DATA message on DATA msg queue */
 	sess->data_q = g_list_append(sess->data_q, mem);
 
-	sess_sendmsg(sess, msg, sizeof(*msg), true);
+	resp_ok(sess, &msg->hdr);
 
 	/* scan DATA queue for completed stream; commit to db, if found */
 	try_commit_data(mp, msg->strid, tmp);
