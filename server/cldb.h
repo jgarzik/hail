@@ -34,10 +34,13 @@ struct session;
 
 struct raw_session {
 	uint8_t			sid[CLD_SID_SZ]; /* session id */
+	uint16_t		addr_len;
 	char			addr[64];	/* IP address */
 	char			user[CLD_MAX_USERNAME];	/* username */
 	uint64_t		last_contact;	/* time of last contact */
 	uint64_t		next_fh;	/* next fh */
+	uint64_t		next_seqid_in;
+	uint64_t		next_seqid_out;
 };
 
 struct raw_handle_key {

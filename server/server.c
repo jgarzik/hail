@@ -113,6 +113,10 @@ void resp_err(struct server_socket *sock, struct session *sess,
 	resp.hdr.seqid = next_seqid_le(&sess->next_seqid_out);
 	resp.code = GUINT32_TO_LE(errcode);
 
+	if (sess->sock == NULL) {
+		syslog(LOG_ERR, "Nul sock in response\n");
+		return;
+	}
 	sess_sendmsg(sess, &resp, sizeof(resp), true);
 }
 
@@ -259,6 +263,7 @@ static void udp_rx(struct server_socket *sock,
 		}
 
 		sess->last_contact = current_time.tv_sec;
+		sess->sock = sock;	/* FIXME refcount for changed sockets */
 
 		if (msg->op != cmo_ack) {
 			/* eliminate duplicates; do not return any response */
@@ -652,6 +657,10 @@ int main (int argc, char *argv[])
 	cld_srv.sessions = g_hash_table_new(sess_hash, sess_equal);
 	cld_srv.timers = g_queue_new();
 	if (!cld_srv.sessions || !cld_srv.timers)
+		goto err_out_pid;
+
+	rc = 1;
+	if (sess_load(cld_srv.sessions) != 0)
 		goto err_out_pid;
 
 	/* set up server networking */

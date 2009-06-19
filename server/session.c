@@ -21,6 +21,8 @@
 
 #include "cld-config.h"
 
+#include <sys/socket.h>
+#include <netdb.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -30,6 +32,7 @@
 
 static void session_retry(int fd, short events, void *userdata);
 static void session_timeout(int fd, short events, void *userdata);
+static int sess_load_db(GHashTable *ss, DB_TXN *txn);
 
 void rand64(void *p)
 {
@@ -358,7 +361,8 @@ static void session_timeout(int fd, short events, void *userdata)
 		struct timeval tv;
 
 		if (!sess->ping_open &&
-		    (sess_expire > (sess->last_contact + (CLD_SESS_TIMEOUT / 2))))
+		    (sess_expire > (sess->last_contact + (CLD_SESS_TIMEOUT / 2) &&
+		    sess->sock)))
 			session_ping(sess);
 
 		tv.tv_sec = ((sess_expire - current_time.tv_sec) / 2) + 1;
@@ -397,13 +401,41 @@ static void session_timeout(int fd, short events, void *userdata)
 
 static void session_encode(struct raw_session *raw, const struct session *sess)
 {
-	memcpy(raw, sess, CLD_SID_SZ + CLD_IPADDR_SZ);
+	memcpy(raw, sess, CLD_SID_SZ);
 
-	strncpy(raw->user, sess->user, sizeof(raw->user));
-	raw->user[sizeof(raw->user) - 1] = 0;
+	raw->addr_len = GUINT16_TO_LE(sess->addr_len);
+	memcpy(&raw->addr, &sess->addr, sess->addr_len);
+
+	memcpy(raw->user, sess->user, CLD_MAX_USERNAME);
 
 	raw->last_contact = GUINT64_TO_LE(sess->last_contact);
 	raw->next_fh = GUINT64_TO_LE(sess->next_fh);
+	raw->next_seqid_in = GUINT64_TO_LE(sess->next_seqid_in);
+	raw->next_seqid_out = GUINT64_TO_LE(sess->next_seqid_out);
+}
+
+static void session_decode(struct session *sess, const struct raw_session *raw)
+{
+	/*
+	 * The sess->sock is going to get filled on first message from client.
+	 */
+
+	memcpy(sess->sid, raw->sid, sizeof(sess->sid));
+
+	sess->addr_len = GUINT16_FROM_LE(raw->addr_len);
+	memcpy(&sess->addr, &raw->addr, sess->addr_len);
+
+	getnameinfo((struct sockaddr *) &sess->addr, sess->addr_len,
+		    sess->ipaddr, CLD_IPADDR_SZ, NULL, 0, NI_NUMERICHOST);
+	sess->ipaddr[CLD_IPADDR_SZ - 1] = 0;
+
+	sess->last_contact = GUINT64_FROM_LE(raw->last_contact);
+	sess->next_fh = GUINT64_FROM_LE(raw->next_fh);
+
+	sess->next_seqid_out = GUINT64_FROM_LE(raw->next_seqid_out);
+	sess->next_seqid_in = GUINT64_FROM_LE(raw->next_seqid_in);
+
+	memcpy(sess->user, raw->user, CLD_MAX_USERNAME);
 }
 
 struct raw_session *session_new_raw(const struct session *sess)
@@ -722,5 +754,96 @@ do_code:
 
 	udp_tx(sock, (struct sockaddr *) &cli->addr, cli->addr_len,
 	       resp, alloc_len);
+}
+
+/*
+ * Fill ss with contents of the database.
+ * Returns -1 on error because it prints the diagnostic to syslog.
+ */
+int sess_load(GHashTable *ss)
+{
+	DB_ENV *dbenv = cld_srv.cldb.env;
+	DB_TXN *txn;
+	int rc;
+
+	/*
+	 * We're not sure if transactions are actually necessary for r/o
+	 * accesses, but let's do it for commonality. They don't seem to hurt.
+	 */
+	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
+		return -1;
+	}
+
+	if (sess_load_db(ss, txn) != 0) {
+		txn->abort(txn);
+		return -1;
+	}
+
+	rc = txn->commit(txn, 0);
+	if (rc)
+		dbenv->err(dbenv, rc, "DB_ENV->txn_commit");
+
+	return 0;
+}
+
+static int sess_load_db(GHashTable *ss, DB_TXN *txn)
+{
+	DB *db = cld_srv.cldb.sessions;
+	DBC *cur;
+	DBT key, val;
+	struct session *sess;
+	struct timeval tv;
+	int rc;
+
+	rc = db->cursor(db, txn, &cur, 0);
+	if (rc) {
+		db->err(db, rc, "sess_load cur");
+		return -1;
+	}
+
+	memset(&key, 0, sizeof(key));
+	memset(&val, 0, sizeof(val));
+
+	for (;;) {
+		rc = cur->get(cur, &key, &val, DB_NEXT);
+		if (rc == DB_NOTFOUND)
+			break;
+		if (rc) {
+			db->err(db, rc, "sess_load get");
+			cur->close(cur);
+			return -1;
+		}
+
+		sess = session_new();
+		if (!sess) {
+			db->err(db, rc, "sess_load alloc");
+			cur->close(cur);
+			return -1;
+		}
+
+		session_decode(sess, val.data);
+
+		if (debugging)
+			syslog(LOG_DEBUG,
+			       " loaded sid " SIDFMT " next seqid %llu/%llu",
+			       SIDARG(sess->sid),
+			       (unsigned long long)
+					GUINT64_FROM_LE(sess->next_seqid_out),
+			       (unsigned long long)
+					GUINT64_FROM_LE(sess->next_seqid_in));
+
+		g_hash_table_insert(ss, sess->sid, sess);
+
+		/* begin session timer */
+		tv.tv_sec = CLD_SESS_TIMEOUT / 2;
+		tv.tv_usec = 0;
+		if (evtimer_add(&sess->timer, &tv) < 0)
+			syslog(LOG_WARNING, "evtimer_add sess_load failed");
+	}
+
+	cur->close(cur);
+	return 0;
 }
 

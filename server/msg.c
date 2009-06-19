@@ -242,6 +242,14 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 			continue;
 		}
 
+		if (!sess->sock) {		/* Freshly recovered session */
+			if (debugging)
+				syslog(LOG_DEBUG,
+				       "Lost notify sid " SIDFMT " ino %lld",
+				       SIDARG(sess->sid), (long long) inum);
+			continue;
+		}
+
 		me.hdr.seqid = next_seqid_le(&sess->next_seqid_out);
 		memcpy(me.hdr.sid, h->sid, sizeof(me.hdr.sid));
 		strcpy(me.hdr.user, sess->user);
@@ -361,6 +369,14 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 		/*
 		 * send lock acquisition notification to new lock holder
 		 */
+
+		if (!sess->sock) {		/* Freshly recovered session */
+			if (debugging)
+				syslog(LOG_DEBUG,
+				       "Lost success sid " SIDFMT " ino %lld",
+				       SIDARG(sess->sid), (long long) inum);
+			continue;
+		}
 
 		me.hdr.seqid = next_seqid_le(&sess->next_seqid_out);
 		memcpy(me.hdr.sid, lock->sid, sizeof(me.hdr.sid));

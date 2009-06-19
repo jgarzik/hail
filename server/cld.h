@@ -95,6 +95,7 @@ struct server_stats {
 };
 
 struct server_socket {
+	/* FIXME add refcount for sessions pointing here. */
 	int			fd;
 	struct event		ev;
 };
@@ -145,6 +146,7 @@ extern bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
 extern int session_dispose(DB_TXN *txn, struct session *sess);
 extern int session_remove_locks(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 				cldino_t inum, bool *waiter);
+extern int sess_load(GHashTable *ss);
 
 /* server.c */
 extern const char *opstr(enum cld_msg_ops op);
