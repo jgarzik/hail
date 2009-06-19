@@ -43,7 +43,8 @@ int write_pid_file(const char *pid_fn)
 	fd = open(pid_fn, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
 	if (fd < 0) {
 		err = errno;
-		syslogerr(pid_fn);
+		syslog(LOG_ERR, "Cannot open PID file %s: %s",
+		       pid_fn, strerror(err));
 		return -err;
 	}
 
@@ -54,10 +55,11 @@ int write_pid_file(const char *pid_fn)
 	if (fcntl(fd, F_SETLK, &lock) != 0) {
 		err = errno;
 		if (err == EAGAIN) {
-			syslog(LOG_ERR, "Pid file %s is locked, not starting\n",
+			syslog(LOG_ERR, "PID file %s is already locked",
 			       pid_fn);
 		} else {
-			syslogerr(pid_fn);
+			syslog(LOG_ERR, "Cannot lock PID file %s: %s",
+			       pid_fn, strerror(err));
 		}
 		close(fd);
 		return -err;
@@ -70,7 +72,8 @@ int write_pid_file(const char *pid_fn)
 		ssize_t rc = write(fd, s, bytes);
 		if (rc < 0) {
 			err = errno;
-			syslogerr("pid data write failed");
+			syslog(LOG_ERR, "PID number write failed: %s",
+			       strerror(err));
 			goto err_out;
 		}
 
@@ -81,7 +84,7 @@ int write_pid_file(const char *pid_fn)
 	/* make sure file data is written to disk */
 	if (fsync(fd) < 0) {
 		err = errno;
-		syslogerr("pid file sync/close failed");
+		syslog(LOG_ERR, "PID file fsync failed: %s", strerror(err));
 		goto err_out;
 	}
 
