@@ -101,7 +101,7 @@ struct raw_lock {
 };
 
 struct cldb {
-	char		*home;			/* database home dir */
+	const char	*home;			/* database home dir */
 	char		*key;			/* database AES key */
 
 	DB_ENV		*env;			/* db4 env ptr */

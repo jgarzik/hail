@@ -72,6 +72,7 @@ fi
 %defattr(-,root,root,-)
 %doc README NEWS doc/*.txt
 %{_sbindir}/cld
+%{_sbindir}/cldbadm
 %{_libdir}/lib*.so.*
 %attr(0755,root,root)           %{_sysconfdir}/rc.d/init.d/cld
 %attr(0644,root,root)           %{_sysconfdir}/sysconfig/cld
