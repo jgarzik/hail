@@ -744,7 +744,7 @@ void msg_open(struct msg_params *mp)
 err_out:
 	rc = txn->abort(txn);
 	if (rc)
-		dbenv->err(dbenv, rc, "msg_get txn abort");
+		dbenv->err(dbenv, rc, "msg_open txn abort");
 err_out_noabort:
 	resp_err(mp->sess, &msg->hdr, resp_rc);
 	free(parent_data);
@@ -828,7 +828,7 @@ void msg_put(struct msg_params *mp)
 err_out:
 	rc = txn->abort(txn);
 	if (rc)
-		dbenv->err(dbenv, rc, "msg_get txn abort");
+		dbenv->err(dbenv, rc, "msg_put txn abort");
 err_out_noabort:
 	resp_err(sess, &msg->hdr, resp_rc);
 	free(h);
@@ -1021,7 +1021,7 @@ static void try_commit_data(struct msg_params *mp,
 err_out:
 	rc = txn->abort(txn);
 	if (rc)
-		dbenv->err(dbenv, rc, "msg_get txn abort");
+		dbenv->err(dbenv, rc, "commit txn abort");
 err_out_noabort:
 	resp_err(sess, &pmsg->hdr, resp_rc);
 	free(pmsg);
@@ -1164,7 +1164,7 @@ void msg_close(struct msg_params *mp)
 err_out:
 	rc = txn->abort(txn);
 	if (rc)
-		dbenv->err(dbenv, rc, "msg_get txn abort");
+		dbenv->err(dbenv, rc, "msg_close txn abort");
 err_out_noabort:
 	resp_err(sess, &msg->hdr, resp_rc);
 	free(h);
@@ -1345,7 +1345,7 @@ void msg_del(struct msg_params *mp)
 err_out:
 	rc = txn->abort(txn);
 	if (rc)
-		dbenv->err(dbenv, rc, "msg_get txn abort");
+		dbenv->err(dbenv, rc, "msg_del txn abort");
 err_out_noabort:
 	resp_err(mp->sess, &msg->hdr, resp_rc);
 	free(ino);
@@ -1415,7 +1415,7 @@ void msg_unlock(struct msg_params *mp)
 err_out:
 	rc = txn->abort(txn);
 	if (rc)
-		dbenv->err(dbenv, rc, "msg_get txn abort");
+		dbenv->err(dbenv, rc, "msg_unlock txn abort");
 err_out_noabort:
 	resp_err(sess, &msg->hdr, resp_rc);
 	free(h);
@@ -1496,7 +1496,7 @@ void msg_lock(struct msg_params *mp, bool wait)
 err_out:
 	rc = txn->abort(txn);
 	if (rc)
-		dbenv->err(dbenv, rc, "msg_get txn abort");
+		dbenv->err(dbenv, rc, "msg_lock txn abort");
 err_out_noabort:
 	resp_err(mp->sess, &msg->hdr, resp_rc);
 	free(h);
