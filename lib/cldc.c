@@ -1086,9 +1086,10 @@ static ssize_t get_end_cb(struct cldc_msg *msg, const void *resp_p,
 
 	if (!ok)
 		resp_rc = CLE_TIMEOUT;
-	else {
-		const void *p;
+	else
+		resp_rc = GUINT32_FROM_LE(resp->resp.code);
 
+	if (resp_rc == CLE_OK) {
 		o = &msg->copts.u.get.resp;
 
 		msg->copts.op = cmo_get;
@@ -1103,11 +1104,14 @@ static ssize_t get_end_cb(struct cldc_msg *msg, const void *resp_p,
 		XC32(flags);
 
 		/* copy inode name */
-		p = resp;
-		p += sizeof(struct cld_msg_get_resp);
-		memcpy(&msg->copts.u.get.inode_name, p, o->ino_len);
-
-		resp_rc = GUINT32_FROM_LE(resp->resp.code);
+		if (o->ino_len <= sizeof(CLD_INODE_NAME_MAX)) {
+			const void *p;
+			p = resp;
+			p += sizeof(struct cld_msg_get_resp);
+			memcpy(&msg->copts.u.get.inode_name, p, o->ino_len);
+		} else {
+			o->ino_len = 0;		/* Probably full of garbage */
+		}
 	}
 
 	/* if error or get-meta, return immediately with response */
