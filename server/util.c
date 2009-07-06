@@ -91,11 +91,10 @@ int write_pid_file(const char *pid_fn)
 	return fd;
 
 err_out:
-	close(fd);
 	unlink(pid_fn);
+	close(fd);
 	return -err;
 }
-
 
 void syslogerr(const char *prefix)
 {
