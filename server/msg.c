@@ -107,14 +107,11 @@ static int dirent_find(const void *data, size_t data_len,
 		pad		= ALIGN8(rec_len);
 		total_len	= rec_len + pad;
 
-		p += 2;
-		tmp_len -= 2;
-
 		if (total_len > tmp_len)
 			return -2;
 
 		if ((name_len == str_len) &&
-		    !memcmp(p, name, name_len))
+		    !memcmp(p + 2, name, name_len))
 			break;
 
 		p += total_len;
