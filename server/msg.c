@@ -458,8 +458,13 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 	resp_copy(&resp->resp, &msg->hdr);
 	resp->resp.hdr.seqid = next_seqid_le(&sess->next_seqid_out);
 	resp->inum = GUINT64_TO_LE(inum);
-	memcpy(&resp->ino_len, &inode->ino_len,
-	       (sizeof(struct raw_inode) - sizeof(inode->inum)) + name_len);
+	resp->ino_len = inode->ino_len;
+	resp->size = inode->size;
+	resp->version = inode->version;
+	resp->time_create = inode->time_create;
+	resp->time_modify = inode->time_modify;
+	resp->flags = inode->flags;
+	memcpy(resp+1, inode+1, name_len);
 
 	sess_sendmsg(sess, resp, resp_len, false);
 
