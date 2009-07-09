@@ -105,22 +105,22 @@ void resp_copy(struct cld_msg_resp *resp, const struct cld_msg_hdr *src)
 }
 
 void resp_err(struct session *sess,
-		     struct cld_msg_hdr *msg, enum cle_err_codes errcode)
+	      const struct cld_msg_hdr *msg, enum cle_err_codes errcode)
 {
 	struct cld_msg_resp resp;
 
 	resp_copy(&resp, msg);
-	resp.hdr.seqid = next_seqid_le(&sess->next_seqid_out);
 	resp.code = GUINT32_TO_LE(errcode);
 
 	if (sess->sock == NULL) {
 		syslog(LOG_ERR, "Nul sock in response\n");
 		return;
 	}
+
 	sess_sendmsg(sess, &resp, sizeof(resp));
 }
 
-void resp_ok(struct session *sess, struct cld_msg_hdr *msg)
+void resp_ok(struct session *sess, const struct cld_msg_hdr *msg)
 {
 	resp_err(sess, msg, CLE_OK);
 }

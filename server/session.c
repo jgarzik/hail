@@ -327,11 +327,7 @@ static void session_ping(struct session *sess)
 	struct cld_msg_hdr resp;
 
 	memset(&resp, 0, sizeof(resp));
-	memcpy(&resp.magic, CLD_MAGIC, CLD_MAGIC_SZ);
-	resp.seqid = next_seqid_le(&sess->next_seqid_out);
-	memcpy(resp.sid, sess->sid, CLD_SID_SZ);
 	resp.op = cmo_ping;
-	strcpy(resp.user, sess->user);
 
 	sess_sendmsg(sess, &resp, sizeof(resp));
 
@@ -505,7 +501,7 @@ static void session_retry(int fd, short events, void *userdata)
 
 bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen)
 {
-	void *msg;
+	struct cld_msg_hdr *msg;
 	struct session_outmsg *om;
 
 	if (debugging) {
@@ -522,13 +518,22 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen)
 	if (!om)
 		return false;
 
-	msg = malloc(msglen + SHA_DIGEST_LENGTH);
+	msg = calloc(1, msglen + SHA_DIGEST_LENGTH);
 	if (!msg) {
 		free(om);
 		return false;
 	}
 
-	memcpy(msg, msg_, msglen);
+	/* init message header */
+	memcpy(msg->magic, CLD_MAGIC, CLD_MAGIC_SZ);
+	msg->seqid = next_seqid_le(&sess->next_seqid_out);
+	memcpy(msg->sid, sess->sid, CLD_SID_SZ);
+	msg->op = ((struct cld_msg_hdr *)msg_)->op;
+	strncpy(msg->user, sess->user, CLD_MAX_USERNAME - 1);
+
+	/* copy message trailer */
+	memcpy(msg + 1, msg_ + sizeof(*msg), msglen - sizeof(*msg));
+
 	msglen += SHA_DIGEST_LENGTH;
 
 	om->msg = msg;
