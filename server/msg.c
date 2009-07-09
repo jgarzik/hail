@@ -403,10 +403,13 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 	uint32_t data_size, omode;
 	void *data_mem = NULL;
 	size_t data_mem_len = 0;
+	uint64_t rand_strid;
 	int rc;
 	struct session *sess = mp->sess;
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	DB_TXN *txn;
+
+	__cld_rand64(&rand_strid);
 
 	/* make sure input data as large as expected */
 	if (mp->msg_len < sizeof(*msg))
@@ -464,6 +467,7 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 	resp->time_create = inode->time_create;
 	resp->time_modify = inode->time_modify;
 	resp->flags = inode->flags;
+	resp->strid = rand_strid;
 	memcpy(resp+1, inode+1, name_len);
 
 	sess_sendmsg(sess, resp, resp_len);
@@ -504,7 +508,7 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 			seg_len = MIN(CLD_MAX_UDP_SEG - sizeof(*dr), data_mem_len);
 
 			dr->hdr.seqid = next_seqid_le(&sess->next_seqid_out);
-			dr->strid = resp->resp.hdr.seqid;
+			dr->strid = rand_strid;
 			dr->seg = GUINT32_TO_LE(i);
 			dr->seg_len = GUINT32_TO_LE(seg_len);
 			memcpy(dbuf + sizeof(*dr), p, seg_len);
@@ -518,7 +522,7 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 
 		/* send terminating packet (seg_len == 0) */
 		dr->hdr.seqid = next_seqid_le(&sess->next_seqid_out);
-		dr->strid = resp->resp.hdr.seqid;
+		dr->strid = rand_strid;
 		dr->seg = GUINT32_TO_LE(i);
 		dr->seg_len = 0;
 		sess_sendmsg(sess, dr, sizeof(*dr));
@@ -967,7 +971,7 @@ void msg_data(struct msg_params *mp)
 	if (mp->msg_len < (sizeof(*msg) + seg_len))
 		return;
 
-	/* search for PUT message with seqid == our strid; that is how we
+	/* search for PUT message with strid == our strid; that is how we
 	 * associate DATA messages with the initial PUT msg
 	 */
 	tmp = sess->put_q;
@@ -975,7 +979,7 @@ void msg_data(struct msg_params *mp)
 		struct cld_msg_put *pmsg;
 
 		pmsg = tmp->data;
-		if (pmsg->hdr.seqid == msg->strid)
+		if (pmsg->strid == msg->strid)
 			break;
 
 		tmp = tmp->next;

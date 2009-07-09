@@ -34,14 +34,6 @@ static void session_retry(int fd, short events, void *userdata);
 static void session_timeout(int fd, short events, void *userdata);
 static int sess_load_db(GHashTable *ss, DB_TXN *txn);
 
-void rand64(void *p)
-{
-	uint32_t *v = p;
-
-	v[0] = rand();
-	v[1] = rand();
-}
-
 uint64_t next_seqid_le(uint64_t *seq)
 {
 	uint64_t tmp, rc;
@@ -79,7 +71,7 @@ static struct session *session_new(void)
 
 	sess->next_fh = 2;
 
-	rand64(&sess->next_seqid_out);
+	__cld_rand64(&sess->next_seqid_out);
 
 	evtimer_set(&sess->timer, session_timeout, sess);
 	evtimer_set(&sess->retry_timer, session_retry, sess);

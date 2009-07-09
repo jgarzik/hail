@@ -53,14 +53,6 @@ static const struct cld_msg_hdr def_msg_ack = {
 	.op		= cmo_ack,
 };
 
-void rand64(void *p)
-{
-	uint32_t *v = p;
-
-	v[0] = rand();
-	v[1] = rand();
-}
-
 void cldc_log(const char *fmt, ...)
 {
 	va_list ap;
@@ -717,8 +709,8 @@ int cldc_new_sess(const struct cldc_ops *ops,
 	strcpy(sess->secret_key, secret_key);
 
 	/* create random SID, next_seqid_out */
-	rand64(sess->sid);
-	rand64(&sess->next_seqid_out);
+	__cld_rand64(sess->sid);
+	__cld_rand64(&sess->next_seqid_out);
 
 	/* init other session vars */
 	memcpy(sess->addr, addr, addr_len);
@@ -1023,6 +1015,7 @@ int cldc_put(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 
 	put = (struct cld_msg_put *) msg->data;
 	put->fh = fh->fh_le;
+	__cld_rand64(&put->strid);
 	put->data_size = data_len;
 
 	memset(datamsg, 0, sizeof(datamsg));
@@ -1051,7 +1044,7 @@ int cldc_put(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 		p += copy_len;
 		data_len_left -= copy_len;
 
-		dm->strid = put->hdr.seqid;
+		dm->strid = put->strid;
 		dm->seg = GUINT32_TO_LE(i);
 		dm->seg_len = GUINT32_TO_LE(copy_len);
 	}
@@ -1121,7 +1114,7 @@ static ssize_t get_end_cb(struct cldc_msg *msg, const void *resp_p,
 		return 0;
 	}
 
-	sess_stream_open(msg->sess, resp->resp.hdr.seqid, o->size,
+	sess_stream_open(msg->sess, resp->strid, o->size,
 			 &msg->copts);
 
 	return 0;

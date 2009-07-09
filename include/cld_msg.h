@@ -40,8 +40,7 @@ enum {
  * We use a unified format for sid so it can be searched in log files (* in vi).
  */
 #define SIDFMT   "%016llX"
-#define SIDARG(sid)  sid2llu(sid)
-extern unsigned long long sid2llu(const uint8_t *sid);
+#define SIDARG(sid)  __cld_sid2llu(sid)
 
 /** available RPC operations */
 enum cld_msg_ops {
@@ -174,6 +173,9 @@ struct cld_msg_get_resp {
 	uint64_t		time_create;	/**< creation time */
 	uint64_t		time_modify;	/**< last modification time */
 	uint32_t		flags;		/**< inode flags; CIFL_xxx */
+
+	uint64_t		strid;		/**< DATA stream id */
+
 	/* inode name */
 };
 
@@ -191,6 +193,7 @@ struct cld_msg_put {
 	struct cld_msg_hdr	hdr;
 
 	uint64_t		fh;		/**< open file handle */
+	uint64_t		strid;		/**< DATA stream id */
 	uint32_t		data_size;	/**< total size of data */
 };
 
@@ -231,5 +234,13 @@ struct cld_msg_event {
 	uint64_t		fh;		/**< open file handle */
 	uint32_t		events;		/**< CE_xxx */
 };
+
+/*
+ * function prototypes for lib/common.c;
+ * ideally these should not be in cld_msg.h
+ */
+
+extern unsigned long long __cld_sid2llu(const uint8_t *sid);
+extern void __cld_rand64(void *p);
 
 #endif /* __CLD_MSG_H__ */
