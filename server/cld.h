@@ -141,8 +141,7 @@ extern gboolean sess_equal(gconstpointer _a, gconstpointer _b);
 extern void msg_new_sess(struct msg_params *, const struct client *);
 extern void msg_end_sess(struct msg_params *, const struct client *);
 extern struct raw_session *session_new_raw(const struct session *sess);
-extern bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
-		  bool copy_msg);
+extern bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen);
 extern int session_dispose(DB_TXN *txn, struct session *sess);
 extern int session_remove_locks(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 				cldino_t inum, bool *waiter);

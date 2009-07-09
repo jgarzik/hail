@@ -117,7 +117,7 @@ void resp_err(struct session *sess,
 		syslog(LOG_ERR, "Nul sock in response\n");
 		return;
 	}
-	sess_sendmsg(sess, &resp, sizeof(resp), true);
+	sess_sendmsg(sess, &resp, sizeof(resp));
 }
 
 void resp_ok(struct session *sess, struct cld_msg_hdr *msg)

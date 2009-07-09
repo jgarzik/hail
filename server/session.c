@@ -341,7 +341,7 @@ static void session_ping(struct session *sess)
 	resp.op = cmo_ping;
 	strcpy(resp.user, sess->user);
 
-	sess_sendmsg(sess, &resp, sizeof(resp), true);
+	sess_sendmsg(sess, &resp, sizeof(resp));
 
 	sess->ping_open = true;
 }
@@ -511,38 +511,33 @@ static void session_retry(int fd, short events, void *userdata)
 		syslog(LOG_WARNING, "failed to re-add retry timer");
 }
 
-bool sess_sendmsg(struct session *sess, void *msg_, size_t msglen,
-		  bool copy_msg)
+bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen)
 {
 	void *msg;
 	struct session_outmsg *om;
 
 	if (debugging) {
-		struct cld_msg_hdr *hdr = msg_;
+		const struct cld_msg_hdr *hdr = msg_;
 
-		syslog(LOG_DEBUG, "sendmsg: sid " SIDFMT ", op %s, msglen %u, seqid %llu, copy %s",
+		syslog(LOG_DEBUG, "sendmsg: sid " SIDFMT ", op %s, msglen %u, seqid %llu",
 		       SIDARG(sess->sid),
 		       opstr(hdr->op),
 		       (unsigned int) msglen,
-		       (unsigned long long) GUINT64_FROM_LE(hdr->seqid),
-		       copy_msg ? "true" : "false");
+		       (unsigned long long) GUINT64_FROM_LE(hdr->seqid));
 	}
 
 	om = malloc(sizeof(*om));
 	if (!om)
 		return false;
 
-	if (copy_msg) {
-		msg = malloc(msglen + SHA_DIGEST_LENGTH);
-		if (!msg) {
-			free(om);
-			return false;
-		}
+	msg = malloc(msglen + SHA_DIGEST_LENGTH);
+	if (!msg) {
+		free(om);
+		return false;
+	}
 
-		memcpy(msg, msg_, msglen);
-		msglen += SHA_DIGEST_LENGTH;
-	} else
-		msg = msg_;
+	memcpy(msg, msg_, msglen);
+	msglen += SHA_DIGEST_LENGTH;
 
 	om->msg = msg;
 	om->msglen = msglen;

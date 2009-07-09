@@ -253,7 +253,7 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 		me.fh = h->fh;
 		me.events = GUINT32_TO_LE(deleted ? CE_DELETED : CE_UPDATED);
 
-		if (!sess_sendmsg(sess, &me, sizeof(me), true))
+		if (!sess_sendmsg(sess, &me, sizeof(me)))
 			break;
 	}
 
@@ -381,7 +381,7 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 		me.fh = lock->fh;
 		me.events = GUINT32_TO_LE(CE_LOCKED);
 
-		if (!sess_sendmsg(sess, &me, sizeof(me), true))
+		if (!sess_sendmsg(sess, &me, sizeof(me)))
 			break;
 	}
 
@@ -448,7 +448,7 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 	data_size = GUINT32_FROM_LE(inode->size);
 
 	resp_len = sizeof(*resp) + name_len + SHA_DIGEST_LENGTH;
-	resp = malloc(resp_len);
+	resp = alloca(resp_len);
 	if (!resp) {
 		resp_rc = CLE_OOM;
 		goto err_out;
@@ -466,7 +466,7 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 	resp->flags = inode->flags;
 	memcpy(resp+1, inode+1, name_len);
 
-	sess_sendmsg(sess, resp, resp_len, false);
+	sess_sendmsg(sess, resp, resp_len);
 
 	/* send one or more data packets, if necessary */
 	if (!metadata_only) {
@@ -513,7 +513,7 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 			p += seg_len;
 			data_mem_len -= seg_len;
 
-			sess_sendmsg(sess, dr, seg_len + sizeof(*dr), true);
+			sess_sendmsg(sess, dr, seg_len + sizeof(*dr));
 		}
 
 		/* send terminating packet (seg_len == 0) */
@@ -521,7 +521,7 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 		dr->strid = resp->resp.hdr.seqid;
 		dr->seg = GUINT32_TO_LE(i);
 		dr->seg_len = 0;
-		sess_sendmsg(sess, dr, sizeof(*dr), true);
+		sess_sendmsg(sess, dr, sizeof(*dr));
 	}
 
 	rc = txn->commit(txn, 0);
@@ -739,7 +739,7 @@ void msg_open(struct msg_params *mp)
 	resp.resp.hdr.seqid = next_seqid_le(&mp->sess->next_seqid_out);
 	resp.resp.code = GUINT32_TO_LE(CLE_OK);
 	resp.fh = GUINT64_TO_LE(fh);
-	sess_sendmsg(mp->sess, &resp, sizeof(resp), true);
+	sess_sendmsg(mp->sess, &resp, sizeof(resp));
 
 	return;
 
