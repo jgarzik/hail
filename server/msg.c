@@ -755,93 +755,6 @@ err_out_noabort:
 	free(raw_sess);
 }
 
-void msg_put(struct msg_params *mp)
-{
-	struct cld_msg_put *msg = mp->msg;
-	struct session *sess = mp->sess;
-	uint64_t fh;
-	struct raw_handle *h = NULL;
-	struct raw_inode *inode = NULL;
-	enum cle_err_codes resp_rc = CLE_OK;
-	void *mem;
-	int rc;
-	cldino_t inum;
-	uint32_t omode;
-	DB_ENV *dbenv = cld_srv.cldb.env;
-	DB_TXN *txn;
-
-	/* make sure input data as large as expected */
-	if (mp->msg_len < sizeof(*msg))
-		return;
-
-	fh = GUINT64_FROM_LE(msg->fh);
-
-	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
-	if (rc) {
-		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
-		resp_rc = CLE_DB_ERR;
-		goto err_out_noabort;
-	}
-
-	/* read handle from db, for validation */
-	rc = cldb_handle_get(txn, sess->sid, fh, &h, 0);
-	if (rc) {
-		resp_rc = CLE_FH_INVAL;
-		goto err_out;
-	}
-
-	inum = cldino_from_le(h->inum);
-	omode = GUINT32_FROM_LE(h->mode);
-
-	if ((!(omode & COM_WRITE)) ||
-	    (omode & COM_DIRECTORY)) {
-		resp_rc = CLE_MODE_INVAL;
-		goto err_out;
-	}
-
-	/* read inode from db, for validation */
-	rc = cldb_inode_get(txn, inum, &inode, false, 0);
-	if (rc) {
-		resp_rc = CLE_INODE_INVAL;
-		goto err_out;
-	}
-
-	rc = txn->commit(txn, 0);
-	if (rc)
-		dbenv->err(dbenv, rc, "msg_put read-only txn commit");
-
-	/* copy message */
-	mem = malloc(mp->msg_len);
-	if (!mem) {
-		resp_rc = CLE_OOM;
-		goto err_out;
-	}
-
-	memcpy(mem, msg, mp->msg_len);
-
-	/* store PUT message in PUT msg queue */
-	sess->put_q = g_list_append(sess->put_q, mem);
-
-	/*
-	 * In all other cases we ack here, but in put we do it in
-	 * try_to_commit_data, so that we can report the result of commit.
-	 */
-	// resp_ok(sess, &msg->hdr);
-
-	free(h);
-	free(inode);
-	return;
-
-err_out:
-	rc = txn->abort(txn);
-	if (rc)
-		dbenv->err(dbenv, rc, "msg_put txn abort");
-err_out_noabort:
-	resp_err(sess, &msg->hdr, resp_rc);
-	free(h);
-	free(inode);
-}
-
 static void try_commit_data(struct msg_params *mp,
 			uint64_t strid, GList *pmsg_ent)
 {
@@ -1093,6 +1006,93 @@ void msg_data(struct msg_params *mp)
 
 err_out:
 	resp_err(sess, &msg->hdr, resp_rc);
+}
+
+void msg_put(struct msg_params *mp)
+{
+	struct cld_msg_put *msg = mp->msg;
+	struct session *sess = mp->sess;
+	uint64_t fh;
+	struct raw_handle *h = NULL;
+	struct raw_inode *inode = NULL;
+	enum cle_err_codes resp_rc = CLE_OK;
+	void *mem;
+	int rc;
+	cldino_t inum;
+	uint32_t omode;
+	DB_ENV *dbenv = cld_srv.cldb.env;
+	DB_TXN *txn;
+
+	/* make sure input data as large as expected */
+	if (mp->msg_len < sizeof(*msg))
+		return;
+
+	fh = GUINT64_FROM_LE(msg->fh);
+
+	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
+		resp_rc = CLE_DB_ERR;
+		goto err_out_noabort;
+	}
+
+	/* read handle from db, for validation */
+	rc = cldb_handle_get(txn, sess->sid, fh, &h, 0);
+	if (rc) {
+		resp_rc = CLE_FH_INVAL;
+		goto err_out;
+	}
+
+	inum = cldino_from_le(h->inum);
+	omode = GUINT32_FROM_LE(h->mode);
+
+	if ((!(omode & COM_WRITE)) ||
+	    (omode & COM_DIRECTORY)) {
+		resp_rc = CLE_MODE_INVAL;
+		goto err_out;
+	}
+
+	/* read inode from db, for validation */
+	rc = cldb_inode_get(txn, inum, &inode, false, 0);
+	if (rc) {
+		resp_rc = CLE_INODE_INVAL;
+		goto err_out;
+	}
+
+	rc = txn->commit(txn, 0);
+	if (rc)
+		dbenv->err(dbenv, rc, "msg_put read-only txn commit");
+
+	/* copy message */
+	mem = malloc(mp->msg_len);
+	if (!mem) {
+		resp_rc = CLE_OOM;
+		goto err_out;
+	}
+
+	memcpy(mem, msg, mp->msg_len);
+
+	/* store PUT message in PUT msg queue */
+	sess->put_q = g_list_append(sess->put_q, mem);
+
+	/*
+	 * In all other cases we ack here, but in put we do it in
+	 * try_to_commit_data, so that we can report the result of commit.
+	 */
+	// resp_ok(sess, &msg->hdr);
+
+	free(h);
+	free(inode);
+	return;
+
+err_out:
+	rc = txn->abort(txn);
+	if (rc)
+		dbenv->err(dbenv, rc, "msg_put txn abort");
+err_out_noabort:
+	resp_err(sess, &msg->hdr, resp_rc);
+	free(h);
+	free(inode);
 }
 
 void msg_close(struct msg_params *mp)
