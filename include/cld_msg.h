@@ -116,9 +116,10 @@ enum cld_lock_flags {
 	CLF_SHARED		= (1 << 0),	/**< a shared (read) lock */
 };
 
+/** header for each packet */
 struct cld_packet {
 	uint8_t		magic[CLD_MAGIC_SZ];	/**< magic number; constant */
-	uint64_t	seqid;
+	uint64_t	seqid;			/**< sequence id */
 	uint8_t		sid[CLD_SID_SZ];	/**< client id */
 	uint8_t		n_msg;			/**< num msgs in packet */
 	uint8_t		res[7];
