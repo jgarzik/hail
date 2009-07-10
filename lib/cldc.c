@@ -73,12 +73,13 @@ static int ack_seqid(struct cldc_session *sess, uint64_t seqid_le)
 	memset(pkt, 0, pkt_len);
 
 	memcpy(pkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
+	memcpy(pkt->sid, sess->sid, CLD_SID_SZ);
+	pkt->n_msg = 1;
 	strncpy(pkt->user, sess->user, CLD_MAX_USERNAME - 1);
 
 	resp = (struct cld_msg_hdr *) (pkt + 1);
 	memcpy(resp, &def_msg_ack, sizeof(*resp));
 	resp->seqid = seqid_le;
-	memcpy(resp->sid, sess->sid, CLD_SID_SZ);
 
 	if (!authsign(sess, pkt, pkt_len)) {
 		sess->act_log("authsign failed 2\n");
@@ -499,13 +500,9 @@ static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 	if (copts)
 		memcpy(&msg->copts, copts, sizeof(msg->copts));
 
-	memcpy(msg->pkt.magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
-	strncpy(msg->pkt.user, sess->user, CLD_MAX_USERNAME - 1);
-
 	hdr = (struct cld_msg_hdr *) &msg->data[0];
 	memcpy(&hdr->magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
 	hdr->seqid = msg->seqid;
-	memcpy(hdr->sid, sess->sid, CLD_SID_SZ);
 	hdr->op = op;
 
 	return msg;
@@ -575,9 +572,15 @@ static int sess_timer(struct cldc_session *sess, void *priv)
 static int sess_send(struct cldc_session *sess,
 		     struct cldc_msg *msg)
 {
+	struct cld_packet *pkt = &msg->pkt;
+
+	memcpy(pkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
+	memcpy(pkt->sid, sess->sid, CLD_SID_SZ);
+	pkt->n_msg = 1;
+	strncpy(pkt->user, sess->user, CLD_MAX_USERNAME - 1);
+
 	/* sign message */
-	if (!authsign(sess, &msg->pkt,
-		      sizeof(msg->pkt) + msg->data_len))
+	if (!authsign(sess, pkt, sizeof(*pkt) + msg->data_len))
 		return -1;
 
 	/* add to list of outgoing packets, waiting to be ack'd */
@@ -586,7 +589,7 @@ static int sess_send(struct cldc_session *sess,
 	/* attempt first send */
 	if (sess->ops->pkt_send(sess->private,
 		       sess->addr, sess->addr_len,
-		       &msg->pkt, sizeof(msg->pkt) + msg->data_len) < 0)
+		       pkt, sizeof(*pkt) + msg->data_len) < 0)
 		return -1;
 
 	return 0;

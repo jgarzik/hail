@@ -118,6 +118,9 @@ enum cld_lock_flags {
 
 struct cld_packet {
 	uint8_t		magic[CLD_MAGIC_SZ];	/**< magic number; constant */
+	uint8_t		sid[CLD_SID_SZ];	/**< client id */
+	uint8_t		n_msg;			/**< num msgs in packet */
+	uint8_t		res[7 + 8];
 	char		user[CLD_MAX_USERNAME];	/**< authenticated user */
 };
 
@@ -125,9 +128,8 @@ struct cld_packet {
 struct cld_msg_hdr {
 	uint8_t		magic[CLD_MAGIC_SZ];	/**< magic number; constant */
 	uint64_t	seqid;
-	uint8_t		sid[CLD_SID_SZ];	/**< client id */
 	uint8_t		op;			/**< operation code */
-	uint8_t		res1[7];
+	uint8_t		res1[7 + 8];
 };
 
 /** standard response for each message */

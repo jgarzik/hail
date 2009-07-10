@@ -472,7 +472,7 @@ static int sess_retry_output(struct session *sess)
 		if (debugging)
 			syslog(LOG_DEBUG,
 			       "retry: sid " SIDFMT ", op %s, seqid %llu",
-			       SIDARG(outmsg->sid),
+			       SIDARG(outpkt->sid),
 			       opstr(outmsg->op),
 			       (unsigned long long)
 					GUINT64_FROM_LE(outmsg->seqid));
@@ -533,12 +533,13 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen)
 
 	/* init packet header */
 	memcpy(outpkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
+	memcpy(outpkt->sid, sess->sid, CLD_SID_SZ);
+	outpkt->n_msg = 1;
 	strncpy(outpkt->user, sess->user, CLD_MAX_USERNAME - 1);
 
 	/* init message header */
 	memcpy(msg->magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
 	msg->seqid = next_seqid_le(&sess->next_seqid_out);
-	memcpy(msg->sid, sess->sid, CLD_SID_SZ);
 	msg->op = ((struct cld_msg_hdr *)msg_)->op;
 
 	/* copy message trailer */
@@ -633,7 +634,7 @@ void msg_new_sess(struct msg_params *mp, const struct client *cli)
 	}
 
 	/* build raw_session database record */
-	memcpy(sess->sid, msg->sid, sizeof(sess->sid));
+	memcpy(sess->sid, mp->pkt->sid, sizeof(sess->sid));
 	memcpy(&sess->addr, &cli->addr, sizeof(sess->addr));
 
 	strncpy(sess->user, mp->pkt->user, sizeof(sess->user));
@@ -687,6 +688,11 @@ err_out:
 	outpkt = alloca(alloc_len);
 	memset(outpkt, 0, alloc_len);
 
+	memcpy(outpkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
+	memcpy(outpkt->sid, mp->pkt->sid, CLD_SID_SZ);
+	outpkt->n_msg = 1;
+	strncpy(outpkt->user, mp->pkt->user, CLD_MAX_USERNAME - 1);
+
 	resp = (struct cld_msg_resp *) (outpkt + 1);
 	resp_copy(resp, msg);
 	resp->hdr.seqid = GUINT64_TO_LE(0xdeadbeef);
@@ -696,7 +702,7 @@ err_out:
 
 	if (debugging)
 		syslog(LOG_DEBUG, "new_sess err: sid " SIDFMT ", op %s, seqid %llu",
-		       SIDARG(resp->hdr.sid),
+		       SIDARG(outpkt->sid),
 		       opstr(resp->hdr.op),
 		       (unsigned long long) GUINT64_FROM_LE(resp->hdr.seqid));
 
@@ -726,6 +732,8 @@ void msg_end_sess(struct msg_params *mp, const struct client *cli)
 	memset(outpkt, 0, alloc_len);
 
 	memcpy(outpkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
+	memcpy(outpkt->sid, sess->sid, CLD_SID_SZ);
+	outpkt->n_msg = 1;
 	strncpy(outpkt->user, sess->user, CLD_MAX_USERNAME - 1);
 
 	resp = (struct cld_msg_resp *) (outpkt + 1);
@@ -757,7 +765,7 @@ do_code:
 
 	if (debugging)
 		syslog(LOG_DEBUG, "end_sess msg: sid " SIDFMT ", op %s, seqid %llu",
-		       SIDARG(resp->hdr.sid),
+		       SIDARG(outpkt->sid),
 		       opstr(resp->hdr.op),
 		       (unsigned long long)
 				GUINT64_FROM_LE(resp->hdr.seqid));

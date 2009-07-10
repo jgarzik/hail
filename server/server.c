@@ -227,7 +227,7 @@ static void udp_rx(struct server_socket *sock,
 		return;
 
 	/* look up client session, verify it matches IP */
-	sess = g_hash_table_lookup(cld_srv.sessions, msg->sid);
+	sess = g_hash_table_lookup(cld_srv.sessions, pkt->sid);
 	if (sess && ((sess->addr_len != cli->addr_len) ||
 	    memcmp(&sess->addr, &cli->addr, sess->addr_len))) {
 		resp_rc = CLE_SESS_INVAL;
@@ -320,6 +320,8 @@ err_out:
 	memset(outpkt, 0, alloc_len);
 
 	memcpy(outpkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
+	memcpy(outpkt->sid, pkt->sid, CLD_SID_SZ);
+	outpkt->n_msg = 1;
 	strncpy(outpkt->user, pkt->user, CLD_MAX_USERNAME - 1);
 
 	resp_copy(resp, msg);
@@ -331,7 +333,7 @@ err_out:
 	if (debugging)
 		syslog(LOG_DEBUG,
 		       "udp_rx err: sid " SIDFMT ", op %s, seqid %llu, code %d",
-		       SIDARG(resp->hdr.sid),
+		       SIDARG(outpkt->sid),
 		       opstr(resp->hdr.op),
 		       (unsigned long long) GUINT64_FROM_LE(resp->hdr.seqid),
 		       resp_rc);
@@ -396,6 +398,8 @@ static void udp_srv_event(int fd, short events, void *userdata)
 		memset(outpkt, 0, alloc_len);
 
 		memcpy(outpkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
+		memcpy(outpkt->sid, pkt->sid, CLD_SID_SZ);
+		outpkt->n_msg = 1;
 		strncpy(outpkt->user, pkt->user, CLD_MAX_USERNAME - 1);
 
 		/* transmit not-master error msg */
