@@ -32,9 +32,9 @@ enum {
 };
 
 struct pathname_info {
-	char		*dir;
+	const char	*dir;
 	size_t		dir_len;
-	char		*base;
+	const char	*base;
 	size_t		base_len;
 };
 
@@ -53,7 +53,7 @@ static bool valid_inode_name(const char *name, size_t name_len)
 	return true;
 }
 
-static void pathname_parse(char *path, size_t path_len,
+static void pathname_parse(const char *path, size_t path_len,
 			   struct pathname_info *pinfo)
 {
 	char *lsl;
@@ -383,7 +383,7 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 
 void msg_get(struct msg_params *mp, bool metadata_only)
 {
-	struct cld_msg_get *msg = mp->msg;
+	const struct cld_msg_get *msg = mp->msg;
 	struct cld_msg_get_resp *resp;
 	size_t resp_len;
 	uint64_t fh;
@@ -536,9 +536,9 @@ err_out_noabort:
 
 void msg_open(struct msg_params *mp)
 {
-	struct cld_msg_open *msg = mp->msg;
+	const struct cld_msg_open *msg = mp->msg;
 	struct cld_msg_open_resp resp;
-	char *name;
+	const char *name;
 	struct raw_session *raw_sess = NULL;
 	struct raw_inode *inode = NULL, *parent = NULL;
 	struct raw_handle *h;
@@ -940,7 +940,7 @@ err_out_noabort:
 
 void msg_data(struct msg_params *mp)
 {
-	struct cld_msg_data *msg = mp->msg;
+	const struct cld_msg_data *msg = mp->msg;
 	struct session *sess = mp->sess;
 	GList *tmp;
 	void *mem = NULL;
@@ -999,7 +999,7 @@ err_out:
 
 void msg_put(struct msg_params *mp)
 {
-	struct cld_msg_put *msg = mp->msg;
+	const struct cld_msg_put *msg = mp->msg;
 	struct session *sess = mp->sess;
 	uint64_t fh;
 	struct raw_handle *h = NULL;
@@ -1086,7 +1086,7 @@ err_out_noabort:
 
 void msg_close(struct msg_params *mp)
 {
-	struct cld_msg_close *msg = mp->msg;
+	const struct cld_msg_close *msg = mp->msg;
 	uint64_t fh;
 	int rc;
 	enum cle_err_codes resp_rc = CLE_OK;
@@ -1168,10 +1168,10 @@ err_out_noabort:
 
 void msg_del(struct msg_params *mp)
 {
-	struct cld_msg_del *msg = mp->msg;
+	const struct cld_msg_del *msg = mp->msg;
 	enum cle_err_codes resp_rc = CLE_OK;
 	int rc, name_len;
-	char *name;
+	const char *name;
 	struct pathname_info pinfo;
 	struct raw_inode *parent = NULL, *ino = NULL;
 	void *parent_data = NULL;
@@ -1351,7 +1351,7 @@ err_out_noabort:
 
 void msg_unlock(struct msg_params *mp)
 {
-	struct cld_msg_unlock *msg = mp->msg;
+	const struct cld_msg_unlock *msg = mp->msg;
 	uint64_t fh;
 	struct raw_handle *h = NULL;
 	cldino_t inum;
@@ -1419,7 +1419,7 @@ err_out_noabort:
 
 void msg_lock(struct msg_params *mp, bool wait)
 {
-	struct cld_msg_lock *msg = mp->msg;
+	const struct cld_msg_lock *msg = mp->msg;
 	uint64_t fh;
 	struct raw_handle *h = NULL;
 	cldino_t inum;

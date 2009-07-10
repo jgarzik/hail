@@ -467,7 +467,7 @@ int cldb_inode_get(DB_TXN *txn, cldino_t inum,
 	return rc;
 }
 
-int cldb_inode_get_byname(DB_TXN *txn, char *name, size_t name_len,
+int cldb_inode_get_byname(DB_TXN *txn, const char *name, size_t name_len,
 		   struct raw_inode **inode_out, bool notfound_err,
 		   int flags)
 {
@@ -483,7 +483,7 @@ int cldb_inode_get_byname(DB_TXN *txn, char *name, size_t name_len,
 	memset(&val, 0, sizeof(val));
 
 	/* key: inode pathname */
-	key.data = name;
+	key.data = (char *) name;
 	key.size = name_len;
 
 	val.flags = DB_DBT_MALLOC;
@@ -537,7 +537,7 @@ int cldb_inode_put(DB_TXN *txn, struct raw_inode *inode, int put_flags)
 	return rc;
 }
 
-struct raw_inode *cldb_inode_new(DB_TXN *txn, char *name, size_t name_len,
+struct raw_inode *cldb_inode_new(DB_TXN *txn, const char *name, size_t name_len,
 				 uint32_t flags)
 {
 	int rc, limit = 100000;
@@ -568,7 +568,7 @@ struct raw_inode *cldb_inode_new(DB_TXN *txn, char *name, size_t name_len,
 	return cldb_inode_mem(name, name_len, flags, new_inum);
 }
 
-struct raw_inode *cldb_inode_mem(char *name, size_t name_len,
+struct raw_inode *cldb_inode_mem(const char *name, size_t name_len,
 				 uint32_t flags, cldino_t new_inum)
 {
 	struct raw_inode *ino;

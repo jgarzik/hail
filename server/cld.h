@@ -85,7 +85,7 @@ struct msg_params {
 	const struct client	*cli;
 	struct session		*sess;
 
-	void			*msg;
+	const void		*msg;
 	size_t			msg_len;
 };
 

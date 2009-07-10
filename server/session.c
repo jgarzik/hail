@@ -563,7 +563,7 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen)
 
 void msg_ack(struct msg_params *mp)
 {
-	struct cld_msg_hdr *outmsg, *msg = mp->msg;
+	const struct cld_msg_hdr *outmsg, *msg = mp->msg;
 	GList *tmp, *tmp1;
 	struct session *sess = mp->sess;
 	struct session_outmsg *om;
@@ -603,7 +603,7 @@ void msg_ack(struct msg_params *mp)
 
 void msg_new_sess(struct msg_params *mp, const struct client *cli)
 {
-	struct cld_msg_hdr *msg = mp->msg;
+	const struct cld_msg_hdr *msg = mp->msg;
 	DB *db = cld_srv.cldb.sessions;
 	struct raw_session raw_sess;
 	struct session *sess = NULL;
@@ -698,7 +698,7 @@ void msg_end_sess(struct msg_params *mp, const struct client *cli)
 {
 	int rc;
 	struct server_socket *sock = mp->sock;
-	struct cld_msg_hdr *msg = mp->msg;
+	const struct cld_msg_hdr *msg = mp->msg;
 	struct session *sess = mp->sess;
 	struct cld_msg_resp *resp;
 	size_t alloc_len;

@@ -144,7 +144,7 @@ int cldc_udp_pkt_send(void *private,
 		return -errno;
 	if (rc != buflen)
 		return -EILSEQ;
-	
+
 	return 0;
 }
 
