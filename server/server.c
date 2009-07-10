@@ -137,50 +137,47 @@ static const char *user_key(const char *user)
 	return user;	/* our secret key */
 }
 
-static bool authcheck(struct cld_msg_hdr *msg, size_t msg_len)
+static bool authcheck(const struct cld_packet *pkt, size_t pkt_len)
 {
 	const char *key;
 	unsigned char md[SHA_DIGEST_LENGTH];
 	unsigned int md_len = 0;
-	void *p = msg;
+	const void *p = pkt;
 
-	if (msg_len < (sizeof(*msg) + SHA_DIGEST_LENGTH))
-		return false;
-
-	key = user_key(msg->user);
+	key = user_key(pkt->user);
 	if (!key)
 		return false;
 
-	HMAC(EVP_sha1(), key, strlen(key), p, msg_len - SHA_DIGEST_LENGTH,
+	HMAC(EVP_sha1(), key, strlen(key), p, pkt_len - SHA_DIGEST_LENGTH,
 	     md, &md_len);
 
 	if (md_len != SHA_DIGEST_LENGTH)
 		return false; /* BUG */
 
-	if (memcmp(md, p + (msg_len - SHA_DIGEST_LENGTH), SHA_DIGEST_LENGTH))
+	if (memcmp(md, p + (pkt_len - SHA_DIGEST_LENGTH), SHA_DIGEST_LENGTH))
 		return false;
 
 	return true;
 }
 
-bool authsign(void *buf, size_t buflen)
+bool authsign(struct cld_packet *pkt, size_t pkt_len)
 {
-	const struct cld_msg_hdr *msg = buf;
 	const char *key;
 	unsigned char md[SHA_DIGEST_LENGTH];
 	unsigned int md_len = 0;
+	void *buf = pkt;
 
-	key = user_key(msg->user);
+	key = user_key(pkt->user);
 	if (!key)
 		return false;
 
-	HMAC(EVP_sha1(), key, strlen(key), buf, buflen - SHA_DIGEST_LENGTH,
+	HMAC(EVP_sha1(), key, strlen(key), buf, pkt_len - SHA_DIGEST_LENGTH,
 	     md, &md_len);
 
 	if (md_len != SHA_DIGEST_LENGTH)
 		syslog(LOG_ERR, "authsign BUG: md_len != SHA_DIGEST_LENGTH");
 
-	memcpy(buf + buflen - SHA_DIGEST_LENGTH, md, SHA_DIGEST_LENGTH);
+	memcpy(buf + pkt_len - SHA_DIGEST_LENGTH, md, SHA_DIGEST_LENGTH);
 
 	return true;
 }
@@ -212,23 +209,22 @@ const char *opstr(enum cld_msg_ops op)
 
 static void udp_rx(struct server_socket *sock,
 		   const struct client *cli,
-		   uint8_t *raw_msg, size_t msg_len)
+		   const void *raw_pkt, size_t pkt_len)
 {
-	struct cld_msg_hdr *msg = (struct cld_msg_hdr *) raw_msg;
+	const struct cld_packet *pkt = raw_pkt;
+	struct cld_packet *outpkt;
+	const struct cld_msg_hdr *msg = (struct cld_msg_hdr *) (pkt + 1);
 	struct session *sess = NULL;
 	enum cle_err_codes resp_rc = CLE_OK;
 	struct cld_msg_resp *resp;
 	struct msg_params mp;
 	size_t alloc_len;
 
-	if (msg_len < sizeof(*msg)) {
-		resp_rc = CLE_BAD_PKT;
-		goto err_out;
-	}
-	if (memcmp(msg->magic, CLD_MAGIC, sizeof(msg->magic))) {
-		resp_rc = CLE_BAD_PKT;
-		goto err_out;
-	}
+	/* drop all completely corrupted packets */
+	if ((pkt_len < (sizeof(*pkt) + sizeof(*msg) + SHA_DIGEST_LENGTH)) ||
+	    (memcmp(pkt->magic, CLD_PKT_MAGIC, sizeof(pkt->magic))) ||
+	    (memcmp(msg->magic, CLD_MSG_MAGIC, sizeof(msg->magic))))
+		return;
 
 	/* look up client session, verify it matches IP */
 	sess = g_hash_table_lookup(cld_srv.sessions, msg->sid);
@@ -239,7 +235,7 @@ static void udp_rx(struct server_socket *sock,
 	}
 
 	/* verify username/password via HMAC signature */
-	if (!authcheck(msg, msg_len)) {
+	if (!authcheck(pkt, pkt_len)) {
 		resp_rc = CLE_SIG_INVAL;
 		goto err_out;
 	}
@@ -247,8 +243,9 @@ static void udp_rx(struct server_socket *sock,
 	mp.sock = sock;
 	mp.cli = cli;
 	mp.sess = sess;
-	mp.msg = raw_msg;
-	mp.msg_len = msg_len;
+	mp.pkt = raw_pkt;
+	mp.msg = msg;
+	mp.msg_len = pkt_len - sizeof(*pkt);
 
 	if (debugging)
 		syslog(LOG_DEBUG, "    msg op %s, seqid %llu",
@@ -317,15 +314,19 @@ static void udp_rx(struct server_socket *sock,
 
 err_out:
 	/* transmit error response (once, without retries) */
-	alloc_len = sizeof(*resp) + SHA_DIGEST_LENGTH;
-	resp = alloca(alloc_len);
-	memset(resp, 0, alloc_len);
+	alloc_len = sizeof(*outpkt) + sizeof(*resp) + SHA_DIGEST_LENGTH;
+	outpkt = alloca(alloc_len);
+	resp = (struct cld_msg_resp *) (outpkt + 1);
+	memset(outpkt, 0, alloc_len);
+
+	memcpy(outpkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
+	strncpy(outpkt->user, pkt->user, CLD_MAX_USERNAME - 1);
 
 	resp_copy(resp, msg);
 	resp->hdr.seqid = GUINT64_TO_LE(0xdeadbeef);
 	resp->code = GUINT32_TO_LE(resp_rc);
 
-	authsign(resp, alloc_len);
+	authsign(outpkt, alloc_len);
 
 	if (debugging)
 		syslog(LOG_DEBUG,
@@ -336,7 +337,7 @@ err_out:
 		       resp_rc);
 
 	udp_tx(sock, (struct sockaddr *) &cli->addr, cli->addr_len,
-	       resp, alloc_len);
+	       outpkt, alloc_len);
 }
 
 static void udp_srv_event(int fd, short events, void *userdata)
@@ -347,14 +348,14 @@ static void udp_srv_event(int fd, short events, void *userdata)
 	ssize_t rrc;
 	struct msghdr hdr;
 	struct iovec iov[2];
-	uint8_t raw_msg[CLD_RAW_MSG_SZ], ctl_msg[CLD_RAW_MSG_SZ];
+	uint8_t raw_pkt[CLD_RAW_MSG_SZ], ctl_msg[CLD_RAW_MSG_SZ];
 
 	gettimeofday(&current_time, NULL);
 
 	memset(&cli, 0, sizeof(cli));
 
-	iov[0].iov_base = raw_msg;
-	iov[0].iov_len = sizeof(raw_msg);
+	iov[0].iov_base = raw_pkt;
+	iov[0].iov_len = sizeof(raw_pkt);
 
 	hdr.msg_name = &cli.addr;
 	hdr.msg_namelen = sizeof(cli.addr);
@@ -382,18 +383,28 @@ static void udp_srv_event(int fd, short events, void *userdata)
 		       host, (int) rrc);
 
 	if (am_master)
-		udp_rx(sock, &cli, raw_msg, rrc);
+		udp_rx(sock, &cli, raw_pkt, rrc);
 
 	else {
-		struct cld_msg_hdr *msg = (struct cld_msg_hdr *) raw_msg;
-		struct cld_msg_resp resp;
+		struct cld_packet *outpkt, *pkt = (struct cld_packet *) raw_pkt;
+		struct cld_msg_hdr *msg = (struct cld_msg_hdr *) (pkt + 1);
+		struct cld_msg_resp *resp;
+		size_t alloc_len;
+
+		alloc_len = sizeof(*outpkt) + sizeof(*resp) + SHA_DIGEST_LENGTH;
+		outpkt = alloca(alloc_len);
+		memset(outpkt, 0, alloc_len);
+
+		memcpy(outpkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
+		strncpy(outpkt->user, pkt->user, CLD_MAX_USERNAME - 1);
 
 		/* transmit not-master error msg */
-		resp_copy(&resp, msg);
-		resp.hdr.seqid = GUINT64_TO_LE(0xdeadbeef);
-		resp.hdr.op = cmo_not_master;
+		resp = (struct cld_msg_resp *) (outpkt + 1);
+		resp_copy(resp, msg);
+		resp->hdr.seqid = GUINT64_TO_LE(0xdeadbeef);
+		resp->hdr.op = cmo_not_master;
 		udp_tx(sock, (struct sockaddr *) &cli.addr, cli.addr_len,
-		       &resp, sizeof(resp));
+		       outpkt, alloc_len);
 	}
 }
 

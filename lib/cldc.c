@@ -46,10 +46,10 @@ enum {
 	CLDC_MAX_DATA_PKTS	= (CLDC_MAX_DATA_SZ / CLDC_MAX_DATA_PKT_SZ) + 2,
 };
 
-static bool authsign(struct cldc_session *sess, void *buf, size_t buflen);
+static bool authsign(struct cldc_session *, struct cld_packet *, size_t);
 
 static const struct cld_msg_hdr def_msg_ack = {
-	.magic		= CLD_MAGIC,
+	.magic		= CLD_MSG_MAGIC,
 	.op		= cmo_ack,
 };
 
@@ -64,28 +64,37 @@ void cldc_log(const char *fmt, ...)
 
 static int ack_seqid(struct cldc_session *sess, uint64_t seqid_le)
 {
-	char respbuf[sizeof(struct cld_msg_hdr) + SHA_DIGEST_LENGTH];
-	struct cld_msg_hdr *resp = (struct cld_msg_hdr *) respbuf;
+	struct cld_packet *pkt;
+	struct cld_msg_hdr *resp;
+	size_t pkt_len;
 
+	pkt_len = sizeof(*pkt) + sizeof(*resp) + SHA_DIGEST_LENGTH;
+	pkt = alloca(pkt_len);
+	memset(pkt, 0, pkt_len);
+
+	memcpy(pkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
+	strncpy(pkt->user, sess->user, CLD_MAX_USERNAME - 1);
+
+	resp = (struct cld_msg_hdr *) (pkt + 1);
 	memcpy(resp, &def_msg_ack, sizeof(*resp));
 	resp->seqid = seqid_le;
 	memcpy(resp->sid, sess->sid, CLD_SID_SZ);
-	strcpy(resp->user, sess->user);
 
-	if (!authsign(sess, respbuf, sizeof(respbuf))) {
+	if (!authsign(sess, pkt, pkt_len)) {
 		sess->act_log("authsign failed 2\n");
 		return -1;
 	}
 
 	return sess->ops->pkt_send(sess->private, sess->addr, sess->addr_len,
-				   resp, sizeof(respbuf));
+				   pkt, pkt_len);
 }
 
 static int cldc_rx_generic(struct cldc_session *sess,
-			   const void *buf,
+			   const struct cld_packet *pkt,
+			   const void *msgbuf,
 			   size_t buflen)
 {
-	const struct cld_msg_resp *resp = buf;
+	const struct cld_msg_resp *resp = msgbuf;
 	struct cldc_msg *req = NULL;
 	ssize_t rc;
 	GList *tmp;
@@ -118,7 +127,7 @@ static int cldc_rx_generic(struct cldc_session *sess,
 		req->done = true;
 
 		if (req->cb) {
-			rc = req->cb(req, buf, buflen, true);
+			rc = req->cb(req, msgbuf, buflen, true);
 			if (rc < 0)
 				return rc;
 		}
@@ -128,9 +137,11 @@ static int cldc_rx_generic(struct cldc_session *sess,
 }
 
 static int cldc_rx_data_c(struct cldc_session *sess,
-			   const void *buf, size_t buflen)
+			   const struct cld_packet *pkt,
+			   const void *msgbuf,
+			   size_t buflen)
 {
-	const struct cld_msg_data *data = buf;
+	const struct cld_msg_data *data = msgbuf;
 	struct cldc_stream *str = NULL;
 	uint32_t seg, seg_len;
 	GList *tmp;
@@ -198,9 +209,11 @@ static int cldc_rx_data_c(struct cldc_session *sess,
 }
 
 static int cldc_rx_event(struct cldc_session *sess,
-			   const void *buf, size_t buflen)
+			 const struct cld_packet *pkt,
+			 const void *msgbuf,
+			 size_t buflen)
 {
-	const struct cld_msg_event *ev = buf;
+	const struct cld_msg_event *ev = msgbuf;
 	struct cldc_fh *fh = NULL;
 	int i;
 
@@ -225,7 +238,9 @@ static int cldc_rx_event(struct cldc_session *sess,
 }
 
 static int cldc_rx_not_master(struct cldc_session *sess,
-			   const void *buf, size_t buflen)
+			      const struct cld_packet *pkt,
+			      const void *msgbuf,
+			      size_t buflen)
 {
 	return -1055;	/* FIXME */
 }
@@ -259,19 +274,20 @@ static const char *user_key(struct cldc_session *sess, const char *user)
 	return sess->secret_key;
 }
 
-static bool authcheck(struct cldc_session *sess, const void *buf, size_t buflen)
+static bool authcheck(struct cldc_session *sess, const struct cld_packet *pkt,
+		      size_t buflen)
 {
-	const struct cld_msg_hdr *msg = buf;
-	size_t userlen = strnlen(msg->user, sizeof(msg->user));
+	size_t userlen = strnlen(pkt->user, sizeof(pkt->user));
 	const char *key;
 	unsigned char md[SHA_DIGEST_LENGTH];
 	unsigned int md_len = 0;
+	const void *buf = pkt;
 
 	/* forbid zero-len and max-len (no nul) usernames */
-	if (userlen < 1 || userlen >= sizeof(msg->user))
+	if (userlen < 1 || userlen >= sizeof(pkt->user))
 		return false;
 
-	key = user_key(sess, msg->user);
+	key = user_key(sess, pkt->user);
 	if (!key)
 		return false;
 
@@ -287,14 +303,15 @@ static bool authcheck(struct cldc_session *sess, const void *buf, size_t buflen)
 	return true;
 }
 
-static bool authsign(struct cldc_session *sess, void *buf, size_t buflen)
+static bool authsign(struct cldc_session *sess, struct cld_packet *pkt,
+		     size_t buflen)
 {
-	const struct cld_msg_hdr *msg = buf;
 	const char *key;
 	unsigned char md[SHA_DIGEST_LENGTH];
 	unsigned int md_len = 0;
+	void *buf = pkt;
 
-	key = user_key(sess, msg->user);
+	key = user_key(sess, pkt->user);
 	if (!key)
 		return false;
 
@@ -336,9 +353,11 @@ static const char *opstr(enum cld_msg_ops op)
 
 int cldc_receive_pkt(struct cldc_session *sess,
 		     const void *net_addr, size_t net_addrlen,
-		     const void *buf, size_t buflen)
+		     const void *pktbuf, size_t pkt_len)
 {
-	const struct cld_msg_hdr *msg = buf;
+	const struct cld_packet *pkt = pktbuf;
+	const struct cld_msg_hdr *msg = (struct cld_msg_hdr *) (pkt + 1);
+	size_t msglen = pkt_len - sizeof(*pkt);
 	struct timeval tv;
 	time_t current_time;
 	uint64_t seqid;
@@ -346,7 +365,7 @@ int cldc_receive_pkt(struct cldc_session *sess,
 	gettimeofday(&tv, NULL);
 	current_time = tv.tv_sec;
 
-	if (buflen < sizeof(*msg)) {
+	if (pkt_len < (sizeof(*pkt) + sizeof(*msg) + SHA_DIGEST_LENGTH)) {
 		if (sess->verbose)
 			sess->act_log("receive_pkt: msg too short\n");
 		return -EPROTO;
@@ -355,24 +374,24 @@ int cldc_receive_pkt(struct cldc_session *sess,
 	if (sess->verbose)
 		sess->act_log("receive pkt: len %u, "
 			"op %s, seqid %llu, user %s\n",
-			(unsigned int) buflen,
+			(unsigned int) pkt_len,
 			opstr(msg->op),
 			(unsigned long long) GUINT64_FROM_LE(msg->seqid),
-			msg->user);
+			pkt->user);
 
-	if (buflen < (sizeof(*msg) + SHA_DIGEST_LENGTH)) {
+	if (memcmp(pkt->magic, CLD_PKT_MAGIC, sizeof(pkt->magic))) {
 		if (sess->verbose)
-			sess->act_log("receive_pkt: bad len\n");
+			sess->act_log("receive_pkt: bad pkt magic\n");
 		return -EPROTO;
 	}
-	if (memcmp(msg->magic, CLD_MAGIC, sizeof(msg->magic))) {
+	if (memcmp(msg->magic, CLD_MSG_MAGIC, sizeof(msg->magic))) {
 		if (sess->verbose)
-			sess->act_log("receive_pkt: bad magic\n");
+			sess->act_log("receive_pkt: bad msg magic\n");
 		return -EPROTO;
 	}
 
 	/* check HMAC signature */
-	if (!authcheck(sess, buf, buflen)) {
+	if (!authcheck(sess, pkt, pkt_len)) {
 		if (sess->verbose)
 			sess->act_log("receive_pkt: invalid auth\n");
 		return -EACCES;
@@ -433,13 +452,13 @@ int cldc_receive_pkt(struct cldc_session *sess,
 	case cmo_data_s:
 	case cmo_get_meta:
 	case cmo_get:
-		return cldc_rx_generic(sess, buf, buflen);
+		return cldc_rx_generic(sess, pkt, msg, msglen);
 	case cmo_not_master:
-		return cldc_rx_not_master(sess, buf, buflen);
+		return cldc_rx_not_master(sess, pkt, msg, msglen);
 	case cmo_event:
-		return cldc_rx_event(sess, buf, buflen);
+		return cldc_rx_event(sess, pkt, msg, msglen);
 	case cmo_data_c:
-		return cldc_rx_data_c(sess, buf, buflen);
+		return cldc_rx_data_c(sess, pkt, msg, msglen);
 	case cmo_ping:
 		return ack_seqid(sess, msg->seqid);
 	case cmo_ack:
@@ -480,12 +499,14 @@ static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 	if (copts)
 		memcpy(&msg->copts, copts, sizeof(msg->copts));
 
+	memcpy(msg->pkt.magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
+	strncpy(msg->pkt.user, sess->user, CLD_MAX_USERNAME - 1);
+
 	hdr = (struct cld_msg_hdr *) &msg->data[0];
-	memcpy(&hdr->magic, CLD_MAGIC, CLD_MAGIC_SZ);
+	memcpy(&hdr->magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
 	hdr->seqid = msg->seqid;
 	memcpy(hdr->sid, sess->sid, CLD_SID_SZ);
 	hdr->op = op;
-	strcpy(hdr->user, sess->user);
 
 	return msg;
 }
@@ -542,7 +563,8 @@ static int sess_timer(struct cldc_session *sess, void *priv)
 		msg->retries++;
 		sess->ops->pkt_send(sess->private,
 			       sess->addr, sess->addr_len,
-			       msg->data, msg->data_len);
+			       &msg->pkt,
+			       sizeof(msg->pkt) + msg->data_len);
 	}
 
 	sess->ops->timer_ctl(sess->private, true, sess_timer, sess,
@@ -554,7 +576,8 @@ static int sess_send(struct cldc_session *sess,
 		     struct cldc_msg *msg)
 {
 	/* sign message */
-	if (!authsign(sess, msg->data, msg->data_len))
+	if (!authsign(sess, &msg->pkt,
+		      sizeof(msg->pkt) + msg->data_len))
 		return -1;
 
 	/* add to list of outgoing packets, waiting to be ack'd */
@@ -563,7 +586,7 @@ static int sess_send(struct cldc_session *sess,
 	/* attempt first send */
 	if (sess->ops->pkt_send(sess->private,
 		       sess->addr, sess->addr_len,
-		       msg->data, msg->data_len) < 0)
+		       &msg->pkt, sizeof(msg->pkt) + msg->data_len) < 0)
 		return -1;
 
 	return 0;

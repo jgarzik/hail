@@ -22,7 +22,8 @@
 
 #include <stdint.h>
 
-#define CLD_MAGIC	"CLDv1cli"
+#define CLD_PKT_MAGIC	"CLDc1pkt"
+#define CLD_MSG_MAGIC	"CLDc1msg"
 
 enum {
 	CLD_MAGIC_SZ		= 8,		/**< length of magic number */
@@ -115,6 +116,11 @@ enum cld_lock_flags {
 	CLF_SHARED		= (1 << 0),	/**< a shared (read) lock */
 };
 
+struct cld_packet {
+	uint8_t		magic[CLD_MAGIC_SZ];	/**< magic number; constant */
+	char		user[CLD_MAX_USERNAME];	/**< authenticated user */
+};
+
 /** header for each message */
 struct cld_msg_hdr {
 	uint8_t		magic[CLD_MAGIC_SZ];	/**< magic number; constant */
@@ -122,7 +128,6 @@ struct cld_msg_hdr {
 	uint8_t		sid[CLD_SID_SZ];	/**< client id */
 	uint8_t		op;			/**< operation code */
 	uint8_t		res1[7];
-	char		user[32];
 };
 
 /** standard response for each message */

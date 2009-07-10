@@ -56,6 +56,9 @@ struct cldc_msg {
 	int		retries;
 
 	int		data_len;
+
+	/* must be at end of struct */
+	struct cld_packet pkt;
 	uint8_t		data[0];
 };
 

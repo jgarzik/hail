@@ -439,32 +439,34 @@ struct raw_session *session_new_raw(const struct session *sess)
 	return raw_sess;
 }
 
-static void om_free(struct session_outmsg *om)
+static void op_free(struct session_outpkt *op)
 {
-	if (!om)
+	if (!op)
 		return;
 
-	free(om->msg);
-	free(om);
+	free(op->pkt);
+	free(op);
 }
 
 static int sess_retry_output(struct session *sess)
 {
 	GList *tmp, *tmp1;
-	struct session_outmsg *om;
+	struct session_outpkt *op;
 	int rc = 0;
 
 	tmp = sess->out_q;
 	while (tmp) {
+		struct cld_packet *outpkt;
 		struct cld_msg_hdr *outmsg;
 
 		tmp1 = tmp;
 		tmp = tmp->next;
 
-		om = tmp1->data;
-		outmsg = om->msg;
+		op = tmp1->data;
+		outpkt = op->pkt;
+		outmsg = (struct cld_msg_hdr *) (outpkt + 1);
 
-		if (current_time.tv_sec < om->next_retry)
+		if (current_time.tv_sec < op->next_retry)
 			continue;
 
 		if (debugging)
@@ -476,11 +478,11 @@ static int sess_retry_output(struct session *sess)
 					GUINT64_FROM_LE(outmsg->seqid));
 
 		rc = udp_tx(sess->sock, (struct sockaddr *) &sess->addr,
-			    sess->addr_len, om->msg, om->msglen);
+			    sess->addr_len, op->pkt, op->pkt_len);
 		if (rc)
 			break;
 
-		om->next_retry *= 2;
+		op->next_retry *= 2;
 	}
 
 	return rc;
@@ -501,8 +503,10 @@ static void session_retry(int fd, short events, void *userdata)
 
 bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen)
 {
+	struct cld_packet *outpkt;
 	struct cld_msg_hdr *msg;
-	struct session_outmsg *om;
+	struct session_outpkt *op;
+	size_t pkt_len;
 
 	if (debugging) {
 		const struct cld_msg_hdr *hdr = msg_;
@@ -514,35 +518,39 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen)
 		       (unsigned long long) GUINT64_FROM_LE(hdr->seqid));
 	}
 
-	om = malloc(sizeof(*om));
-	if (!om)
+	op = malloc(sizeof(*op));
+	if (!op)
 		return false;
 
-	msg = calloc(1, msglen + SHA_DIGEST_LENGTH);
-	if (!msg) {
-		free(om);
+	pkt_len = sizeof(*outpkt) + msglen + SHA_DIGEST_LENGTH;
+	outpkt = calloc(1, pkt_len);
+	if (!outpkt) {
+		free(op);
 		return false;
 	}
 
+	msg = (struct cld_msg_hdr *) (outpkt + 1);
+
+	/* init packet header */
+	memcpy(outpkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
+	strncpy(outpkt->user, sess->user, CLD_MAX_USERNAME - 1);
+
 	/* init message header */
-	memcpy(msg->magic, CLD_MAGIC, CLD_MAGIC_SZ);
+	memcpy(msg->magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
 	msg->seqid = next_seqid_le(&sess->next_seqid_out);
 	memcpy(msg->sid, sess->sid, CLD_SID_SZ);
 	msg->op = ((struct cld_msg_hdr *)msg_)->op;
-	strncpy(msg->user, sess->user, CLD_MAX_USERNAME - 1);
 
 	/* copy message trailer */
 	memcpy(msg + 1, msg_ + sizeof(*msg), msglen - sizeof(*msg));
 
-	msglen += SHA_DIGEST_LENGTH;
+	op->pkt = outpkt;
+	op->pkt_len = pkt_len;
+	op->next_retry = current_time.tv_sec + CLD_RETRY_START;
 
-	om->msg = msg;
-	om->msglen = msglen;
-	om->next_retry = current_time.tv_sec + CLD_RETRY_START;
-
-	if (!authsign(msg, msglen)) {
+	if (!authsign(outpkt, pkt_len)) {
 		free(msg);
-		free(om);
+		free(op);
 		return false;
 	}
 
@@ -553,20 +561,22 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen)
 			syslog(LOG_WARNING, "retry timer start failed");
 	}
 
-	sess->out_q = g_list_append(sess->out_q, om);
+	sess->out_q = g_list_append(sess->out_q, op);
 
 	udp_tx(sess->sock, (struct sockaddr *) &sess->addr,
-	       sess->addr_len, msg, msglen);
+	       sess->addr_len, outpkt, pkt_len);
 
 	return true;
 }
 
 void msg_ack(struct msg_params *mp)
 {
-	const struct cld_msg_hdr *outmsg, *msg = mp->msg;
+	const struct cld_msg_hdr *msg = mp->msg;
+	struct cld_packet *outpkt;
+	struct cld_msg_hdr *outmsg;
 	GList *tmp, *tmp1;
 	struct session *sess = mp->sess;
-	struct session_outmsg *om;
+	struct session_outpkt *op;
 
 	if (!sess->out_q)
 		return;
@@ -577,8 +587,9 @@ void msg_ack(struct msg_params *mp)
 		tmp1 = tmp;
 		tmp = tmp->next;
 
-		om = tmp1->data;
-		outmsg = om->msg;
+		op = tmp1->data;
+		outpkt = op->pkt;
+		outmsg = (struct cld_msg_hdr *) (outpkt + 1);
 
 		/* if matching seqid found, we ack'd a message in out_q */
 		if (msg->seqid != outmsg->seqid)
@@ -593,7 +604,7 @@ void msg_ack(struct msg_params *mp)
 
 		/* remove and delete the ack'd msg */
 		sess->out_q = g_list_delete_link(sess->out_q, tmp1);
-		om_free(om);
+		op_free(op);
 	}
 
 	if (!sess->out_q)
@@ -612,6 +623,7 @@ void msg_new_sess(struct msg_params *mp, const struct client *cli)
 	struct timeval tv;
 	enum cle_err_codes resp_rc = CLE_OK;
 	struct cld_msg_resp *resp;
+	struct cld_packet *outpkt;
 	size_t alloc_len;
 
 	sess = session_new();
@@ -624,7 +636,7 @@ void msg_new_sess(struct msg_params *mp, const struct client *cli)
 	memcpy(sess->sid, msg->sid, sizeof(sess->sid));
 	memcpy(&sess->addr, &cli->addr, sizeof(sess->addr));
 
-	strncpy(sess->user, msg->user, sizeof(sess->user));
+	strncpy(sess->user, mp->pkt->user, sizeof(sess->user));
 	sess->user[sizeof(sess->user) - 1] = 0;
 
 	sess->sock = mp->sock;
@@ -671,15 +683,16 @@ void msg_new_sess(struct msg_params *mp, const struct client *cli)
 err_out:
 	session_free(sess);
 
-	alloc_len = sizeof(*resp) + SHA_DIGEST_LENGTH;
-	resp = alloca(alloc_len);
-	memset(resp, 0, alloc_len);
+	alloc_len = sizeof(*outpkt) + sizeof(*resp) + SHA_DIGEST_LENGTH;
+	outpkt = alloca(alloc_len);
+	memset(outpkt, 0, alloc_len);
 
+	resp = (struct cld_msg_resp *) (outpkt + 1);
 	resp_copy(resp, msg);
 	resp->hdr.seqid = GUINT64_TO_LE(0xdeadbeef);
 	resp->code = GUINT32_TO_LE(resp_rc);
 
-	authsign(resp, alloc_len);
+	authsign(outpkt, alloc_len);
 
 	if (debugging)
 		syslog(LOG_DEBUG, "new_sess err: sid " SIDFMT ", op %s, seqid %llu",
@@ -688,7 +701,7 @@ err_out:
 		       (unsigned long long) GUINT64_FROM_LE(resp->hdr.seqid));
 
 	udp_tx(mp->sock, (struct sockaddr *) &mp->cli->addr,
-	       mp->cli->addr_len, resp, alloc_len);
+	       mp->cli->addr_len, outpkt, alloc_len);
 
 	if (debugging)
 		syslog(LOG_DEBUG, "NEW-SESS failed: %d", resp_rc);
@@ -701,16 +714,21 @@ void msg_end_sess(struct msg_params *mp, const struct client *cli)
 	const struct cld_msg_hdr *msg = mp->msg;
 	struct session *sess = mp->sess;
 	struct cld_msg_resp *resp;
+	struct cld_packet *outpkt;
 	size_t alloc_len;
 	enum cle_err_codes resp_rc = CLE_OK;
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	DB_TXN *txn;
 
 	/* transmit response (once, without retries) */
-	alloc_len = sizeof(*resp) + SHA_DIGEST_LENGTH;
-	resp = alloca(alloc_len);
-	memset(resp, 0, alloc_len);
+	alloc_len = sizeof(*outpkt) + sizeof(*resp) + SHA_DIGEST_LENGTH;
+	outpkt = alloca(alloc_len);
+	memset(outpkt, 0, alloc_len);
 
+	memcpy(outpkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
+	strncpy(outpkt->user, sess->user, CLD_MAX_USERNAME - 1);
+
+	resp = (struct cld_msg_resp *) (outpkt + 1);
 	resp_copy(resp, msg);
 	resp->hdr.seqid = next_seqid_le(&sess->next_seqid_out);
 
@@ -735,7 +753,7 @@ void msg_end_sess(struct msg_params *mp, const struct client *cli)
 do_code:
 	resp->code = GUINT32_TO_LE(resp_rc);
 
-	authsign(resp, alloc_len);
+	authsign(outpkt, alloc_len);
 
 	if (debugging)
 		syslog(LOG_DEBUG, "end_sess msg: sid " SIDFMT ", op %s, seqid %llu",
@@ -745,7 +763,7 @@ do_code:
 				GUINT64_FROM_LE(resp->hdr.seqid));
 
 	udp_tx(sock, (struct sockaddr *) &cli->addr, cli->addr_len,
-	       resp, alloc_len);
+	       outpkt, alloc_len);
 }
 
 /*

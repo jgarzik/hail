@@ -47,9 +47,9 @@ struct client {
 	char			addr_host[64];	/* ASCII version of inet addr */
 };
 
-struct session_outmsg {
-	void			*msg;
-	size_t			msglen;
+struct session_outpkt {
+	struct cld_packet	*pkt;
+	size_t			pkt_len;
 	uint64_t		next_retry;
 };
 
@@ -85,6 +85,7 @@ struct msg_params {
 	const struct client	*cli;
 	struct session		*sess;
 
+	const struct cld_packet	*pkt;
 	const void		*msg;
 	size_t			msg_len;
 };
@@ -158,7 +159,7 @@ extern void resp_copy(struct cld_msg_resp *resp, const struct cld_msg_hdr *src);
 extern void resp_err(struct session *,
 		     const struct cld_msg_hdr *, enum cle_err_codes);
 extern void resp_ok(struct session *, const struct cld_msg_hdr *);
-extern bool authsign(void *buf, size_t buflen);
+extern bool authsign(struct cld_packet *pkt, size_t pkt_len);
 
 /* util.c */
 extern int write_pid_file(const char *pid_fn);
