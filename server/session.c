@@ -678,7 +678,7 @@ void msg_new_sess(struct msg_params *mp, const struct client *cli)
 	if (evtimer_add(&sess->timer, &tv) < 0)
 		syslog(LOG_WARNING, "evtimer_add session_new failed");
 
-	resp_ok(sess, msg);
+	resp_ok(sess, mp->pkt);
 	return;
 
 err_out:
@@ -694,7 +694,7 @@ err_out:
 	strncpy(outpkt->user, mp->pkt->user, CLD_MAX_USERNAME - 1);
 
 	resp = (struct cld_msg_resp *) (outpkt + 1);
-	resp_copy(resp, msg);
+	resp_copy(resp, mp->pkt);
 	resp->hdr.seqid = GUINT64_TO_LE(0xdeadbeef);
 	resp->code = GUINT32_TO_LE(resp_rc);
 
@@ -717,7 +717,6 @@ void msg_end_sess(struct msg_params *mp, const struct client *cli)
 {
 	int rc;
 	struct server_socket *sock = mp->sock;
-	const struct cld_msg_hdr *msg = mp->msg;
 	struct session *sess = mp->sess;
 	struct cld_msg_resp *resp;
 	struct cld_packet *outpkt;
@@ -737,7 +736,7 @@ void msg_end_sess(struct msg_params *mp, const struct client *cli)
 	strncpy(outpkt->user, sess->user, CLD_MAX_USERNAME - 1);
 
 	resp = (struct cld_msg_resp *) (outpkt + 1);
-	resp_copy(resp, msg);
+	resp_copy(resp, mp->pkt);
 	resp->hdr.seqid = next_seqid_le(&sess->next_seqid_out);
 
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);

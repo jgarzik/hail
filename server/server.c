@@ -96,8 +96,10 @@ int udp_tx(struct server_socket *sock, struct sockaddr *addr,
 	return 0;
 }
 
-void resp_copy(struct cld_msg_resp *resp, const struct cld_msg_hdr *src)
+void resp_copy(struct cld_msg_resp *resp, const struct cld_packet *src_pkt)
 {
+	const struct cld_msg_hdr *src = (struct cld_msg_hdr *) (src_pkt + 1);
+
 	memcpy(&resp->hdr, src, sizeof(*src));
 	resp->code = 0;
 	resp->rsv = 0;
@@ -105,11 +107,11 @@ void resp_copy(struct cld_msg_resp *resp, const struct cld_msg_hdr *src)
 }
 
 void resp_err(struct session *sess,
-	      const struct cld_msg_hdr *msg, enum cle_err_codes errcode)
+	      const struct cld_packet *pkt, enum cle_err_codes errcode)
 {
 	struct cld_msg_resp resp;
 
-	resp_copy(&resp, msg);
+	resp_copy(&resp, pkt);
 	resp.code = GUINT32_TO_LE(errcode);
 
 	if (sess->sock == NULL) {
@@ -120,9 +122,9 @@ void resp_err(struct session *sess,
 	sess_sendmsg(sess, &resp, sizeof(resp));
 }
 
-void resp_ok(struct session *sess, const struct cld_msg_hdr *msg)
+void resp_ok(struct session *sess, const struct cld_packet *pkt)
 {
-	resp_err(sess, msg, CLE_OK);
+	resp_err(sess, pkt, CLE_OK);
 }
 
 static const char *user_key(const char *user)
@@ -288,7 +290,7 @@ static void udp_rx(struct server_socket *sock,
 
 	switch(msg->op) {
 	case cmo_nop:
-		resp_ok(sess, msg);
+		resp_ok(sess, pkt);
 		break;
 
 	case cmo_new_sess:	msg_new_sess(&mp, cli); break;
@@ -324,7 +326,7 @@ err_out:
 	outpkt->n_msg = 1;
 	strncpy(outpkt->user, pkt->user, CLD_MAX_USERNAME - 1);
 
-	resp_copy(resp, msg);
+	resp_copy(resp, pkt);
 	resp->hdr.seqid = GUINT64_TO_LE(0xdeadbeef);
 	resp->code = GUINT32_TO_LE(resp_rc);
 
@@ -389,7 +391,6 @@ static void udp_srv_event(int fd, short events, void *userdata)
 
 	else {
 		struct cld_packet *outpkt, *pkt = (struct cld_packet *) raw_pkt;
-		struct cld_msg_hdr *msg = (struct cld_msg_hdr *) (pkt + 1);
 		struct cld_msg_resp *resp;
 		size_t alloc_len;
 
@@ -404,7 +405,7 @@ static void udp_srv_event(int fd, short events, void *userdata)
 
 		/* transmit not-master error msg */
 		resp = (struct cld_msg_resp *) (outpkt + 1);
-		resp_copy(resp, msg);
+		resp_copy(resp, pkt);
 		resp->hdr.seqid = GUINT64_TO_LE(0xdeadbeef);
 		resp->hdr.op = cmo_not_master;
 		udp_tx(sock, (struct sockaddr *) &cli.addr, cli.addr_len,
