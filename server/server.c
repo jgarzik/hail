@@ -209,6 +209,36 @@ const char *opstr(enum cld_msg_ops op)
 	}
 }
 
+static void udp_rx_msg(const struct client *cli, const struct cld_packet *pkt,
+		       const struct cld_msg_hdr *msg, struct msg_params *mp)
+{
+	struct session *sess = mp->sess;
+
+	switch(msg->op) {
+	case cmo_nop:
+		resp_ok(sess, pkt);
+		break;
+
+	case cmo_new_sess:	msg_new_sess(mp, cli); break;
+	case cmo_end_sess:	msg_end_sess(mp, cli); break;
+	case cmo_open:		msg_open(mp); break;
+	case cmo_get:		msg_get(mp, false); break;
+	case cmo_get_meta:	msg_get(mp, true); break;
+	case cmo_put:		msg_put(mp); break;
+	case cmo_data_s:	msg_data(mp); break;
+	case cmo_close:		msg_close(mp); break;
+	case cmo_del:		msg_del(mp); break;
+	case cmo_unlock:	msg_unlock(mp); break;
+	case cmo_lock:		msg_lock(mp, true); break;
+	case cmo_trylock:	msg_lock(mp, false); break;
+	case cmo_ack:		msg_ack(mp); break;
+
+	default:
+		/* do nothing */
+		break;
+	}
+}
+
 static void udp_rx(struct server_socket *sock,
 		   const struct client *cli,
 		   const void *raw_pkt, size_t pkt_len)
@@ -288,30 +318,7 @@ static void udp_rx(struct server_socket *sock,
 		}
 	}
 
-	switch(msg->op) {
-	case cmo_nop:
-		resp_ok(sess, pkt);
-		break;
-
-	case cmo_new_sess:	msg_new_sess(&mp, cli); break;
-	case cmo_end_sess:	msg_end_sess(&mp, cli); break;
-	case cmo_open:		msg_open(&mp); break;
-	case cmo_get:		msg_get(&mp, false); break;
-	case cmo_get_meta:	msg_get(&mp, true); break;
-	case cmo_put:		msg_put(&mp); break;
-	case cmo_data_s:	msg_data(&mp); break;
-	case cmo_close:		msg_close(&mp); break;
-	case cmo_del:		msg_del(&mp); break;
-	case cmo_unlock:	msg_unlock(&mp); break;
-	case cmo_lock:		msg_lock(&mp, true); break;
-	case cmo_trylock:	msg_lock(&mp, false); break;
-	case cmo_ack:		msg_ack(&mp); break;
-
-	default:
-		/* do nothing */
-		break;
-	}
-
+	udp_rx_msg(cli, pkt, msg, &mp);
 	return;
 
 err_out:
@@ -321,11 +328,7 @@ err_out:
 	resp = (struct cld_msg_resp *) (outpkt + 1);
 	memset(outpkt, 0, alloc_len);
 
-	memcpy(outpkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
-	outpkt->seqid = GUINT64_TO_LE(0xdeadbeef);
-	memcpy(outpkt->sid, pkt->sid, CLD_SID_SZ);
-	outpkt->n_msg = 1;
-	strncpy(outpkt->user, pkt->user, CLD_MAX_USERNAME - 1);
+	pkt_init_pkt(outpkt, pkt);
 
 	resp_copy(resp, pkt);
 	resp->code = GUINT32_TO_LE(resp_rc);
@@ -398,11 +401,7 @@ static void udp_srv_event(int fd, short events, void *userdata)
 		outpkt = alloca(alloc_len);
 		memset(outpkt, 0, alloc_len);
 
-		memcpy(outpkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
-		outpkt->seqid = GUINT64_TO_LE(0xdeadbeef);
-		memcpy(outpkt->sid, pkt->sid, CLD_SID_SZ);
-		outpkt->n_msg = 1;
-		strncpy(outpkt->user, pkt->user, CLD_MAX_USERNAME - 1);
+		pkt_init_pkt(outpkt, pkt);
 
 		/* transmit not-master error msg */
 		resp = (struct cld_msg_resp *) (outpkt + 1);

@@ -137,6 +137,8 @@ extern void msg_get(struct msg_params *, bool);
 
 /* session.c */
 extern uint64_t next_seqid_le(uint64_t *seq);
+extern void pkt_init_sess(struct cld_packet *dest, struct session *sess);
+extern void pkt_init_pkt(struct cld_packet *dest, const struct cld_packet *src);
 extern guint sess_hash(gconstpointer v);
 extern gboolean sess_equal(gconstpointer _a, gconstpointer _b);
 extern void msg_new_sess(struct msg_params *, const struct client *);

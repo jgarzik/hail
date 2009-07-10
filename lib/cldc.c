@@ -352,6 +352,43 @@ static const char *opstr(enum cld_msg_ops op)
 	}
 }
 
+static int cldc_receive_msg(struct cldc_session *sess,
+			    const struct cld_packet *pkt,
+			    size_t pkt_len,
+			    const struct cld_msg_hdr *msg,
+			    size_t msglen)
+{
+	switch(msg->op) {
+	case cmo_nop:
+	case cmo_close:
+	case cmo_del:
+	case cmo_lock:
+	case cmo_unlock:
+	case cmo_trylock:
+	case cmo_put:
+	case cmo_new_sess:
+	case cmo_end_sess:
+	case cmo_open:
+	case cmo_data_s:
+	case cmo_get_meta:
+	case cmo_get:
+		return cldc_rx_generic(sess, pkt, msg, msglen);
+	case cmo_not_master:
+		return cldc_rx_not_master(sess, pkt, msg, msglen);
+	case cmo_event:
+		return cldc_rx_event(sess, pkt, msg, msglen);
+	case cmo_data_c:
+		return cldc_rx_data_c(sess, pkt, msg, msglen);
+	case cmo_ping:
+		return ack_seqid(sess, pkt->seqid);
+	case cmo_ack:
+		return -EBADRQC;
+	}
+
+	/* unknown op code */
+	return -EBADRQC;
+}
+
 int cldc_receive_pkt(struct cldc_session *sess,
 		     const void *net_addr, size_t net_addrlen,
 		     const void *pktbuf, size_t pkt_len)
@@ -439,35 +476,7 @@ int cldc_receive_pkt(struct cldc_session *sess,
 
 	sess->expire_time = current_time + CLDC_SESS_EXPIRE;
 
-	switch(msg->op) {
-	case cmo_nop:
-	case cmo_close:
-	case cmo_del:
-	case cmo_lock:
-	case cmo_unlock:
-	case cmo_trylock:
-	case cmo_put:
-	case cmo_new_sess:
-	case cmo_end_sess:
-	case cmo_open:
-	case cmo_data_s:
-	case cmo_get_meta:
-	case cmo_get:
-		return cldc_rx_generic(sess, pkt, msg, msglen);
-	case cmo_not_master:
-		return cldc_rx_not_master(sess, pkt, msg, msglen);
-	case cmo_event:
-		return cldc_rx_event(sess, pkt, msg, msglen);
-	case cmo_data_c:
-		return cldc_rx_data_c(sess, pkt, msg, msglen);
-	case cmo_ping:
-		return ack_seqid(sess, pkt->seqid);
-	case cmo_ack:
-		return -EBADRQC;
-	}
-
-	/* unknown op code */
-	return -EBADRQC;
+	return cldc_receive_msg(sess, pkt, pkt_len, msg, msglen);
 }
 
 static void sess_next_seqid(struct cldc_session *sess, uint64_t *seqid)

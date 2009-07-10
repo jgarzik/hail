@@ -45,6 +45,26 @@ uint64_t next_seqid_le(uint64_t *seq)
 	return rc;
 }
 
+void pkt_init_pkt(struct cld_packet *dest, const struct cld_packet *src)
+{
+	memset(dest, 0, sizeof(*dest));
+	memcpy(dest->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
+	dest->seqid = GUINT64_TO_LE(0xdeadbeef);
+	memcpy(dest->sid, src->sid, CLD_SID_SZ);
+	dest->n_msg = 1;
+	strncpy(dest->user, src->user, CLD_MAX_USERNAME - 1);
+}
+
+void pkt_init_sess(struct cld_packet *dest, struct session *sess)
+{
+	memset(dest, 0, sizeof(*dest));
+	memcpy(dest->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
+	dest->seqid = next_seqid_le(&sess->next_seqid_out);
+	memcpy(dest->sid, sess->sid, CLD_SID_SZ);
+	dest->n_msg = 1;
+	strncpy(dest->user, sess->user, CLD_MAX_USERNAME - 1);
+}
+
 guint sess_hash(gconstpointer v)
 {
 	const struct session *sess = v;
@@ -531,11 +551,7 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen)
 	msg = (struct cld_msg_hdr *) (outpkt + 1);
 
 	/* init packet header */
-	memcpy(outpkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
-	outpkt->seqid = next_seqid_le(&sess->next_seqid_out);
-	memcpy(outpkt->sid, sess->sid, CLD_SID_SZ);
-	outpkt->n_msg = 1;
-	strncpy(outpkt->user, sess->user, CLD_MAX_USERNAME - 1);
+	pkt_init_sess(outpkt, sess);
 
 	/* init message header */
 	memcpy(msg->magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
@@ -685,11 +701,7 @@ err_out:
 	outpkt = alloca(alloc_len);
 	memset(outpkt, 0, alloc_len);
 
-	memcpy(outpkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
-	outpkt->seqid = GUINT64_TO_LE(0xdeadbeef);
-	memcpy(outpkt->sid, mp->pkt->sid, CLD_SID_SZ);
-	outpkt->n_msg = 1;
-	strncpy(outpkt->user, mp->pkt->user, CLD_MAX_USERNAME - 1);
+	pkt_init_pkt(outpkt, mp->pkt);
 
 	resp = (struct cld_msg_resp *) (outpkt + 1);
 	resp_copy(resp, mp->pkt);
@@ -727,11 +739,7 @@ void msg_end_sess(struct msg_params *mp, const struct client *cli)
 	outpkt = alloca(alloc_len);
 	memset(outpkt, 0, alloc_len);
 
-	memcpy(outpkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
-	outpkt->seqid = next_seqid_le(&sess->next_seqid_out);
-	memcpy(outpkt->sid, sess->sid, CLD_SID_SZ);
-	outpkt->n_msg = 1;
-	strncpy(outpkt->user, sess->user, CLD_MAX_USERNAME - 1);
+	pkt_init_sess(outpkt, sess);
 
 	resp = (struct cld_msg_resp *) (outpkt + 1);
 	resp_copy(resp, mp->pkt);
