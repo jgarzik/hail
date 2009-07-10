@@ -475,7 +475,7 @@ static int sess_retry_output(struct session *sess)
 			       SIDARG(outpkt->sid),
 			       opstr(outmsg->op),
 			       (unsigned long long)
-					GUINT64_FROM_LE(outmsg->seqid));
+					GUINT64_FROM_LE(outpkt->seqid));
 
 		rc = udp_tx(sess->sock, (struct sockaddr *) &sess->addr,
 			    sess->addr_len, op->pkt, op->pkt_len);
@@ -511,11 +511,10 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen)
 	if (debugging) {
 		const struct cld_msg_hdr *hdr = msg_;
 
-		syslog(LOG_DEBUG, "sendmsg: sid " SIDFMT ", op %s, msglen %u, seqid %llu",
+		syslog(LOG_DEBUG, "sendmsg: sid " SIDFMT ", op %s, msglen %u",
 		       SIDARG(sess->sid),
 		       opstr(hdr->op),
-		       (unsigned int) msglen,
-		       (unsigned long long) GUINT64_FROM_LE(hdr->seqid));
+		       (unsigned int) msglen);
 	}
 
 	op = malloc(sizeof(*op));
@@ -533,13 +532,13 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen)
 
 	/* init packet header */
 	memcpy(outpkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
+	outpkt->seqid = next_seqid_le(&sess->next_seqid_out);
 	memcpy(outpkt->sid, sess->sid, CLD_SID_SZ);
 	outpkt->n_msg = 1;
 	strncpy(outpkt->user, sess->user, CLD_MAX_USERNAME - 1);
 
 	/* init message header */
 	memcpy(msg->magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
-	msg->seqid = next_seqid_le(&sess->next_seqid_out);
 	msg->op = ((struct cld_msg_hdr *)msg_)->op;
 
 	/* copy message trailer */
@@ -572,7 +571,6 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen)
 
 void msg_ack(struct msg_params *mp)
 {
-	const struct cld_msg_hdr *msg = mp->msg;
 	struct cld_packet *outpkt;
 	struct cld_msg_hdr *outmsg;
 	GList *tmp, *tmp1;
@@ -593,12 +591,12 @@ void msg_ack(struct msg_params *mp)
 		outmsg = (struct cld_msg_hdr *) (outpkt + 1);
 
 		/* if matching seqid found, we ack'd a message in out_q */
-		if (msg->seqid != outmsg->seqid)
+		if (mp->pkt->seqid != outpkt->seqid)
 			continue;
 
 		if (debugging)
 			syslog(LOG_DEBUG, "    expiring seqid %llu",
-		           (unsigned long long) GUINT64_FROM_LE(outmsg->seqid));
+		           (unsigned long long) GUINT64_FROM_LE(outpkt->seqid));
 
 		if (outmsg->op == cmo_ping)
 			sess->ping_open = false;
@@ -615,7 +613,6 @@ void msg_ack(struct msg_params *mp)
 
 void msg_new_sess(struct msg_params *mp, const struct client *cli)
 {
-	const struct cld_msg_hdr *msg = mp->msg;
 	DB *db = cld_srv.cldb.sessions;
 	struct raw_session raw_sess;
 	struct session *sess = NULL;
@@ -644,7 +641,7 @@ void msg_new_sess(struct msg_params *mp, const struct client *cli)
 	sess->addr_len = cli->addr_len;
 	strncpy(sess->ipaddr, cli->addr_host, sizeof(sess->ipaddr));
 	sess->last_contact = current_time.tv_sec;
-	sess->next_seqid_in = GUINT64_FROM_LE(msg->seqid) + 1;
+	sess->next_seqid_in = GUINT64_FROM_LE(mp->pkt->seqid) + 1;
 
 	session_encode(&raw_sess, sess);
 
@@ -689,13 +686,13 @@ err_out:
 	memset(outpkt, 0, alloc_len);
 
 	memcpy(outpkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
+	outpkt->seqid = GUINT64_TO_LE(0xdeadbeef);
 	memcpy(outpkt->sid, mp->pkt->sid, CLD_SID_SZ);
 	outpkt->n_msg = 1;
 	strncpy(outpkt->user, mp->pkt->user, CLD_MAX_USERNAME - 1);
 
 	resp = (struct cld_msg_resp *) (outpkt + 1);
 	resp_copy(resp, mp->pkt);
-	resp->hdr.seqid = GUINT64_TO_LE(0xdeadbeef);
 	resp->code = GUINT32_TO_LE(resp_rc);
 
 	authsign(outpkt, alloc_len);
@@ -704,7 +701,7 @@ err_out:
 		syslog(LOG_DEBUG, "new_sess err: sid " SIDFMT ", op %s, seqid %llu",
 		       SIDARG(outpkt->sid),
 		       opstr(resp->hdr.op),
-		       (unsigned long long) GUINT64_FROM_LE(resp->hdr.seqid));
+		       (unsigned long long) GUINT64_FROM_LE(outpkt->seqid));
 
 	udp_tx(mp->sock, (struct sockaddr *) &mp->cli->addr,
 	       mp->cli->addr_len, outpkt, alloc_len);
@@ -731,13 +728,13 @@ void msg_end_sess(struct msg_params *mp, const struct client *cli)
 	memset(outpkt, 0, alloc_len);
 
 	memcpy(outpkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
+	outpkt->seqid = next_seqid_le(&sess->next_seqid_out);
 	memcpy(outpkt->sid, sess->sid, CLD_SID_SZ);
 	outpkt->n_msg = 1;
 	strncpy(outpkt->user, sess->user, CLD_MAX_USERNAME - 1);
 
 	resp = (struct cld_msg_resp *) (outpkt + 1);
 	resp_copy(resp, mp->pkt);
-	resp->hdr.seqid = next_seqid_le(&sess->next_seqid_out);
 
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
 	if (rc) {
@@ -767,7 +764,7 @@ do_code:
 		       SIDARG(outpkt->sid),
 		       opstr(resp->hdr.op),
 		       (unsigned long long)
-				GUINT64_FROM_LE(resp->hdr.seqid));
+				GUINT64_FROM_LE(outpkt->seqid));
 
 	udp_tx(sock, (struct sockaddr *) &cli->addr, cli->addr_len,
 	       outpkt, alloc_len);

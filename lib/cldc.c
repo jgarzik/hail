@@ -73,13 +73,13 @@ static int ack_seqid(struct cldc_session *sess, uint64_t seqid_le)
 	memset(pkt, 0, pkt_len);
 
 	memcpy(pkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
+	pkt->seqid = seqid_le;
 	memcpy(pkt->sid, sess->sid, CLD_SID_SZ);
 	pkt->n_msg = 1;
 	strncpy(pkt->user, sess->user, CLD_MAX_USERNAME - 1);
 
 	resp = (struct cld_msg_hdr *) (pkt + 1);
 	memcpy(resp, &def_msg_ack, sizeof(*resp));
-	resp->seqid = seqid_le;
 
 	if (!authsign(sess, pkt, pkt_len)) {
 		sess->act_log("authsign failed 2\n");
@@ -134,7 +134,7 @@ static int cldc_rx_generic(struct cldc_session *sess,
 		}
 	}
 
-	return ack_seqid(sess, resp->hdr.seqid);
+	return ack_seqid(sess, pkt->seqid);
 }
 
 static int cldc_rx_data_c(struct cldc_session *sess,
@@ -377,7 +377,7 @@ int cldc_receive_pkt(struct cldc_session *sess,
 			"op %s, seqid %llu, user %s\n",
 			(unsigned int) pkt_len,
 			opstr(msg->op),
-			(unsigned long long) GUINT64_FROM_LE(msg->seqid),
+			(unsigned long long) GUINT64_FROM_LE(pkt->seqid),
 			pkt->user);
 
 	if (memcmp(pkt->magic, CLD_PKT_MAGIC, sizeof(pkt->magic))) {
@@ -411,7 +411,7 @@ int cldc_receive_pkt(struct cldc_session *sess,
 		sess_expire_outmsg(sess, current_time);
 
 	/* verify (or set, for new-sess) sequence id */
-	seqid = GUINT64_FROM_LE(msg->seqid);
+	seqid = GUINT64_FROM_LE(pkt->seqid);
 	if (msg->op == cmo_new_sess) {
 		sess->next_seqid_in = seqid + 1;
 		sess->next_seqid_in_tr =
@@ -426,7 +426,7 @@ int cldc_receive_pkt(struct cldc_session *sess,
 			if (seqid_in_range(seqid,
 					   sess->next_seqid_in_tr,
 					   sess->next_seqid_in))
-				return ack_seqid(sess, msg->seqid);
+				return ack_seqid(sess, pkt->seqid);
 
 			if (sess->verbose)
 				sess->act_log("receive_pkt: bad seqid %llu\n",
@@ -461,7 +461,7 @@ int cldc_receive_pkt(struct cldc_session *sess,
 	case cmo_data_c:
 		return cldc_rx_data_c(sess, pkt, msg, msglen);
 	case cmo_ping:
-		return ack_seqid(sess, msg->seqid);
+		return ack_seqid(sess, pkt->seqid);
 	case cmo_ack:
 		return -EBADRQC;
 	}
@@ -500,9 +500,10 @@ static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 	if (copts)
 		memcpy(&msg->copts, copts, sizeof(msg->copts));
 
+	msg->pkt.seqid = msg->seqid;
+
 	hdr = (struct cld_msg_hdr *) &msg->data[0];
 	memcpy(&hdr->magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
-	hdr->seqid = msg->seqid;
 	hdr->op = op;
 
 	return msg;

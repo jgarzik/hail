@@ -103,7 +103,7 @@ void resp_copy(struct cld_msg_resp *resp, const struct cld_packet *src_pkt)
 	memcpy(&resp->hdr, src, sizeof(*src));
 	resp->code = 0;
 	resp->rsv = 0;
-	resp->seqid_in = src->seqid;
+	resp->seqid_in = src_pkt->seqid;
 }
 
 void resp_err(struct session *sess,
@@ -245,14 +245,14 @@ static void udp_rx(struct server_socket *sock,
 	mp.sock = sock;
 	mp.cli = cli;
 	mp.sess = sess;
-	mp.pkt = raw_pkt;
+	mp.pkt = pkt;
 	mp.msg = msg;
 	mp.msg_len = pkt_len - sizeof(*pkt);
 
 	if (debugging)
 		syslog(LOG_DEBUG, "    msg op %s, seqid %llu",
 		       opstr(msg->op),
-		       (unsigned long long) GUINT64_FROM_LE(msg->seqid));
+		       (unsigned long long) GUINT64_FROM_LE(pkt->seqid));
 
 	if (msg->op != cmo_new_sess) {
 		if (!sess) {
@@ -265,7 +265,7 @@ static void udp_rx(struct server_socket *sock,
 
 		if (msg->op != cmo_ack) {
 			/* eliminate duplicates; do not return any response */
-			if (GUINT64_FROM_LE(msg->seqid) != sess->next_seqid_in) {
+			if (GUINT64_FROM_LE(pkt->seqid) != sess->next_seqid_in) {
 				if (debugging)
 					syslog(LOG_DEBUG, "dropping dup");
 				return;
@@ -277,7 +277,7 @@ static void udp_rx(struct server_socket *sock,
 	} else {
 		if (sess) {
 			/* eliminate duplicates; do not return any response */
-			if (GUINT64_FROM_LE(msg->seqid) != sess->next_seqid_in) {
+			if (GUINT64_FROM_LE(pkt->seqid) != sess->next_seqid_in) {
 				if (debugging)
 					syslog(LOG_DEBUG, "dropping dup");
 				return;
@@ -322,12 +322,12 @@ err_out:
 	memset(outpkt, 0, alloc_len);
 
 	memcpy(outpkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
+	outpkt->seqid = GUINT64_TO_LE(0xdeadbeef);
 	memcpy(outpkt->sid, pkt->sid, CLD_SID_SZ);
 	outpkt->n_msg = 1;
 	strncpy(outpkt->user, pkt->user, CLD_MAX_USERNAME - 1);
 
 	resp_copy(resp, pkt);
-	resp->hdr.seqid = GUINT64_TO_LE(0xdeadbeef);
 	resp->code = GUINT32_TO_LE(resp_rc);
 
 	authsign(outpkt, alloc_len);
@@ -337,7 +337,7 @@ err_out:
 		       "udp_rx err: sid " SIDFMT ", op %s, seqid %llu, code %d",
 		       SIDARG(outpkt->sid),
 		       opstr(resp->hdr.op),
-		       (unsigned long long) GUINT64_FROM_LE(resp->hdr.seqid),
+		       (unsigned long long) GUINT64_FROM_LE(outpkt->seqid),
 		       resp_rc);
 
 	udp_tx(sock, (struct sockaddr *) &cli->addr, cli->addr_len,
@@ -399,6 +399,7 @@ static void udp_srv_event(int fd, short events, void *userdata)
 		memset(outpkt, 0, alloc_len);
 
 		memcpy(outpkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
+		outpkt->seqid = GUINT64_TO_LE(0xdeadbeef);
 		memcpy(outpkt->sid, pkt->sid, CLD_SID_SZ);
 		outpkt->n_msg = 1;
 		strncpy(outpkt->user, pkt->user, CLD_MAX_USERNAME - 1);
@@ -406,7 +407,6 @@ static void udp_srv_event(int fd, short events, void *userdata)
 		/* transmit not-master error msg */
 		resp = (struct cld_msg_resp *) (outpkt + 1);
 		resp_copy(resp, pkt);
-		resp->hdr.seqid = GUINT64_TO_LE(0xdeadbeef);
 		resp->hdr.op = cmo_not_master;
 		udp_tx(sock, (struct sockaddr *) &cli.addr, cli.addr_len,
 		       outpkt, alloc_len);
