@@ -157,10 +157,10 @@ extern int debugging;
 extern struct timeval current_time;
 extern int udp_tx(struct server_socket *, struct sockaddr *, socklen_t,
 	    const void *, size_t);
-extern void resp_copy(struct cld_msg_resp *resp, const struct cld_packet *src_pkt);
+extern void resp_copy(struct cld_msg_resp *resp, const struct cld_msg_hdr *src);
 extern void resp_err(struct session *sess,
-	      const struct cld_packet *pkt, enum cle_err_codes errcode);
-extern void resp_ok(struct session *sess, const struct cld_packet *pkt);
+	      const struct cld_msg_hdr *src, enum cle_err_codes errcode);
+extern void resp_ok(struct session *sess, const struct cld_msg_hdr *src);
 extern bool authsign(struct cld_packet *pkt, size_t pkt_len);
 
 /* util.c */

@@ -450,7 +450,7 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 	}
 
 	/* return response containing inode metadata */
-	resp_copy(&resp->resp, mp->pkt);
+	resp_copy(&resp->resp, mp->msg);
 	resp->inum = GUINT64_TO_LE(inum);
 	resp->ino_len = inode->ino_len;
 	resp->size = inode->size;
@@ -528,7 +528,7 @@ err_out:
 	if (rc)
 		dbenv->err(dbenv, rc, "msg_get txn abort");
 err_out_noabort:
-	resp_err(sess, mp->pkt, resp_rc);
+	resp_err(sess, mp->msg, resp_rc);
 	free(h);
 	free(inode);
 	free(data_mem);
@@ -725,7 +725,7 @@ void msg_open(struct msg_params *mp)
 	free(inode);
 	free(raw_sess);
 
-	resp_copy(&resp.resp, mp->pkt);
+	resp_copy(&resp.resp, mp->msg);
 	resp.resp.code = GUINT32_TO_LE(CLE_OK);
 	resp.fh = GUINT64_TO_LE(fh);
 	sess_sendmsg(mp->sess, &resp, sizeof(resp));
@@ -737,7 +737,7 @@ err_out:
 	if (rc)
 		dbenv->err(dbenv, rc, "msg_open txn abort");
 err_out_noabort:
-	resp_err(mp->sess, mp->pkt, resp_rc);
+	resp_err(mp->sess, mp->msg, resp_rc);
 	free(parent_data);
 	free(parent);
 	free(inode);
@@ -921,7 +921,7 @@ static void try_commit_data(struct msg_params *mp,
 		goto err_out_noabort;
 	}
 
-	resp_ok(sess, mp->pkt);
+	resp_ok(sess, mp->msg);
 	free(pmsg);
 	free(h);
 	free(inode);
@@ -932,7 +932,7 @@ err_out:
 	if (rc)
 		dbenv->err(dbenv, rc, "commit txn abort");
 err_out_noabort:
-	resp_err(sess, mp->pkt, resp_rc);
+	resp_err(sess, mp->msg, resp_rc);
 	free(pmsg);
 	free(h);
 	free(inode);
@@ -987,14 +987,14 @@ void msg_data(struct msg_params *mp)
 	/* store DATA message on DATA msg queue */
 	sess->data_q = g_list_append(sess->data_q, mem);
 
-	resp_ok(sess, mp->pkt);
+	resp_ok(sess, mp->msg);
 
 	/* scan DATA queue for completed stream; commit to db, if found */
 	try_commit_data(mp, msg->strid, tmp);
 	return;
 
 err_out:
-	resp_err(sess, mp->pkt, resp_rc);
+	resp_err(sess, mp->msg, resp_rc);
 }
 
 void msg_put(struct msg_params *mp)
@@ -1068,7 +1068,7 @@ void msg_put(struct msg_params *mp)
 	 * In all other cases we ack here, but in put we do it in
 	 * try_to_commit_data, so that we can report the result of commit.
 	 */
-	// resp_ok(sess, mp->pkt);
+	// resp_ok(sess, mp->msg);
 
 	free(h);
 	free(inode);
@@ -1079,7 +1079,7 @@ err_out:
 	if (rc)
 		dbenv->err(dbenv, rc, "msg_put txn abort");
 err_out_noabort:
-	resp_err(sess, mp->pkt, resp_rc);
+	resp_err(sess, mp->msg, resp_rc);
 	free(h);
 	free(inode);
 }
@@ -1153,7 +1153,7 @@ void msg_close(struct msg_params *mp)
 		goto err_out_noabort;
 	}
 
-	resp_ok(sess, mp->pkt);
+	resp_ok(sess, mp->msg);
 	free(h);
 	return;
 
@@ -1162,7 +1162,7 @@ err_out:
 	if (rc)
 		dbenv->err(dbenv, rc, "msg_close txn abort");
 err_out_noabort:
-	resp_err(sess, mp->pkt, resp_rc);
+	resp_err(sess, mp->msg, resp_rc);
 	free(h);
 }
 
@@ -1332,7 +1332,7 @@ void msg_del(struct msg_params *mp)
 		goto err_out_noabort;
 	}
 
-	resp_ok(mp->sess, mp->pkt);
+	resp_ok(mp->sess, mp->msg);
 	free(ino);
 	free(parent);
 	free(parent_data);
@@ -1343,7 +1343,7 @@ err_out:
 	if (rc)
 		dbenv->err(dbenv, rc, "msg_del txn abort");
 err_out_noabort:
-	resp_err(mp->sess, mp->pkt, resp_rc);
+	resp_err(mp->sess, mp->msg, resp_rc);
 	free(ino);
 	free(parent);
 	free(parent_data);
@@ -1404,7 +1404,7 @@ void msg_unlock(struct msg_params *mp)
 		goto err_out_noabort;
 	}
 
-	resp_ok(sess, mp->pkt);
+	resp_ok(sess, mp->msg);
 	free(h);
 	return;
 
@@ -1413,7 +1413,7 @@ err_out:
 	if (rc)
 		dbenv->err(dbenv, rc, "msg_unlock txn abort");
 err_out_noabort:
-	resp_err(sess, mp->pkt, resp_rc);
+	resp_err(sess, mp->msg, resp_rc);
 	free(h);
 }
 
@@ -1485,7 +1485,7 @@ void msg_lock(struct msg_params *mp, bool wait)
 	}
 
 	/* lock was acquired immediately */
-	resp_ok(mp->sess, mp->pkt);
+	resp_ok(mp->sess, mp->msg);
 	free(h);
 	return;
 
@@ -1494,7 +1494,7 @@ err_out:
 	if (rc)
 		dbenv->err(dbenv, rc, "msg_lock txn abort");
 err_out_noabort:
-	resp_err(mp->sess, mp->pkt, resp_rc);
+	resp_err(mp->sess, mp->msg, resp_rc);
 	free(h);
 }
 

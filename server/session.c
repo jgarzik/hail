@@ -691,7 +691,7 @@ void msg_new_sess(struct msg_params *mp, const struct client *cli)
 	if (evtimer_add(&sess->timer, &tv) < 0)
 		syslog(LOG_WARNING, "evtimer_add session_new failed");
 
-	resp_ok(sess, mp->pkt);
+	resp_ok(sess, mp->msg);
 	return;
 
 err_out:
@@ -704,7 +704,7 @@ err_out:
 	pkt_init_pkt(outpkt, mp->pkt);
 
 	resp = (struct cld_msg_resp *) (outpkt + 1);
-	resp_copy(resp, mp->pkt);
+	resp_copy(resp, mp->msg);
 	resp->code = GUINT32_TO_LE(resp_rc);
 
 	authsign(outpkt, alloc_len);
@@ -742,7 +742,7 @@ void msg_end_sess(struct msg_params *mp, const struct client *cli)
 	pkt_init_sess(outpkt, sess);
 
 	resp = (struct cld_msg_resp *) (outpkt + 1);
-	resp_copy(resp, mp->pkt);
+	resp_copy(resp, mp->msg);
 
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
 	if (rc) {

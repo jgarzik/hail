@@ -129,6 +129,7 @@ struct cld_packet {
 /** header for each message */
 struct cld_msg_hdr {
 	uint8_t		magic[CLD_MAGIC_SZ];	/**< magic number; constant */
+	uint64_t	xid;			/**< opaque message id */
 	uint8_t		op;			/**< operation code */
 	uint8_t		res1[7];
 };
@@ -139,7 +140,7 @@ struct cld_msg_resp {
 
 	uint32_t		code;		/**< error code, CLE_xxx */
 	uint32_t		rsv;		/**< reserved */
-	uint64_t		seqid_in;	/**< C->S seqid */
+	uint64_t		xid_in;		/**< C->S xid */
 };
 
 /** OPEN message */

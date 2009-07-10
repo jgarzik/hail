@@ -41,6 +41,7 @@ struct cldc_stream {
 /** an outgoing message, from client to server */
 struct cldc_msg {
 	uint64_t	seqid;
+	uint64_t	xid;
 
 	struct cldc_session *sess;
 

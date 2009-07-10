@@ -108,13 +108,13 @@ static int cldc_rx_generic(struct cldc_session *sess,
 		req = tmp->data;
 
 		if (sess->verbose)
-			sess->act_log("rx_gen: comparing req->seqid (%llu) with resp->seqid_in (%llu)\n",
+			sess->act_log("rx_gen: comparing req->xid (%llu) with resp->xid_in (%llu)\n",
 			        (unsigned long long)
-					GUINT64_FROM_LE(req->seqid),
+					GUINT64_FROM_LE(req->xid),
 			        (unsigned long long)
-					GUINT64_FROM_LE(resp->seqid_in));
+					GUINT64_FROM_LE(resp->xid_in));
 
-		if (req->seqid == resp->seqid_in)
+		if (req->xid == resp->xid_in)
 			break;
 		tmp = tmp->next;
 	}
@@ -505,6 +505,8 @@ static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 
 	sess_next_seqid(sess, &msg->seqid);
 
+	__cld_rand64(&msg->xid);
+
 	msg->data_len = msg_len + SHA_DIGEST_LENGTH;
 	if (copts)
 		memcpy(&msg->copts, copts, sizeof(msg->copts));
@@ -514,6 +516,7 @@ static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 	hdr = (struct cld_msg_hdr *) &msg->data[0];
 	memcpy(&hdr->magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
 	hdr->op = op;
+	hdr->xid = msg->xid;
 
 	return msg;
 }
