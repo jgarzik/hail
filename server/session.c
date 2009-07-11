@@ -30,12 +30,20 @@
 #include <openssl/sha.h>
 #include "cld.h"
 
+struct session_outpkt;
+
 struct session_outpkt {
+	struct session		*sess;
+
 	struct cld_packet	*pkt;
 	size_t			pkt_len;
+
 	uint64_t		next_retry;
 	uint64_t		src_seqid;
 	unsigned int		refs;
+
+	void			(*done_cb)(struct session_outpkt *);
+	void			*done_data;
 };
 
 static void session_retry(int fd, short events, void *userdata);
@@ -350,6 +358,11 @@ int session_dispose(DB_TXN *txn, struct session *sess)
 	return rc;
 }
 
+static void session_ping_done(struct session_outpkt *outpkt)
+{
+	outpkt->sess->ping_open = false;
+}
+
 static void session_ping(struct session *sess)
 {
 	struct cld_msg_hdr resp;
@@ -357,9 +370,9 @@ static void session_ping(struct session *sess)
 	memset(&resp, 0, sizeof(resp));
 	resp.op = cmo_ping;
 
-	sess_sendmsg(sess, &resp, sizeof(resp));
-
 	sess->ping_open = true;
+
+	sess_sendmsg(sess, &resp, sizeof(resp), session_ping_done, NULL);
 }
 
 static void session_timeout(int fd, short events, void *userdata)
@@ -555,7 +568,9 @@ static void session_retry(int fd, short events, void *userdata)
 		syslog(LOG_WARNING, "failed to re-add retry timer");
 }
 
-bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen)
+bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
+		  void (*done_cb)(struct session_outpkt *),
+		  void *done_data)
 {
 	struct cld_packet *outpkt;
 	struct cld_msg_hdr *msg;
@@ -574,6 +589,10 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen)
 	op = op_alloc(sizeof(*outpkt) + msglen + SHA_DIGEST_LENGTH);
 	if (!op)
 		return false;
+
+	op->sess = sess;
+	op->done_cb = done_cb;
+	op->done_data = done_data;
 
 	outpkt = op->pkt;
 	pkt_len = op->pkt_len;
@@ -643,11 +662,11 @@ void msg_ack(struct msg_params *mp)
 			syslog(LOG_DEBUG, "    expiring seqid %llu",
 		           (unsigned long long) GUINT64_FROM_LE(outpkt->seqid));
 
-		if (outmsg->op == cmo_ping)
-			sess->ping_open = false;
-
-		/* remove and delete the ack'd msg */
+		/* remove and delete the ack'd msg; call ack'd callback */
 		sess->out_q = g_list_delete_link(sess->out_q, tmp1);
+
+		if (op->done_cb)
+			op->done_cb(op);
 		op_unref(op);
 	}
 

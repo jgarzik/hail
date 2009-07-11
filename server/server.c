@@ -117,7 +117,7 @@ void resp_err(struct session *sess,
 		return;
 	}
 
-	sess_sendmsg(sess, &resp, sizeof(resp));
+	sess_sendmsg(sess, &resp, sizeof(resp), NULL, NULL);
 }
 
 void resp_ok(struct session *sess, const struct cld_msg_hdr *src)
