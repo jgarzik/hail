@@ -770,60 +770,54 @@ err_out:
 		syslog(LOG_DEBUG, "NEW-SESS failed: %d", resp_rc);
 }
 
+static void end_sess_done(struct session_outpkt *outpkt)
+{
+	struct session *sess = outpkt->sess;
+
+	outpkt->sess = NULL;
+
+	session_free(sess);
+}
+
 void msg_end_sess(struct msg_params *mp, const struct client *cli)
 {
 	int rc;
-	struct server_socket *sock = mp->sock;
 	struct session *sess = mp->sess;
-	struct cld_msg_resp *resp;
-	struct cld_packet *outpkt;
-	size_t alloc_len;
+	struct cld_msg_resp resp;
 	enum cle_err_codes resp_rc = CLE_OK;
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	DB_TXN *txn;
-
-	/* transmit response (once, without retries) */
-	alloc_len = sizeof(*outpkt) + sizeof(*resp) + SHA_DIGEST_LENGTH;
-	outpkt = alloca(alloc_len);
-	memset(outpkt, 0, alloc_len);
-
-	pkt_init_sess(outpkt, sess);
-
-	resp = (struct cld_msg_resp *) (outpkt + 1);
-	resp_copy(resp, mp->msg);
 
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
 	if (rc) {
 		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
 		resp_rc = CLE_DB_ERR;
-		goto do_code;
+		goto err_out_noabort;
 	}
 
-	rc = session_dispose(txn, sess);
+	rc = session_remove(txn, sess);
 	if (rc) {
 		resp_rc = CLE_DB_ERR;
-		txn->abort(txn);
-		goto do_code;
+		goto err_out;
 	}
 
 	rc = txn->commit(txn, 0);
-	if (rc)
+	if (rc) {
 		resp_rc = CLE_DB_ERR;
+		goto err_out_noabort;
+	}
 
-do_code:
-	resp->code = GUINT32_TO_LE(resp_rc);
+	memset(&resp, 0, sizeof(resp));
+	resp_copy(&resp, mp->msg);
+	sess_sendmsg(sess, &resp, sizeof(resp), end_sess_done, NULL);
+	return;
 
-	authsign(outpkt, alloc_len);
-
-	if (debugging)
-		syslog(LOG_DEBUG, "end_sess msg: sid " SIDFMT ", op %s, seqid %llu",
-		       SIDARG(outpkt->sid),
-		       opstr(resp->hdr.op),
-		       (unsigned long long)
-				GUINT64_FROM_LE(outpkt->seqid));
-
-	udp_tx(sock, (struct sockaddr *) &cli->addr, cli->addr_len,
-	       outpkt, alloc_len);
+err_out:
+	rc = txn->abort(txn);
+	if (rc)
+		dbenv->err(dbenv, rc, "msg_get txn abort");
+err_out_noabort:
+	resp_err(sess, mp->msg, resp_rc);
 }
 
 /*
