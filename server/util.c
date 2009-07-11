@@ -73,7 +73,8 @@ int write_pid_file(const char *pid_fn)
 	fd = open(pid_fn, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
 	if (fd < 0) {
 		err = errno;
-		syslogerr(pid_fn);
+		syslog(LOG_ERR, "Cannot open PID file %s: %s",
+		       pid_fn, strerror(err));
 		return -err;
 	}
 
@@ -84,10 +85,11 @@ int write_pid_file(const char *pid_fn)
 	if (fcntl(fd, F_SETLK, &lock) != 0) {
 		err = errno;
 		if (err == EAGAIN) {
-			syslog(LOG_ERR, "Pid file %s is locked, not starting\n",
+			syslog(LOG_ERR, "PID file %s is already locked",
 			       pid_fn);
 		} else {
-			syslogerr(pid_fn);
+			syslog(LOG_ERR, "Cannot lock PID file %s: %s",
+			       pid_fn, strerror(err));
 		}
 		close(fd);
 		return -err;
@@ -100,7 +102,8 @@ int write_pid_file(const char *pid_fn)
 		ssize_t rc = write(fd, s, bytes);
 		if (rc < 0) {
 			err = errno;
-			syslogerr("pid data write failed");
+			syslog(LOG_ERR, "PID number write failed: %s",
+			       strerror(err));
 			goto err_out;
 		}
 
@@ -111,18 +114,17 @@ int write_pid_file(const char *pid_fn)
 	/* make sure file data is written to disk */
 	if (fsync(fd) < 0) {
 		err = errno;
-		syslogerr("pid file sync/close failed");
+		syslog(LOG_ERR, "PID file fsync failed: %s", strerror(err));
 		goto err_out;
 	}
 
 	return fd;
 
 err_out:
-	close(fd);
 	unlink(pid_fn);
+	close(fd);
 	return -err;
 }
-
 
 int fsetflags(const char *prefix, int fd, int or_flags)
 {
@@ -170,7 +172,7 @@ static struct {
 	char		*vol_path;
 	struct listen_cfg tmp_listen;
 } cfg_context;
- 
+
 static bool str_n_isspace(const char *s, size_t n)
 {
 	char c;
@@ -186,7 +188,7 @@ static bool str_n_isspace(const char *s, size_t n)
 
 static void cfg_elm_text (GMarkupParseContext *context,
 			  const gchar	*text,
-			  gsize		text_len,  
+			  gsize		text_len,
 			  gpointer	user_data,
 			  GError	**error)
 {
@@ -355,7 +357,7 @@ void read_config(void)
 			chunkd_srv.config);
 		exit(1);
 	}
-	
+
 	parser = g_markup_parse_context_new(&cfg_parse_ops, 0, NULL, NULL);
 	if (!parser) {
 		syslog(LOG_ERR, "g_markup_parse_context_new failed");
