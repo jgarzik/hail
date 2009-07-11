@@ -30,6 +30,14 @@
 #include <openssl/sha.h>
 #include "cld.h"
 
+struct session_outpkt {
+	struct cld_packet	*pkt;
+	size_t			pkt_len;
+	uint64_t		next_retry;
+	uint64_t		src_seqid;
+	unsigned int		refs;
+};
+
 static void session_retry(int fd, short events, void *userdata);
 static void session_timeout(int fd, short events, void *userdata);
 static int sess_load_db(GHashTable *ss, DB_TXN *txn);
@@ -459,10 +467,36 @@ struct raw_session *session_new_raw(const struct session *sess)
 	return raw_sess;
 }
 
-static void op_free(struct session_outpkt *op)
+static struct session_outpkt *op_alloc(size_t pkt_len)
+{
+	struct session_outpkt *op;
+
+	op = calloc(1, sizeof(*op));
+	if (!op)
+		return NULL;
+	
+	op->pkt = calloc(1, pkt_len);
+	if (!op->pkt) {
+		free(op);
+		return NULL;
+	}
+
+	op->pkt_len = pkt_len;
+	op->refs = 1;
+
+	return op;
+}
+
+static void op_unref(struct session_outpkt *op)
 {
 	if (!op)
 		return;
+
+	if (op->refs) {
+		op->refs--;
+		if (op->refs)
+			return;
+	}
 
 	free(op->pkt);
 	free(op);
@@ -537,16 +571,12 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen)
 		       (unsigned int) msglen);
 	}
 
-	op = malloc(sizeof(*op));
+	op = op_alloc(sizeof(*outpkt) + msglen + SHA_DIGEST_LENGTH);
 	if (!op)
 		return false;
 
-	pkt_len = sizeof(*outpkt) + msglen + SHA_DIGEST_LENGTH;
-	outpkt = calloc(1, pkt_len);
-	if (!outpkt) {
-		free(op);
-		return false;
-	}
+	outpkt = op->pkt;
+	pkt_len = op->pkt_len;
 
 	msg = (struct cld_msg_hdr *) (outpkt + 1);
 
@@ -565,8 +595,7 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen)
 	op->next_retry = current_time.tv_sec + CLD_RETRY_START;
 
 	if (!authsign(outpkt, pkt_len)) {
-		free(msg);
-		free(op);
+		op_unref(op);
 		return false;
 	}
 
@@ -619,7 +648,7 @@ void msg_ack(struct msg_params *mp)
 
 		/* remove and delete the ack'd msg */
 		sess->out_q = g_list_delete_link(sess->out_q, tmp1);
-		op_free(op);
+		op_unref(op);
 	}
 
 	if (!sess->out_q)

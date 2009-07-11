@@ -47,12 +47,6 @@ struct client {
 	char			addr_host[64];	/* ASCII version of inet addr */
 };
 
-struct session_outpkt {
-	struct cld_packet	*pkt;
-	size_t			pkt_len;
-	uint64_t		next_retry;
-};
-
 struct session {
 	uint8_t			sid[CLD_SID_SZ];
 
