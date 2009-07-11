@@ -11,7 +11,7 @@ static long double tv2ld(const struct timeval *tv)
 
 	if (res == 0.0)
 		return 0.001;
-	
+
 	return res;
 }
 

@@ -4,5 +4,6 @@ large-object
 lotsa-objects
 nop
 
+.libs
 libtest.a
 

@@ -277,7 +277,7 @@ static int cli_wr_iov(struct client *cli, struct iovec *iov, int max_iov)
 	list_for_each_entry(tmp, &cli->write_q, node) {
 		if (n_iov >= max_iov)
 			break;
-		
+
 		iov[n_iov].iov_base = (void *) tmp->buf;
 		iov[n_iov].iov_len = tmp->len;
 
@@ -800,7 +800,7 @@ static bool cli_evt_read_req(struct client *cli, unsigned int events)
 		cli->state = evt_dispose;
 		return true;
 	}
-	
+
 	cli->req_ptr += rc;
 	cli->req_used += rc;
 

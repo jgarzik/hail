@@ -189,7 +189,7 @@ bool object_put(struct client *cli)
 
 	if (!user)
 		return cli_err(cli, AccessDenied);
- 
+
 	cli->out_bo = fs_obj_new(key, &err);
 	if (!cli->out_bo)
 		return cli_err(cli, err);

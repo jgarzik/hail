@@ -81,7 +81,7 @@ static char *fs_obj_pathname(const char *cookie)
 	}
 
 	sprintf(s, "%s/%s/%s", chunkd_srv.vol_path, prefix, cookie);
-	
+
 	return s;
 
 err_out:
