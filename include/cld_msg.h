@@ -41,7 +41,7 @@ enum {
  * We use a unified format for sid so it can be searched in log files (* in vi).
  */
 #define SIDFMT   "%016llX"
-#define SIDARG(sid)  __cld_sid2llu(sid)
+#define SIDARG(sid)  cld_sid2llu(sid)
 
 /** available RPC operations */
 enum cld_msg_ops {
@@ -249,7 +249,7 @@ struct cld_msg_event {
  * ideally these should not be in cld_msg.h
  */
 
-extern unsigned long long __cld_sid2llu(const uint8_t *sid);
+extern unsigned long long cld_sid2llu(const uint8_t *sid);
 extern void __cld_rand64(void *p);
 
 #endif /* __CLD_MSG_H__ */
