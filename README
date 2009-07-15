@@ -3,6 +3,9 @@ This is a data storage daemon.
 See doc/ sub-directory for documentation, in particular doc/concept.txt
 and doc/setup.txt.
 
+Home page:
+	http://hail.wiki.kernel.org/
+
 Source code repository:
 	git://git.kernel.org/pub/scm/daemon/distsrv/chunkd.git
 
