@@ -1,3 +1,3 @@
 
-EXTRA_DIST = notes.txt doxygen.txt
+EXTRA_DIST = doxygen.txt
 
