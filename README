@@ -6,4 +6,9 @@ Dependencies:
 	libevent
 	argp or argp-standalone
 	GLib 2.x
+	doxygen
+	openssl
+
+Home page:	http://hail.wiki.kernel.org/
+
 
