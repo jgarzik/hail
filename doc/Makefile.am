@@ -1,3 +1,5 @@
 
-EXTRA_DIST = doxygen.txt
+EXTRA_DIST =	\
+	contributions.txt	\
+	doxygen.txt
 
