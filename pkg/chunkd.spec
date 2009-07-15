@@ -1,17 +1,17 @@
-Name:           chunkd
-Version:        0.3
-Release:        1%{?dist}
-Summary:        Data storage daemon
+Name:		chunkd
+Version:	0.3
+Release:	1%{?dist}
+Summary:	Data storage daemon
 
-Group:          System Environment/Base
-License:        GPLv2
-URL:            http://www.kernel.org/pub/software/network/distsrv/
-Source0:        chunkd-%{version}.tar.gz
-Source2:        chunkd.init
-Source3:        chunkd.sysconf
-BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
+Group:		System Environment/Base
+License:	GPLv2
+URL:		http://www.kernel.org/pub/software/network/distsrv/
+Source0:	chunkd-%{version}.tar.gz
+Source2:	chunkd.init
+Source3:	chunkd.sysconf
+BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
-BuildRequires:  db4-devel libevent-devel glib2-devel
+BuildRequires:	db4-devel libevent-devel glib2-devel openssl-devel zlib-devel
 
 %description
 Data storage daemon.
@@ -73,11 +73,11 @@ fi
 %doc README NEWS doc/*.txt
 %{_sbindir}/chunkd
 %{_libdir}/lib*.so.*
-%attr(0755,root,root)           %{_sysconfdir}/rc.d/init.d/chunkd
-%attr(0644,root,root)           %{_sysconfdir}/sysconfig/chunkd
+%attr(0755,root,root)	%{_sysconfdir}/rc.d/init.d/chunkd
+%attr(0644,root,root)	%{_sysconfdir}/sysconfig/chunkd
 
 %files devel
-%defattr(-,root,root,0644)
+%defattr(-,root,root,-)
 %{_libdir}/lib*.so
 %{_libdir}/lib*.a
 %{_libdir}/lib*.la
