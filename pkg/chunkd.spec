@@ -11,7 +11,7 @@ Source2:	chunkd.init
 Source3:	chunkd.sysconf
 BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
-BuildRequires:	db4-devel libevent-devel glib2-devel openssl-devel zlib-devel
+BuildRequires:	libevent-devel glib2-devel openssl-devel zlib-devel
 
 %description
 Data storage daemon.
