@@ -114,11 +114,13 @@ static int open_db(DB_ENV *env, DB **db_out, const char *name,
 		   unsigned int page_size, DBTYPE dbtype, unsigned int flags,
 		   int (*bt_compare)(DB *db, const DBT *dbt1, const DBT *dbt2),
 		   int (*dup_compare)(DB *db, const DBT *dbt1, const DBT *dbt2),
-		   int fset)
+		   unsigned int fset)
 {
 	int rc;
 	DB *db;
+	int retries = 5;
 
+retry:
 	rc = db_create(db_out, env, 0);
 	if (rc) {
 		env->err(env, rc, "db_create");
@@ -127,18 +129,18 @@ static int open_db(DB_ENV *env, DB **db_out, const char *name,
 
 	db = *db_out;
 
-	rc = db->set_pagesize(db, page_size);
-	if (rc) {
-		db->err(db, rc, "db->set_pagesize");
-		rc = -EIO;
-		goto err_out;
+	if (page_size) {
+		rc = db->set_pagesize(db, page_size);
+		if (rc) {
+			db->err(db, rc, "db->set_pagesize");
+			goto err_out;
+		}
 	}
 
 	/* fix everything as little endian */
 	rc = db->set_lorder(db, 1234);
 	if (rc) {
 		db->err(db, rc, "db->set_lorder");
-		rc = -EIO;
 		goto err_out;
 	}
 
@@ -146,7 +148,6 @@ static int open_db(DB_ENV *env, DB **db_out, const char *name,
 		rc = db->set_bt_compare(db, bt_compare);
 		if (rc) {
 			db->err(db, rc, "db->set_bt_compare");
-			rc = -EIO;
 			goto err_out;
 		}
 	}
@@ -155,7 +156,6 @@ static int open_db(DB_ENV *env, DB **db_out, const char *name,
 		rc = db->set_flags(db, fset);
 		if (rc) {
 			db->err(db, rc, "db->set_flags");
-			rc = -EIO;
 			goto err_out;
 		}
 	}
@@ -164,7 +164,6 @@ static int open_db(DB_ENV *env, DB **db_out, const char *name,
 		rc = db->set_dup_compare(db, dup_compare);
 		if (rc) {
 			db->err(db, rc, "db->set_dup_compare");
-			rc = -EIO;
 			goto err_out;
 		}
 	}
@@ -172,8 +171,25 @@ static int open_db(DB_ENV *env, DB **db_out, const char *name,
 	rc = db->open(db, NULL, name, NULL, dbtype,
 		      DB_AUTO_COMMIT | flags, S_IRUSR | S_IWUSR);
 	if (rc) {
+		if (rc == ENOENT || rc == DB_REP_HANDLE_DEAD ||
+		    rc == DB_LOCK_DEADLOCK) {
+			if (!retries) {
+				db->err(db, rc, "db->open retried");
+				goto err_out;
+			}
+
+			rc = db->close(db, rc == ENOENT ? 0 : DB_NOSYNC);
+			if (rc) {
+				db->err(db, rc, "db->close");
+				goto err_out;
+			}
+
+			retries--;
+			sleep(2);
+			goto retry;
+		}
+
 		db->err(db, rc, "db->open");
-		rc = -EIO;
 		goto err_out;
 	}
 
@@ -181,7 +197,7 @@ static int open_db(DB_ENV *env, DB **db_out, const char *name,
 
 err_out:
 	db->close(db, 0);
-	return rc;
+	return -EIO;
 }
 
 int cldb_open(struct cldb *cldb, unsigned int env_flags, unsigned int flags,

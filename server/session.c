@@ -489,7 +489,7 @@ static struct session_outpkt *op_alloc(size_t pkt_len)
 	op = calloc(1, sizeof(*op));
 	if (!op)
 		return NULL;
-	
+
 	op->pkt = calloc(1, pkt_len);
 	if (!op->pkt) {
 		free(op);
