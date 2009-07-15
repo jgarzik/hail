@@ -1,17 +1,17 @@
-Name:           cld
-Version:        0.1git
-Release:        2%{?dist}
-Summary:        Coarse locking daemon
+Name:		cld
+Version:	0.1git
+Release:	2%{?dist}
+Summary:	Coarse locking daemon
 
-Group:          System Environment/Base
-License:        GPLv2
-URL:            http://www.kernel.org/pub/software/network/distsrv/
-Source0:        cld-0.1git.tar.gz
-Source2:        cld.init
-Source3:        cld.sysconf
-BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
+Group:		System Environment/Base
+License:	GPLv2
+URL:		http://www.kernel.org/pub/software/network/distsrv/
+Source0:	cld-0.1git.tar.gz
+Source2:	cld.init
+Source3:	cld.sysconf
+BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
-BuildRequires:  db4-devel libevent-devel glib2-devel
+BuildRequires:	db4-devel libevent-devel glib2-devel doxygen openssl-devel
 
 %description
 Coarse locking daemon.
@@ -33,7 +33,8 @@ you will need to install %{name}-devel.
 %build
 %configure
 make %{?_smp_mflags}
-
+rm -rf gendoc && mkdir gendoc && doxygen
+( cd gendoc/latex && make )
 
 %install
 rm -rf $RPM_BUILD_ROOT
@@ -74,11 +75,12 @@ fi
 %{_sbindir}/cld
 %{_sbindir}/cldbadm
 %{_libdir}/lib*.so.*
-%attr(0755,root,root)           %{_sysconfdir}/rc.d/init.d/cld
-%attr(0644,root,root)           %{_sysconfdir}/sysconfig/cld
+%attr(0755,root,root)	%{_sysconfdir}/rc.d/init.d/cld
+%attr(0644,root,root)	%{_sysconfdir}/sysconfig/cld
 
 %files devel
-%defattr(-,root,root,0644)
+%defattr(-,root,root,-)
+%doc gendoc/html gendoc/latex/refman.pdf
 %{_libdir}/lib*.so
 %{_libdir}/lib*.a
 %{_libdir}/lib*.la
