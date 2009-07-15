@@ -148,6 +148,7 @@ int session_remove_locks(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 	DBT pkey, pval;
 	cldino_t inum_le = cldino_to_le(inum);
 	int gflags;
+	struct raw_lock l;
 
 	*waiter = false;
 
@@ -163,10 +164,12 @@ int session_remove_locks(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 	pkey.data = &inum_le;
 	pkey.size = sizeof(inum_le);
 
+	pval.data = &l;
+	pval.ulen = sizeof(l);
+	pval.flags = DB_DBT_USERMEM;
+
 	gflags = DB_SET;
 	while (1) {
-		struct raw_lock *l;
-
 		/* search for first/next matching lock */
 		rc = cur->get(cur, &pkey, &pval, gflags);
 		if (rc) {
@@ -177,11 +180,9 @@ int session_remove_locks(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 
 		gflags = DB_NEXT_DUP;
 
-		l = pval.data;
-
 		/* if not our sid, check for pending lock acquisitions */
-		if (!lmatch(l, sid, fh)) {
-			if (GUINT32_FROM_LE(l->flags) & CLFL_PENDING)
+		if (!lmatch(&l, sid, fh)) {
+			if (GUINT32_FROM_LE(l.flags) & CLFL_PENDING)
 				*waiter = true;
 		}
 
@@ -221,6 +222,7 @@ static int session_remove(DB_TXN *txn, struct session *sess)
 	DB *db_handles = cld_srv.cldb.handles;
 	DBC *cur;
 	struct raw_handle_key hkey;
+	struct raw_handle h;
 	int rc, i;
 	DBT pkey, pval;
 	GArray *locks, *waiters;
@@ -250,11 +252,13 @@ static int session_remove(DB_TXN *txn, struct session *sess)
 	pkey.data = &hkey;
 	pkey.size = sizeof(hkey);
 
+	pval.data = &h;
+	pval.ulen = sizeof(h);
+	pval.flags = DB_DBT_USERMEM;
+
 	/* loop through handles, deleting those with our sid */
 	gflags = DB_SET_RANGE;
 	while (1) {
-		struct raw_handle *h;
-
 		/* search for first/next matching handle */
 		rc = cur->get(cur, &pkey, &pval, gflags);
 		if (rc) {
@@ -265,16 +269,14 @@ static int session_remove(DB_TXN *txn, struct session *sess)
 
 		gflags = DB_NEXT;
 
-		h = pval.data;
-
 		/* verify same sid */
-		if (memcmp(h->sid, sess->sid, CLD_SID_SZ))
+		if (memcmp(h.sid, sess->sid, CLD_SID_SZ))
 			break;
 
-		if (GUINT32_FROM_LE(h->mode) & COM_LOCK) {
+		if (GUINT32_FROM_LE(h.mode) & COM_LOCK) {
 			cldino_t inum;
 
-			inum = cldino_from_le(h->inum);
+			inum = cldino_from_le(h.inum);
 			g_array_append_val(locks, inum);
 		}
 
@@ -858,6 +860,7 @@ static int sess_load_db(GHashTable *ss, DB_TXN *txn)
 	DBC *cur;
 	DBT key, val;
 	struct session *sess;
+	struct raw_session raw_sess;
 	struct timeval tv;
 	int rc;
 
@@ -870,7 +873,11 @@ static int sess_load_db(GHashTable *ss, DB_TXN *txn)
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
 
-	for (;;) {
+	val.data = &raw_sess;
+	val.ulen = sizeof(raw_sess);
+	val.flags = DB_DBT_USERMEM;
+
+	while (1) {
 		rc = cur->get(cur, &key, &val, DB_NEXT);
 		if (rc == DB_NOTFOUND)
 			break;
@@ -887,7 +894,7 @@ static int sess_load_db(GHashTable *ss, DB_TXN *txn)
 			return -1;
 		}
 
-		session_decode(sess, val.data);
+		session_decode(sess, &raw_sess);
 
 		if (debugging)
 			syslog(LOG_DEBUG,

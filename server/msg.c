@@ -198,12 +198,17 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 	cldino_t inum_le = cldino_to_le(inum);
 	int gflags;
 	struct session *sess;
+	struct raw_handle h;
 
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
 
 	key.data = &inum_le;
 	key.size = sizeof(inum_le);
+
+	val.data = &h;
+	val.ulen = sizeof(h);
+	val.flags = DB_DBT_USERMEM;
 
 	memset(&me, 0, sizeof(me));
 	me.hdr.op = cmo_event;
@@ -216,8 +221,6 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 
 	gflags = DB_SET;
 	while (1) {
-		struct raw_handle *h;
-
 		rc = cur->get(cur, &key, &val, gflags);
 		if (rc) {
 			if (rc != DB_NOTFOUND)
@@ -227,12 +230,11 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 		}
 
 		gflags = DB_NEXT_DUP;
-		h = val.data;
 
-		if (!deleted && !(GUINT32_FROM_LE(h->events) & CE_UPDATED))
+		if (!deleted && !(GUINT32_FROM_LE(h.events) & CE_UPDATED))
 			continue;
 
-		sess = g_hash_table_lookup(cld_srv.sessions, h->sid);
+		sess = g_hash_table_lookup(cld_srv.sessions, h.sid);
 		if (!sess) {
 			syslog(LOG_WARNING, "inode_notify BUG");
 			continue;
@@ -246,7 +248,7 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 			continue;
 		}
 
-		me.fh = h->fh;
+		me.fh = h.fh;
 		me.events = GUINT32_TO_LE(deleted ? CE_DELETED : CE_UPDATED);
 
 		if (!sess_sendmsg(sess, &me, sizeof(me), NULL, NULL))
@@ -288,7 +290,7 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 	int rc, gflags, acq = 0;
 	DBT key, val;
 	cldino_t inum_le = cldino_to_le(inum);
-	struct raw_lock *lock;
+	struct raw_lock lock;
 	uint32_t lflags;
 	struct cld_msg_event me;
 	struct session *sess;
@@ -300,10 +302,15 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 	}
 
 	memset(&key, 0, sizeof(key));
+	memset(&val, 0, sizeof(val));
 
 	/* key: inode number */
 	key.data = &inum_le;
 	key.size = sizeof(inum_le);
+
+	val.data = &lock;
+	val.ulen = sizeof(lock);
+	val.flags = DB_DBT_USERMEM;
 
 	memset(&me, 0, sizeof(me));
 	me.hdr.op = cmo_event;
@@ -327,8 +334,7 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 
 		gflags = DB_NEXT_DUP | DB_RMW;
 
-		lock = val.data;
-		lflags = GUINT32_FROM_LE(lock->flags);
+		lflags = GUINT32_FROM_LE(lock.flags);
 
 		/* pending locks should be first in the list; if
 		 * no more pending locks are present, end scan
@@ -352,7 +358,7 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 
 		acq++;
 
-		sess = g_hash_table_lookup(cld_srv.sessions, lock->sid);
+		sess = g_hash_table_lookup(cld_srv.sessions, lock.sid);
 		if (!sess) {
 			syslog(LOG_WARNING, "inode_lock_rescan BUG");
 			break;
@@ -370,7 +376,7 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 			continue;
 		}
 
-		me.fh = lock->fh;
+		me.fh = lock.fh;
 		me.events = GUINT32_TO_LE(CE_LOCKED);
 
 		if (!sess_sendmsg(sess, &me, sizeof(me), NULL, NULL))
@@ -1246,7 +1252,10 @@ void msg_del(struct msg_params *mp)
 		key.data = &ino->inum;
 		key.size = sizeof(ino->inum);
 
+		val.flags = DB_DBT_MALLOC;
+
 		rc = db_data->get(db_data, txn, &key, &val, 0);
+		free(val.data);
 		if (rc && (rc != DB_NOTFOUND)) {
 			db_data->err(db_data, rc, "db_data->get for rmdir");
 			resp_rc = CLE_DB_ERR;
