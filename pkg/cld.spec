@@ -1,6 +1,6 @@
 Name:		cld
 Version:	0.1git
-Release:	2%{?dist}
+Release:	3%{?dist}
 Summary:	Coarse locking daemon
 
 Group:		System Environment/Base
@@ -12,6 +12,7 @@ Source3:	cld.sysconf
 BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 BuildRequires:	db4-devel libevent-devel glib2-devel doxygen openssl-devel
+BuildRequires:	texlive-latex
 
 %description
 Coarse locking daemon.
@@ -88,6 +89,11 @@ fi
 %{_includedir}/*.h
 
 %changelog
+* Thu Jul 16 2009 Jeff Garzik <jgarzik@redhat.com> - 0.1git-3
+- update BuildRequires
+- rpmlint fixes
+- update to latest git repo
+
 * Wed Mar 18 2009 Jeff Garzik <jgarzik@redhat.com> - 0.1git-2
 - update cld initscript
 
