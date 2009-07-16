@@ -1,11 +1,13 @@
 Name:		chunkd
 Version:	0.3
-Release:	2%{?dist}
+Release:	3%{?dist}
 Summary:	Data storage daemon
 
 Group:		System Environment/Base
 License:	GPLv2
-URL:		http://www.kernel.org/pub/software/network/distsrv/
+URL:		http://hail.wiki.kernel.org/
+
+# tarball pulled from tip of upstream git repo
 Source0:	chunkd-%{version}.tar.gz
 Source2:	chunkd.init
 Source3:	chunkd.sysconf
@@ -14,43 +16,49 @@ BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 BuildRequires:	libevent-devel glib2-devel openssl-devel zlib-devel
 BuildRequires:	libxml2-devel procps
 
+# cld is broken on big-endian... embarrassing!!!
+# FIXME: remove this when cld is fixed
+ExcludeArch: ppc ppc64
+
 %description
 Data storage daemon.
 
 %package devel
-Summary: Header files, libraries and development documentation for %{name}
+Summary: Development files for %{name}
 Group: Development/Libraries
 Requires: %{name} = %{version}-%{release}
+Requires: pkgconfig
 
 %description devel
-This package contains the header files, static libraries and development
-documentation for %{name}. If you like to develop programs using %{name},
-you will need to install %{name}-devel.
+The %{name}-devel package contains libraries and header files for
+developing applications that use %{name}.
 
 %prep
 %setup -q
 
 
 %build
-%configure
+%configure --disable-static
 make %{?_smp_mflags}
 
 
 %install
-rm -rf $RPM_BUILD_ROOT
-make install DESTDIR=$RPM_BUILD_ROOT
+rm -rf %{buildroot}
+make install DESTDIR=%{buildroot}
 
-mkdir -p %{buildroot}%{_sysconfdir}/rc.d/init.d
-install -m 755 %{SOURCE2} %{buildroot}%{_sysconfdir}/rc.d/init.d/chunkd
+mkdir -p %{buildroot}%{_initddir}
+install -m 755 %{SOURCE2} %{buildroot}%{_initddir}/chunkd
 
 mkdir -p %{buildroot}/etc/sysconfig
 install -m 755 %{SOURCE3} %{buildroot}/etc/sysconfig/chunkd
+
+find $RPM_BUILD_ROOT -name '*.la' -exec rm -f {} ';'
 
 %check
 make check
 
 %clean
-rm -rf $RPM_BUILD_ROOT
+rm -rf %{buildroot}
 
 %post
 /sbin/ldconfig
@@ -71,21 +79,22 @@ fi
 
 %files
 %defattr(-,root,root,-)
-%doc README NEWS doc/*.txt
+%doc AUTHORS README NEWS doc/*.txt
 %{_sbindir}/chunkd
-%{_libdir}/lib*.so.*
-%attr(0755,root,root)	%{_sysconfdir}/rc.d/init.d/chunkd
+%{_libdir}/*.so.*
+%attr(0755,root,root)	%{_initddir}/chunkd
 %attr(0644,root,root)	%{_sysconfdir}/sysconfig/chunkd
 
 %files devel
 %defattr(-,root,root,-)
 %{_libdir}/lib*.so
-%{_libdir}/lib*.a
-%{_libdir}/lib*.la
 %{_libdir}/pkgconfig/*
-%{_includedir}/*.h
+%{_includedir}/*
 
 %changelog
+* Thu Jul 16 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-3%{?dist}
+- minor spec updates for review feedback, Fedora packaging guidelines
+
 * Thu Jul 16 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-2%{?dist}
 - updated BuildRequires
 - rpmlint fixes
