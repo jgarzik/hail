@@ -1,6 +1,6 @@
 Name:		chunkd
 Version:	0.3
-Release:	1%{?dist}
+Release:	2%{?dist}
 Summary:	Data storage daemon
 
 Group:		System Environment/Base
@@ -12,6 +12,7 @@ Source3:	chunkd.sysconf
 BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 BuildRequires:	libevent-devel glib2-devel openssl-devel zlib-devel
+BuildRequires:	libxml2-devel procps
 
 %description
 Data storage daemon.
@@ -85,6 +86,11 @@ fi
 %{_includedir}/*.h
 
 %changelog
+* Thu Jul 16 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-2%{?dist}
+- updated BuildRequires
+- rpmlint fixes
+- updated to latest git repo
+
 * Fri May 15 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-1%{?dist}
 - Version 0.3
 
