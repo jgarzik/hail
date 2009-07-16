@@ -2,16 +2,17 @@
 #
 # chunkd Starts/stop the data storage daemon
 #
-# chkconfig:   345 95 5
+# chkconfig:   - 96 5
 # description: A data storage service
 
 ### BEGIN INIT INFO
 # Provides: chunkd
-# Required-Start: $local_fs
-# Required-Stop: $local_fs
-# Default-Start: 345
-# Default-Stop: 95
-# Short-Description: Starts/stop the "chunkd" daemon
+# Required-Start: $local_fs $network
+# Required-Stop: $local_fs $network
+# Should-Start: 
+# Default-Start: 
+# Default-Stop: 0 1 2 3 4 5 6
+# Short-Description: A data storage service
 # Description:      Data storage service
 ### END INIT INFO
 

@@ -1,13 +1,13 @@
 Name:		chunkd
 Version:	0.3
-Release:	3%{?dist}
+Release:	4%{?dist}
 Summary:	Data storage daemon
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-# tarball pulled from tip of upstream git repo
+# pulled from upstream git, commit ccc1d96852d0b7c701dbc3aa5cf6d9fae90f1d25
 Source0:	chunkd-%{version}.tar.gz
 Source2:	chunkd.init
 Source3:	chunkd.sysconf
@@ -49,8 +49,8 @@ make install DESTDIR=%{buildroot}
 mkdir -p %{buildroot}%{_initddir}
 install -m 755 %{SOURCE2} %{buildroot}%{_initddir}/chunkd
 
-mkdir -p %{buildroot}/etc/sysconfig
-install -m 755 %{SOURCE3} %{buildroot}/etc/sysconfig/chunkd
+mkdir -p %{buildroot}%{_sysconfdir}/sysconfig
+install -m 644 %{SOURCE3} %{buildroot}%{_sysconfdir}/sysconfig/chunkd
 
 find $RPM_BUILD_ROOT -name '*.la' -exec rm -f {} ';'
 
@@ -79,11 +79,11 @@ fi
 
 %files
 %defattr(-,root,root,-)
-%doc AUTHORS README NEWS doc/*.txt
+%doc AUTHORS COPYING README NEWS doc/*.txt
 %{_sbindir}/chunkd
 %{_libdir}/*.so.*
 %attr(0755,root,root)	%{_initddir}/chunkd
-%attr(0644,root,root)	%{_sysconfdir}/sysconfig/chunkd
+%config(noreplace)	%{_sysconfdir}/sysconfig/chunkd
 
 %files devel
 %defattr(-,root,root,-)
@@ -92,6 +92,11 @@ fi
 %{_includedir}/*
 
 %changelog
+* Thu Jul 16 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-4%{?dist}
+- chkconfig default off
+- add doc: COPYING
+- config(noreplace) sysconfig/chunkd
+
 * Thu Jul 16 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-3%{?dist}
 - minor spec updates for review feedback, Fedora packaging guidelines
 
