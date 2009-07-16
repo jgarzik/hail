@@ -31,8 +31,6 @@
 
 #define PROGRAM_NAME PACKAGE
 
-#define MY_ENDPOINT "pretzel.yyz.us"
-
 const char *argp_program_version = PACKAGE_VERSION;
 
 enum {
