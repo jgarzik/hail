@@ -4,5 +4,5 @@
 
 SUBDIRS		= doc lib include server test
 
-EXTRA_DIST	= autogen.sh Doxyfile
+EXTRA_DIST	= autogen.sh Doxyfile COPYING LICENSE
 

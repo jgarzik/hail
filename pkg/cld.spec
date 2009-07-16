@@ -1,13 +1,13 @@
 Name:		cld
 Version:	0.1git
-Release:	4%{?dist}
+Release:	5%{?dist}
 Summary:	Coarse locking daemon
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-# tarball pulled from tip of upstream git repo
+# pulled from upstream git, commit 0df994199aebe2e7a6947335f7b825b43d0b33ad
 Source0:	cld-0.1git.tar.gz
 Source2:	cld.init
 Source3:	cld.sysconf
@@ -36,7 +36,6 @@ developing applications that use %{name}.
 %prep
 %setup -q
 
-
 %build
 %configure --disable-static
 make %{?_smp_mflags}
@@ -50,8 +49,8 @@ make install DESTDIR=%{buildroot}
 mkdir -p %{buildroot}%{_initddir}
 install -m 755 %{SOURCE2} %{buildroot}%{_initddir}/cld
 
-mkdir -p %{buildroot}/etc/sysconfig
-install -m 755 %{SOURCE3} %{buildroot}/etc/sysconfig/cld
+mkdir -p %{buildroot}%{_sysconfdir}/sysconfig
+install -m 644 %{SOURCE3} %{buildroot}%{_sysconfdir}/sysconfig/cld
 
 find $RPM_BUILD_ROOT -name '*.la' -exec rm -f {} ';'
 
@@ -80,12 +79,12 @@ fi
 
 %files
 %defattr(-,root,root,-)
-%doc AUTHORS README NEWS doc/*.txt
+%doc AUTHORS COPYING LICENSE README NEWS doc/*.txt
 %{_sbindir}/cld
 %{_sbindir}/cldbadm
 %{_libdir}/*.so.*
 %attr(0755,root,root)	%{_initddir}/cld
-%attr(0644,root,root)	%{_sysconfdir}/sysconfig/cld
+%config(noreplace)	%{_sysconfdir}/sysconfig/cld
 
 %files devel
 %defattr(-,root,root,-)
@@ -95,6 +94,11 @@ fi
 %{_includedir}/*
 
 %changelog
+* Thu Jul 16 2009 Jeff Garzik <jgarzik@redhat.com> - 0.1git-5
+- chkconfig default off
+- add doc: COPYING, LICENSE
+- config(noreplace) sysconfig/cld
+
 * Thu Jul 16 2009 Jeff Garzik <jgarzik@redhat.com> - 0.1git-4
 - minor spec updates for review feedback, Fedora packaging guidelines
 

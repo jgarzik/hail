@@ -2,17 +2,19 @@
 #
 # cld Starts/stop the coarse locking daemon
 #
-# chkconfig:   345 95 5
+# chkconfig: - 95 5
 # description: Coarse locking service
+# processname: cld
 
 ### BEGIN INIT INFO
 # Provides: cld
-# Required-Start: $local_fs
-# Required-Stop: $local_fs
-# Default-Start: 345
-# Default-Stop: 95
-# Short-Description: Starts/stop the "cld" daemon
-# Description:      Highly reliable distribution filesystem for locking
+# Required-Start: $local_fs $network
+# Required-Stop: $local_fs $network
+# Should-Start: 
+# Default-Start: 
+# Default-Stop: 0 1 2 3 4 5 6
+# Short-Description: Coarse locking service
+# Description:      Highly reliable distributed lock service for clouds
 ### END INIT INFO
 
 # Source function library.
