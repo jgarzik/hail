@@ -1,14 +1,14 @@
 Name:		chunkd
-Version:	0.3
-Release:	4%{?dist}
+Version:	0.4
+Release:	0.1.g6f54181c%{?dist}
 Summary:	Data storage daemon
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-# pulled from upstream git, commit ccc1d96852d0b7c701dbc3aa5cf6d9fae90f1d25
-Source0:	chunkd-%{version}.tar.gz
+# pulled from upstream git, commit 6f54181c2667a65dc61bb25dfd64766c60202ded
+Source0:	chunkd-%{version}git.tar.gz
 Source2:	chunkd.init
 Source3:	chunkd.sysconf
 BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
@@ -34,7 +34,7 @@ The %{name}-devel package contains libraries and header files for
 developing applications that use %{name}.
 
 %prep
-%setup -q
+%setup -q -n %{name}-%{version}git
 
 
 %build
@@ -52,7 +52,7 @@ install -m 755 %{SOURCE2} %{buildroot}%{_initddir}/chunkd
 mkdir -p %{buildroot}%{_sysconfdir}/sysconfig
 install -m 644 %{SOURCE3} %{buildroot}%{_sysconfdir}/sysconfig/chunkd
 
-find $RPM_BUILD_ROOT -name '*.la' -exec rm -f {} ';'
+find %{buildroot} -name '*.la' -exec rm -f {} ';'
 
 %check
 make check
@@ -92,6 +92,10 @@ fi
 %{_includedir}/*
 
 %changelog
+* Fri Jul 17 2009 Jeff Garzik <jgarzik@redhat.com> - 0.4-0.1.g6f54181c%{?dist}
+- kill RPM_BUILD_ROOT
+- new release version scheme
+
 * Thu Jul 16 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-4%{?dist}
 - chkconfig default off
 - add doc: COPYING
