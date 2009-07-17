@@ -64,6 +64,7 @@ AM_PROG_LIBTOOL
 dnl Checks for header files.
 dnl AC_HEADER_STDC
 dnl AC_CHECK_HEADERS(sys/ioctl.h unistd.h)
+AC_CHECK_HEADER(db.h,[],exit 1)
 
 dnl Checks for typedefs, structures, and compiler characteristics.
 dnl AC_TYPE_SIZE_T
