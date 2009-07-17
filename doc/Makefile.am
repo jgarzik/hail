@@ -1,5 +1,6 @@
 
 EXTRA_DIST =	\
 	contributions.txt	\
-	doxygen.txt
+	doxygen.txt		\
+	release-process.txt
 
