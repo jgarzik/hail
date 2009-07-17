@@ -1,14 +1,14 @@
 Name:		cld
-Version:	0.2git
-Release:	1%{?dist}
+Version:	0.2
+Release:	0.1.g023a127d%{?dist}
 Summary:	Coarse locking daemon
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-# pulled from upstream git
-Source0:	cld-%{version}.tar.gz
+# pulled from upstream git, commit 023a127de02c91f62f3911978b59244009c67b2c
+Source0:	cld-%{version}git.tar.gz
 Source2:	cld.init
 Source3:	cld.sysconf
 BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
@@ -34,7 +34,7 @@ The %{name}-devel package contains libraries and header files for
 developing applications that use %{name}.
 
 %prep
-%setup -q
+%setup -q -n cld-0.2git
 
 %build
 %configure --disable-static
@@ -52,7 +52,7 @@ install -m 755 %{SOURCE2} %{buildroot}%{_initddir}/cld
 mkdir -p %{buildroot}%{_sysconfdir}/sysconfig
 install -m 644 %{SOURCE3} %{buildroot}%{_sysconfdir}/sysconfig/cld
 
-find $RPM_BUILD_ROOT -name '*.la' -exec rm -f {} ';'
+find %{buildroot} -name '*.la' -exec rm -f {} ';'
 
 %check
 make -s check
@@ -94,8 +94,9 @@ fi
 %{_includedir}/*
 
 %changelog
-* Fri Jul 17 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2git-1
-- git snapshot immediately following 0.1 release
+* Fri Jul 17 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-0.1.g023a127d%{?dist}
+- update with new release version scheme
+- kill RPM_BUILD_ROOT
 
 * Fri Jul 17 2009 Jeff Garzik <jgarzik@redhat.com> - 0.1-1
 - version 0.1 release
