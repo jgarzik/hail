@@ -1,6 +1,6 @@
 Name:		cld
-Version:	0.1git
-Release:	5%{?dist}
+Version:	0.1
+Release:	1%{?dist}
 Summary:	Coarse locking daemon
 
 Group:		System Environment/Base
@@ -94,6 +94,9 @@ fi
 %{_includedir}/*
 
 %changelog
+* Fri Jul 17 2009 Jeff Garzik <jgarzik@redhat.com> - 0.1-1
+- version 0.1 release
+
 * Thu Jul 16 2009 Jeff Garzik <jgarzik@redhat.com> - 0.1git-5
 - chkconfig default off
 - add doc: COPYING, LICENSE
