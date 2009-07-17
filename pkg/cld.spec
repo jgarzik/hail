@@ -94,7 +94,7 @@ fi
 %{_includedir}/*
 
 %changelog
-* Fri Jul 17 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-0.1.g023a127d%{?dist}
+* Fri Jul 17 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-0.1.g023a127d
 - update with new release version scheme
 - kill RPM_BUILD_ROOT
 
