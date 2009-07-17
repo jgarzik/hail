@@ -8,7 +8,7 @@ License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
 # pulled from upstream git, commit 0df994199aebe2e7a6947335f7b825b43d0b33ad
-Source0:	cld-0.1git.tar.gz
+Source0:	cld-%{version}.tar.gz
 Source2:	cld.init
 Source3:	cld.sysconf
 BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
