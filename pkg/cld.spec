@@ -1,5 +1,5 @@
 Name:		cld
-Version:	0.1
+Version:	0.2git
 Release:	1%{?dist}
 Summary:	Coarse locking daemon
 
@@ -7,7 +7,7 @@ Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-# pulled from upstream git, commit 0df994199aebe2e7a6947335f7b825b43d0b33ad
+# pulled from upstream git
 Source0:	cld-%{version}.tar.gz
 Source2:	cld.init
 Source3:	cld.sysconf
@@ -94,6 +94,9 @@ fi
 %{_includedir}/*
 
 %changelog
+* Fri Jul 17 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2git-1
+- git snapshot immediately following 0.1 release
+
 * Fri Jul 17 2009 Jeff Garzik <jgarzik@redhat.com> - 0.1-1
 - version 0.1 release
 
