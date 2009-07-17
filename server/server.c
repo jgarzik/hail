@@ -66,8 +66,7 @@ int debugging = 0;
 SSL_CTX *ssl_ctx = NULL;
 
 struct server chunkd_srv = {
-	.config			= "/spare/tmp/chunkd/etc/chunkd.conf",
-	.pid_file		= "/var/run/chunkd.pid",
+	.config			= "/etc/chunkd.conf",
 };
 
 static struct {
@@ -129,7 +128,7 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 		chunkd_srv.flags |= SFL_FOREGROUND;
 		break;
 	case 'P':
-		chunkd_srv.pid_file = arg;
+		chunkd_srv.pid_file = strdup(arg);
 		break;
 	case ARGP_KEY_ARG:
 		argp_usage(state);	/* too many args */

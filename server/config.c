@@ -19,14 +19,14 @@
 #include <glib.h>
 #include "chunkd.h"
 
-static struct {
+struct config_context {
 	char		*text;
 	bool		in_ssl;
 	bool		in_listen;
 	bool		have_ssl;
 	char		*vol_path;
 	struct listen_cfg tmp_listen;
-} cfg_context;
+};
 
 static bool str_n_isspace(const char *s, size_t n)
 {
@@ -47,11 +47,13 @@ static void cfg_elm_text (GMarkupParseContext *context,
 			  gpointer	user_data,
 			  GError	**error)
 {
-	free(cfg_context.text);
+	struct config_context *cc = user_data;
+
+	free(cc->text);
 	if (str_n_isspace(text, text_len))
-		cfg_context.text = NULL;
+		cc->text = NULL;
 	else
-		cfg_context.text = g_strndup(text, text_len);
+		cc->text = g_strndup(text, text_len);
 }
 
 static void cfg_elm_start (GMarkupParseContext *context,
@@ -61,12 +63,16 @@ static void cfg_elm_start (GMarkupParseContext *context,
 			 gpointer     user_data,
 			 GError	     **error)
 {
+	struct config_context *cc = user_data;
+
 	if (!strcmp(element_name, "SSL"))
-		cfg_context.in_ssl = true;
+		cc->in_ssl = true;
 	else if (!strcmp(element_name, "Listen")) {
-		cfg_context.in_listen = true;
-		memset(&cfg_context.tmp_listen, 0,
-			sizeof(cfg_context.tmp_listen));
+		if (!cc->in_listen) {
+			cc->in_listen = true;
+		} else {
+			syslog(LOG_ERR, "Nested Listen in configuration");
+		}
 	}
 }
 
@@ -75,122 +81,127 @@ static void cfg_elm_end (GMarkupParseContext *context,
 			 gpointer	     user_data,
 			 GError	     **error)
 {
+	struct config_context *cc = user_data;
 	struct stat st;
 
-	if (!strcmp(element_name, "PID") && cfg_context.text) {
-		chunkd_srv.pid_file = cfg_context.text;
-		cfg_context.text = NULL;
+	if (!strcmp(element_name, "PID") && cc->text) {
+		if (chunkd_srv.pid_file) {
+			/* Silent about command line override. */
+			free(cc->text);
+		} else {
+			chunkd_srv.pid_file = cc->text;
+		}
+		cc->text = NULL;
 	}
 
-	else if (!strcmp(element_name, "Path") && cfg_context.text) {
-		if (stat(cfg_context.text, &st) < 0) {
+	else if (!strcmp(element_name, "Path") && cc->text) {
+		if (stat(cc->text, &st) < 0) {
 			syslog(LOG_ERR, "stat(2) cfgfile Path '%s' failed: %s",
-			       cfg_context.text, strerror(errno));
+			       cc->text, strerror(errno));
 			return;
 		}
 
 		if (!S_ISDIR(st.st_mode)) {
 			syslog(LOG_ERR, "Path in cfgfile not a dir: %s",
-			       cfg_context.text);
+			       cc->text);
 			return;
 		}
 
-		chunkd_srv.vol_path = cfg_context.text;
-		cfg_context.text = NULL;
+		chunkd_srv.vol_path = cc->text;
+		cc->text = NULL;
 	}
 
 	else if (!strcmp(element_name, "SSL"))
-		cfg_context.in_ssl = false;
+		cc->in_ssl = false;
 
-	else if (cfg_context.in_ssl && cfg_context.text &&
-		 !strcmp(element_name, "PrivateKey")) {
-		if (SSL_CTX_use_PrivateKey_file(ssl_ctx, cfg_context.text,
+	else if (cc->in_ssl && cc->text && !strcmp(element_name, "PrivateKey")) {
+		if (SSL_CTX_use_PrivateKey_file(ssl_ctx, cc->text,
 						SSL_FILETYPE_PEM) <= 0)
 			syslog(LOG_ERR, "Failed to read SSL private key '%s'",
-				cfg_context.text);
+				cc->text);
 
-		free(cfg_context.text);
-		cfg_context.text = NULL;
+		free(cc->text);
+		cc->text = NULL;
 
-		cfg_context.have_ssl = true;
+		cc->have_ssl = true;
 	}
 
-	else if (cfg_context.in_ssl && cfg_context.text &&
-		 !strcmp(element_name, "Cert")) {
-		if (SSL_CTX_use_certificate_file(ssl_ctx, cfg_context.text,
+	else if (cc->in_ssl && cc->text && !strcmp(element_name, "Cert")) {
+		if (SSL_CTX_use_certificate_file(ssl_ctx, cc->text,
 						 SSL_FILETYPE_PEM) <= 0)
 			syslog(LOG_ERR, "Failed to read SSL certificate '%s'",
-				cfg_context.text);
+				cc->text);
 
-		free(cfg_context.text);
-		cfg_context.text = NULL;
+		free(cc->text);
+		cc->text = NULL;
 
-		cfg_context.have_ssl = true;
+		cc->have_ssl = true;
 	}
 
 	else if (!strcmp(element_name, "Listen")) {
 		struct listen_cfg *cfg;
 
-		if (cfg_context.text) {
+		if (cc->text) {
 			syslog(LOG_WARNING,
 			       "cfgfile: Extra text '%s' in Listen",
-			       cfg_context.text);
-			free(cfg_context.text);
-			cfg_context.text = NULL;
+			       cc->text);
+			free(cc->text);
+			cc->text = NULL;
 			return;
 		}
 
-		cfg_context.in_listen = false;
+		cc->in_listen = false;
 
-		if (!cfg_context.tmp_listen.port) {
-			free(cfg_context.tmp_listen.node);
-			cfg_context.tmp_listen.node = NULL;
-			cfg_context.tmp_listen.encrypt = false;
+		if (!cc->tmp_listen.port) {
+			free(cc->tmp_listen.node);
+			memset(&cc->tmp_listen, 0, sizeof(struct listen_cfg));
 			syslog(LOG_WARNING, "cfgfile: TCP port not specified in Listen");
 			return;
 		}
 
 		cfg = malloc(sizeof(*cfg));
 		if (!cfg) {
+			free(cc->tmp_listen.node);
+			free(cc->tmp_listen.port);
+			memset(&cc->tmp_listen, 0, sizeof(struct listen_cfg));
 			syslog(LOG_ERR, "OOM");
 			return;
 		}
 
-		memcpy(cfg, &cfg_context.tmp_listen, sizeof(*cfg));
+		memcpy(cfg, &cc->tmp_listen, sizeof(*cfg));
 		chunkd_srv.listeners =
 			g_list_append(chunkd_srv.listeners, cfg);
+		memset(&cc->tmp_listen, 0, sizeof(struct listen_cfg));
 	}
 
-	else if (cfg_context.in_listen && cfg_context.text &&
-		 !strcmp(element_name, "Port")) {
-		int i = atoi(cfg_context.text);
+	else if (cc->in_listen && cc->text && !strcmp(element_name, "Port")) {
+		int i = atoi(cc->text);
 
 		if (i > 0 && i < 65536) {
-			free(cfg_context.tmp_listen.port);
-			cfg_context.tmp_listen.port = cfg_context.text;
+			free(cc->tmp_listen.port);
+			cc->tmp_listen.port = cc->text;
 		} else {
 			syslog(LOG_WARNING, "cfgfile Port '%s' invalid, ignoring",
-				cfg_context.text);
-			free(cfg_context.text);
+				cc->text);
+			free(cc->text);
 		}
 
-		cfg_context.text = NULL;
+		cc->text = NULL;
 	}
 
-	else if (cfg_context.in_listen && cfg_context.text &&
-		 !strcmp(element_name, "Node")) {
-		cfg_context.tmp_listen.node = cfg_context.text;
-		cfg_context.text = NULL;
+	else if (cc->in_listen && cc->text && !strcmp(element_name, "Node")) {
+		cc->tmp_listen.node = cc->text;
+		cc->text = NULL;
 	}
 
-	else if (cfg_context.in_listen && cfg_context.text &&
+	else if (cc->in_listen && cc->text &&
 		 !strcmp(element_name, "Encrypt")) {
-		if (!strcasecmp(cfg_context.text, "yes") ||
-		    !strcasecmp(cfg_context.text, "true"))
-			cfg_context.tmp_listen.encrypt = true;
+		if (!strcasecmp(cc->text, "yes") ||
+		    !strcasecmp(cc->text, "true"))
+			cc->tmp_listen.encrypt = true;
 
-		free(cfg_context.text);
-		cfg_context.text = NULL;
+		free(cc->text);
+		cc->text = NULL;
 	}
 
 }
@@ -206,6 +217,9 @@ void read_config(void)
 	GMarkupParseContext* parser;
 	char *text;
 	gsize len;
+	struct config_context ctx;
+
+	memset(&ctx, 0, sizeof(struct config_context));
 
 	if (!g_file_get_contents(chunkd_srv.config, &text, &len, NULL)) {
 		syslog(LOG_ERR, "failed to read config file %s",
@@ -213,7 +227,7 @@ void read_config(void)
 		exit(1);
 	}
 
-	parser = g_markup_parse_context_new(&cfg_parse_ops, 0, NULL, NULL);
+	parser = g_markup_parse_context_new(&cfg_parse_ops, 0, &ctx, NULL);
 	if (!parser) {
 		syslog(LOG_ERR, "g_markup_parse_context_new failed");
 		exit(1);
@@ -232,11 +246,10 @@ void read_config(void)
 		exit(1);
 	}
 
-	if (!cfg_context.have_ssl) {
+	if (!ctx.have_ssl) {
 		SSL_CTX_free(ssl_ctx);
 		ssl_ctx = NULL;
-	} else if (cfg_context.have_ssl &&
-		   !SSL_CTX_check_private_key(ssl_ctx)) {
+	} else if (ctx.have_ssl && !SSL_CTX_check_private_key(ssl_ctx)) {
 		syslog(LOG_ERR, "SSL private key does not match certificate public key");
 		exit(1);
 	}
@@ -244,6 +257,13 @@ void read_config(void)
 	if (!chunkd_srv.listeners) {
 		syslog(LOG_ERR, "error: no listen addresses specified");
 		exit(1);
+	}
+
+	if (!chunkd_srv.pid_file) {
+		if (!(chunkd_srv.pid_file = strdup("/var/run/chunkd.pid"))) {
+			syslog(LOG_ERR, "no core");
+			exit(1);
+		}
 	}
 }
 
