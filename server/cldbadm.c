@@ -77,8 +77,8 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	cld_adm.cldb.home = cld_adm.data_dir;
-	if (cldb_open(&cld_adm.cldb, DB_RECOVER, 0, "cldbadm", false))
+	if (cldb_init(&cld_adm.cldb, cld_adm.data_dir, NULL,
+		      DB_RECOVER, "cldbadm", false, 0, NULL))
 		goto err_dbopen;
 
 	switch (cld_adm.mode) {
@@ -100,7 +100,8 @@ int main(int argc, char *argv[])
 	rc = 0;
 
  err_act:
-	cldb_close(&cld_adm.cldb);
+	cldb_down(&cld_adm.cldb);
+	cldb_fini(&cld_adm.cldb);
  err_dbopen:
 	return rc;
 }
@@ -140,13 +141,19 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 /*
  * Stubs for contents of cldb.c
  */
-int cldb_open(struct cldb *cldb, unsigned int env_flags, unsigned int flags,
-	     const char *errpfx, bool do_syslog)
+int cldb_init(struct cldb *cldb, const char *db_home, const char *db_password,
+	      unsigned int env_flags, const char *errpfx, bool do_syslog,
+	      unsigned int flags, void (*cb)(enum db_event))
 {
 
 	return 0;
 }
 
-void cldb_close(struct cldb *cldb)
+void cldb_down(struct cldb *cldb)
 {
 }
+
+void cldb_fini(struct cldb *cldb)
+{
+}
+

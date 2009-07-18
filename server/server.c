@@ -516,14 +516,7 @@ static int net_open(void)
 		event_set(&sock->ev, fd, EV_READ | EV_PERSIST,
 			  udp_srv_event, sock);
 
-		if (event_add(&sock->ev, NULL) < 0) {
-			syslog(LOG_WARNING, "tcp socket event_add");
-			rc = -errno;
-			goto err_out;
-		}
-
-		cld_srv.sockets =
-			g_list_append(cld_srv.sockets, sock);
+		cld_srv.sockets = g_list_append(cld_srv.sockets, sock);
 	}
 
 	freeaddrinfo(res0);
@@ -534,6 +527,20 @@ err_out:
 	freeaddrinfo(res0);
 err_addr:
 	return rc;
+}
+
+static void net_listen(void)
+{
+	GList *tmp;
+
+	for (tmp = cld_srv.sockets; tmp; tmp = tmp->next) {
+		struct server_socket *sock = tmp->data;
+
+		if (event_add(&sock->ev, NULL) < 0) {
+			syslog(LOG_WARNING, "tcp socket event_add");
+			continue;
+		}
+	}
 }
 
 static void term_signal(int signal)
@@ -599,16 +606,6 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 	return 0;
 }
 
-static void cldb_init(void)
-{
-	cld_srv.cldb.home = cld_srv.data_dir;
-	if (cldb_open(&cld_srv.cldb,
-		      DB_CREATE | DB_THREAD | DB_RECOVER,
-		      DB_CREATE | DB_THREAD,
-		      "cld", true))
-		exit(1);
-}
-
 int main (int argc, char *argv[])
 {
 	error_t aprc;
@@ -661,7 +658,12 @@ int main (int argc, char *argv[])
 
 	event_init();
 
-	cldb_init();
+	if (cldb_init(&cld_srv.cldb, cld_srv.data_dir, NULL,
+		      DB_CREATE | DB_THREAD | DB_RECOVER,
+		      "cld", true,
+		      DB_CREATE | DB_THREAD, NULL))
+		exit(1);
+
 	ensure_root();
 
 	evtimer_set(&cld_srv.chkpt_timer, cldb_checkpoint, NULL);
@@ -680,6 +682,7 @@ int main (int argc, char *argv[])
 	rc = net_open();
 	if (rc)
 		goto err_out_pid;
+	net_listen();
 
 	have_opts = (debugging > 0);
 
@@ -699,7 +702,8 @@ int main (int argc, char *argv[])
 
 	syslog(LOG_INFO, "shutting down");
 
-	cldb_close(&cld_srv.cldb);
+	cldb_down(&cld_srv.cldb);
+	cldb_fini(&cld_srv.cldb);
 
 	rc = 0;
 

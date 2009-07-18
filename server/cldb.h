@@ -103,9 +103,16 @@ struct raw_lock {
 	uint32_t		flags;		/* lock flags: CLFL_xxxx */
 };
 
+enum db_event {
+	CLDB_EV_NONE, CLDB_EV_CLIENT, CLDB_EV_MASTER, CLDB_EV_ELECTED
+};
+
 struct cldb {
+	bool		is_master;
+	bool		keyed;			/* using encryption? */
+
 	const char	*home;			/* database home dir */
-	char		*key;			/* database AES key */
+	void		(*state_cb)(enum db_event);
 
 	DB_ENV		*env;			/* db4 env ptr */
 
@@ -123,9 +130,11 @@ struct cldb {
 };
 
 
-extern int cldb_open(struct cldb *cldb, unsigned int env_flags,
-	unsigned int flags, const char *errpfx, bool do_syslog);
-extern void cldb_close(struct cldb *cldb);
+extern int cldb_init(struct cldb *cldb, const char *db_home, const char *db_password,
+	      unsigned int env_flags, const char *errpfx, bool do_syslog,
+	      unsigned int flags, void (*cb)(enum db_event));
+extern void cldb_down(struct cldb *cldb);
+extern void cldb_fini(struct cldb *cldb);
 
 extern int cldb_session_get(DB_TXN *txn, uint8_t *sid, struct raw_session **sess,
 		     bool notfound_err, bool rmw);

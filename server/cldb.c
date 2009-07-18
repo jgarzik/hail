@@ -25,6 +25,8 @@
 #include <glib.h>
 #include "cld.h"
 
+static int cldb_up(struct cldb *cldb, unsigned int flags);
+
 /*
  * db4 page sizes for our various databases.  Filesystem block size
  * is recommended, so 4096 was chosen (default ext3 block size).
@@ -200,30 +202,53 @@ err_out:
 	return -EIO;
 }
 
-int cldb_open(struct cldb *cldb, unsigned int env_flags, unsigned int flags,
-	     const char *errpfx, bool do_syslog)
+static void db4_event(DB_ENV *dbenv, u_int32_t event, void *event_info)
 {
-	const char *db_home, *db_password;
+	struct cldb *cldb = dbenv->app_private;
+
+	switch (event) {
+	case DB_EVENT_REP_CLIENT:
+		cldb->is_master = false;
+		if (cldb->state_cb)
+			(*cldb->state_cb)(CLDB_EV_CLIENT);
+		break;
+	case DB_EVENT_REP_MASTER:
+		cldb->is_master = true;
+		if (cldb->state_cb)
+			(*cldb->state_cb)(CLDB_EV_MASTER);
+		break;
+	case DB_EVENT_REP_ELECTED:
+		if (cldb->state_cb)
+			(*cldb->state_cb)(CLDB_EV_ELECTED);
+		break;
+	default:
+		/* do nothing */
+		break;
+	}
+}
+
+int cldb_init(struct cldb *cldb, const char *db_home, const char *db_password,
+	      unsigned int env_flags, const char *errpfx, bool do_syslog,
+	      unsigned int flags, void (*cb)(enum db_event))
+{
 	int rc;
 	DB_ENV *dbenv;
 
-	/*
-	 * open DB environment
-	 */
-
-	db_home = cldb->home;
-	g_assert(db_home != NULL);
-
-	/* this isn't a very secure way to handle passwords */
-	db_password = cldb->key;
+	cldb->is_master = true;
+	cldb->home = db_home;
+	cldb->state_cb = cb;
 
 	rc = db_env_create(&cldb->env, 0);
 	if (rc) {
-		fprintf(stderr, "cldb->env_create failed: %d\n", rc);
+		if (do_syslog)
+			syslog(LOG_WARNING, "cldb->env_create failed: %d", rc);
+		else
+			fprintf(stderr, "cldb->env_create failed: %d\n", rc);
 		return rc;
 	}
 
 	dbenv = cldb->env;
+	dbenv->app_private = cldb;
 
 	dbenv->set_errpfx(dbenv, errpfx);
 
@@ -250,34 +275,53 @@ int cldb_open(struct cldb *cldb, unsigned int env_flags, unsigned int flags,
 	}
 
 	if (db_password) {
-		flags |= DB_ENCRYPT;
 		rc = dbenv->set_encrypt(dbenv, db_password, DB_ENCRYPT_AES);
 		if (rc) {
 			dbenv->err(dbenv, rc, "dbenv->set_encrypt");
 			goto err_out;
 		}
 
-		memset(cldb->key, 0, strlen(cldb->key));
-		free(cldb->key);
-		cldb->key = NULL;
+		cldb->keyed = true;
 	}
 
-	/* init DB transactional environment, stored in directory db_home */
-	rc = dbenv->open(dbenv, db_home,
-			 env_flags |
-			 DB_INIT_LOG | DB_INIT_LOCK | DB_INIT_MPOOL |
-			 DB_INIT_TXN, S_IRUSR | S_IWUSR);
+	rc = dbenv->set_event_notify(dbenv, db4_event);
 	if (rc) {
-		if (dbenv)
-			dbenv->err(dbenv, rc, "dbenv->open");
-		else
-			fprintf(stderr, "dbenv->open failed: %d\n", rc);
+		dbenv->err(dbenv, rc, "dbenv->set_event_notify");
 		goto err_out;
 	}
 
-	/*
-	 * Open databases
-	 */
+	/* init DB transactional environment, stored in directory db_home */
+	env_flags |= DB_INIT_LOG | DB_INIT_LOCK | DB_INIT_MPOOL;
+	env_flags |= DB_INIT_TXN;
+	rc = dbenv->open(dbenv, db_home, env_flags, S_IRUSR | S_IWUSR);
+	if (rc) {
+		dbenv->err(dbenv, rc, "dbenv->open");
+		goto err_out;
+	}
+
+	rc = cldb_up(cldb, flags);
+	if (rc)
+		goto err_out;
+
+	return 0;
+
+err_out:
+	dbenv->close(dbenv, 0);
+	return rc;
+}
+
+/*
+ * open databases
+ */
+static int cldb_up(struct cldb *cldb, unsigned int flags)
+{
+	DB_ENV *dbenv = cldb->env;
+	int rc;
+
+	if (!cldb->is_master)
+		flags &= ~DB_CREATE;
+	if (cldb->keyed)
+		flags |= DB_ENCRYPT;
 
 	rc = open_db(dbenv, &cldb->sessions, "sessions", CLDB_PGSZ_SESSIONS,
 		     DB_HASH, flags, NULL, NULL, 0);
@@ -346,11 +390,13 @@ err_out_ino:
 err_out_sess:
 	cldb->sessions->close(cldb->sessions, 0);
 err_out:
-	dbenv->close(dbenv, 0);
 	return rc;
 }
 
-void cldb_close(struct cldb *cldb)
+/*
+ * close databases
+ */
+void cldb_down(struct cldb *cldb)
 {
 	cldb->locks->close(cldb->locks, 0);
 	cldb->handle_idx->close(cldb->handle_idx, 0);
@@ -359,7 +405,6 @@ void cldb_close(struct cldb *cldb)
 	cldb->inode_names->close(cldb->inode_names, 0);
 	cldb->inodes->close(cldb->inodes, 0);
 	cldb->sessions->close(cldb->sessions, 0);
-	cldb->env->close(cldb->env, 0);
 
 	cldb->locks = NULL;
 	cldb->handle_idx = NULL;
@@ -368,6 +413,11 @@ void cldb_close(struct cldb *cldb)
 	cldb->inode_names = NULL;
 	cldb->inodes = NULL;
 	cldb->sessions = NULL;
+}
+
+void cldb_fini(struct cldb *cldb)
+{
+	cldb->env->close(cldb->env, 0);
 	cldb->env = NULL;
 }
 
