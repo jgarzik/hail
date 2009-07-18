@@ -126,3 +126,67 @@ int fsetflags(const char *prefix, int fd, int or_flags)
 	return rc;
 }
 
+#ifndef HAVE_STRNLEN
+size_t strnlen(const char *s, size_t maxlen)
+{
+	int len = 0;
+
+	if (!s)
+		return 0;
+
+	while ((len < maxlen) && (*s)) {
+		s++;
+		len++;
+	}
+
+	return len;
+}
+#endif
+
+#ifndef HAVE_DAEMON
+int daemon(int nochdir, int noclose)
+{
+	struct sigaction osa, sa;
+	int fd;
+	pid_t newgrp;
+	int oerrno;
+	int osa_ok;
+
+	/* A SIGHUP may be thrown when the parent exits below. */
+	sigemptyset(&sa.sa_mask);
+	sa.sa_handler = SIG_IGN;
+	sa.sa_flags = 0;
+	osa_ok = sigaction(SIGHUP, &sa, &osa);
+
+	switch (fork()) {
+	case -1:
+		return (-1);
+	case 0:
+		break;
+	default:
+		exit(0);
+	}
+
+	newgrp = setsid();
+	oerrno = errno;
+	if (osa_ok != -1)
+		sigaction(SIGHUP, &osa, NULL);
+
+	if (newgrp == -1) {
+		errno = oerrno;
+		return (-1);
+	}
+
+	if (!nochdir)
+		(void)chdir("/");
+
+	if (!noclose && (fd = open("/dev/null", O_RDWR, 0)) != -1) {
+		(void)dup2(fd, STDIN_FILENO);
+		(void)dup2(fd, STDOUT_FILENO);
+		(void)dup2(fd, STDERR_FILENO);
+		if (fd > 2)
+			(void)close(fd);
+	}
+	return (0);
+}
+#endif

@@ -85,6 +85,7 @@ AC_CHECK_LIB(crypto, MD5_Init, CRYPTO_LIBS=-lcrypto)
 dnl -------------------------------------
 dnl Checks for optional library functions
 dnl -------------------------------------
+AC_CHECK_FUNCS(strnlen daemon)
 
 dnl -----------------
 dnl Configure options

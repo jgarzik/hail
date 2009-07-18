@@ -27,6 +27,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <errno.h>
+#include <netinet/in.h>
 #include <netdb.h>
 #include <cldc.h>
 

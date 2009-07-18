@@ -53,6 +53,32 @@ static const struct cld_msg_hdr def_msg_ack = {
 	.op		= cmo_ack,
 };
 
+#ifndef HAVE_STRNLEN
+static size_t strnlen(const char *s, size_t maxlen)
+{
+	int len = 0;
+
+	if (!s)
+		return 0;
+
+	while ((len < maxlen) && (*s)) {
+		s++;
+		len++;
+	}
+
+	return len;
+}
+#endif
+#ifndef EBADRQC
+#define EBADRQC 56
+#endif
+#ifndef EBADSLT
+#define EBADSLT 57
+#endif
+#ifndef EBADE
+#define EBADE 52
+#endif
+
 void cldc_log(const char *fmt, ...)
 {
 	va_list ap;

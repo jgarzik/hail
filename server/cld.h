@@ -165,4 +165,12 @@ extern int write_pid_file(const char *pid_fn);
 extern void syslogerr(const char *prefix);
 extern int fsetflags(const char *prefix, int fd, int or_flags);
 
+#ifndef HAVE_STRNLEN
+extern size_t strnlen(const char *s, size_t maxlen);
+#endif
+
+#ifndef HAVE_DAEMON
+extern int daemon(int nochdir, int noclose);
+#endif
+
 #endif /* __CLD_H__ */
