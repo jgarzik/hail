@@ -33,7 +33,7 @@ m4_define([libchunkdc_age], [m4_eval(libchunkdc_binary_age - libchunkdc_interfac
 m4_define([libchunkdc_version], [libchunkdc_major_version().libchunkdc_minor_version().libchunkdc_micro_version()libchunkdc_extraversion()])
 
 AC_INIT([chunkd], [0.4git],
-        [http://www.kernel.org/pub/software/network/distsrv/])
+        [http://hail.wiki.kernel.org/])
 
 AC_PREREQ(2.52)
 AC_CONFIG_SRCDIR([server/server.c])
