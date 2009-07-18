@@ -85,7 +85,15 @@ AC_CHECK_LIB(crypto, MD5_Init, CRYPTO_LIBS=-lcrypto)
 dnl -------------------------------------
 dnl Checks for optional library functions
 dnl -------------------------------------
-AC_CHECK_FUNCS(strnlen daemon)
+AC_CHECK_FUNCS(strnlen daemon memmem memrchr)
+
+case $host in
+  *-*-solaris* )
+     AC_DEFINE(_XOPEN_SOURCE_EXTENDED, 1, Needed to get declarations for msg_control and msg_controllen on Solaris)
+     AC_DEFINE(_XOPEN_SOURCE,          2, Needed to get declarations for msg_control and msg_controllen on Solaris)
+     AC_DEFINE(__EXTENSIONS__,         1, Needed to get declarations for msg_control and msg_controllen on Solaris)
+     ;;
+esac
 
 dnl -----------------
 dnl Configure options

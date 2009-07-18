@@ -173,4 +173,12 @@ extern size_t strnlen(const char *s, size_t maxlen);
 extern int daemon(int nochdir, int noclose);
 #endif
 
+#ifndef HAVE_MEMRCHR
+extern void *memrchr (const void * s, int c_in, size_t n);
+#endif
+
+#ifndef HAVE_MEMMEM
+extern void * memmem(const void *b1, size_t len1, const void *b2, size_t len2);
+#endif
+
 #endif /* __CLD_H__ */
