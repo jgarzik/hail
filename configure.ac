@@ -63,7 +63,7 @@ AM_PROG_LIBTOOL
 
 dnl Checks for header files.
 AC_HEADER_STDC
-AC_CHECK_HEADERS(sys/sendfile.h)
+AC_CHECK_HEADERS(sys/sendfile.h sys/filio.h)
 
 dnl Checks for typedefs, structures, and compiler characteristics.
 dnl AC_TYPE_SIZE_T

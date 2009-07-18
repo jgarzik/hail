@@ -67,7 +67,7 @@ int write_pid_file(const char *pid_fn)
 	int err;
 
 	/* build file data */
-	sprintf(str, "%u\n", getpid());
+	sprintf(str, "%u\n", (unsigned int) getpid());
 
 	/* open non-exclusively (works on NFS v2) */
 	fd = open(pid_fn, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);

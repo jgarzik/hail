@@ -18,6 +18,9 @@
 #include <chunk_msg.h>
 #include <chunksrv.h>
 #include <errno.h>
+#ifdef HAVE_SYS_FILIO_H
+#include <sys/filio.h>
+#endif
 
 #if 0
 static int _strcasecmp(const unsigned char *a, const char *b)
