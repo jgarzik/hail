@@ -31,6 +31,7 @@
 #include <locale.h>
 #include <argp.h>
 #include <netdb.h>
+#include <signal.h>
 #include <openssl/sha.h>
 #include <openssl/hmac.h>
 #include "cld.h"
