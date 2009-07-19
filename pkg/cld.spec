@@ -22,7 +22,13 @@ BuildRequires:	texlive-latex
 ExcludeArch: ppc ppc64
 
 %description
-Coarse locking daemon.
+Coarse locking daemon for cloud computing.  This software provides
+a cache-coherent, highly-available distributed filesystem for small
+files.
+
+CLD's primary uses include consensus service (election of a master,
+with fail-over, also known as lock service), reliable name space,
+and reliable small file storage.
 
 %package devel
 Summary: Development files for %{name}
