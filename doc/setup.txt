@@ -1,35 +1,97 @@
+How to get chunkd running in typical configurations:
 
-1) create a volume (directory that stores data):
+*) Make sure a CLD is running somewhere on the network, and has an SRV record,
+   which typically looks like this:
+
+[root@table1 ~]# host -t srv _cld._udp
+_cld._udp.phx2.ex.com has SRV record 10 50 8081 pacman.phx2.ex.com.
+_cld._udp.phx2.ex.com has SRV record 10 50 8081 maika.phx2.ex.com.
+[root@table1 ~]# 
+
+   If this does not work, set up CLD before proceeding.
+
+   Also, make sure that your hostname has a domain. We don't want to search
+   for CLD in the DNS root, do we?
+
+*) create a volume (directory that stores data):
 
 	mkdir -p /disk1/chunkd
 
-2) create XML-like configuration file (filled in, in the following steps)
+*) create XML-like configuration file (filled in, in the following steps)
 
-3) choose TCP listen port for server.
+*) choose TCP listen port for server. For an unknown reason, this clause
+   has no default, so you need to spell it out:
 
 	<Listen>
-		<Port>18080</Port>
+		<Port>8082</Port>
 	</Listen>
 
-4) choose pathname (dir + filename) where daemon should store its
-   PID file (normally found somewhere in /var/run, on an installed
-   system):
+   You can also set the interface and the encryption:
+
+	<Listen>
+		<Node>192.168.1.24</Node>
+		<Port>18082</Port>
+		<Encrypt>true</Encrypt>
+	</Listen>
+
+   For clouds and their many cheap nodes with one Ethernet it usually is
+   not a great idea to specify interfaces, since they often use IPv6 or
+   acquire IP addresses from DHCP. So, just specify a port.
+
+*) choose pathname (dir + filename) where daemon should store its
+   PID file. Default is /var/run/chunkd.pid, but it limits you to
+   one Chunk daemon per node, which is usual in clouds.
 
 	<PID>/home/developer/run/chunkd.pid</PID>
 
-5) create one volume entry for each volume, from step #3:
+*) create the volume entry (same as in mkdir above):
 
 	<Path>/disk1/chunkd</Path>
 
-6) configure SSL if desired, by providing private key and certificate
+*) configure SSL if desired, by providing private key and certificate
 
 	<SSL>
 		<PrivateKey>/etc/pki/server-private-key.pem</PrivateKey>
 		<Cert>/etc/pki/cert-public-key.pem</Cert>
 	</SSL>
 
-7) start daemon (it will put itself into the background) with the
-configuration file just created:
+*) configure the cell. This actually has a default, called "default".
+   Do not rely on it, unless you run an appartment-wide cloud cell
+   or something equally limited.
+
+        <Cell>"picbak"</Cell>
+
+   It's best to use only ASCII letters, numbers, dash ('-'), underscore ('_'),
+   and period ('.') in cell names.
+
+*) configure Node ID (NID), if desired. The NID follows the data, so
+   the best practice for NIDs is to have site-wide node bring-up scripts
+   create a unique identifier from a per-cell counter, instead of using
+   the MAC or IP, or such. One common trick is to use the creation time,
+   from "date +%s", so for small clouds all you need is to remember not
+   to create storage nodes in parallel. If NIDs conflict (they must be
+   unique within a cell), the new node will refuse to come up. This,
+   however, is not bulletproof in the face of nodes going down and then
+   back up, so implement those Jumpstart scripts as soon as you have the
+   first 30..50 or so nodes installed.
+
+	<NID>1247713739</NID>
+
+*) configure the location information. The Chunk works fine without, so
+   it's only used by clients that want to spread redundant data in a
+   certain pattern. For example, tabled avoids putting all replicas of
+   one object into the same rack, in order to increase availabiliy in the
+   face of power failures from hardware maintenance. Location is safe
+   to skip for small, experimental clouds.
+
+	<Geo>
+		<Area>"US"</Area>
+		<Building>"MTV12"</Building>
+		<Rack>"F3R18"</Rack>
+	</Geo>
+
+*) start daemon (it will put itself into the background) with the
+   configuration file just created:
 
 	/usr/sbin/chunkd -f /etc/chunkd.conf
 

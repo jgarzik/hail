@@ -142,6 +142,33 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 	return 0;
 }
 
+/*
+ * Find out own hostname.
+ * This is needed for:
+ *  - finding the local domain and its SRV records
+ * Do this before our state machines start ticking, so we can quit with
+ * a meaningful message easily.
+ */
+static char *get_hostname(void)
+{
+	enum { hostsz = 64 };
+	char hostb[hostsz];
+	char *ret;
+
+	if (gethostname(hostb, hostsz-1) < 0) {
+		syslog(LOG_ERR, "get_hostname: gethostname error (%d): %s",
+		       errno, strerror(errno));
+		exit(1);
+	}
+	hostb[hostsz-1] = 0;
+	if ((ret = strdup(hostb)) == NULL) {
+		syslog(LOG_ERR, "get_hostname: no core (%ld)",
+		       (long)strlen(hostb));
+		exit(1);
+	}
+	return ret;
+}
+
 static void term_signal(int signal)
 {
 	server_running = false;
@@ -1122,6 +1149,7 @@ int main (int argc, char *argv[])
 	 * read master configuration
 	 */
 	read_config();
+	chunkd_srv.ourhost = get_hostname();
 
 	if ((!(chunkd_srv.flags & SFL_FOREGROUND)) && (daemon(1, 0) < 0)) {
 		syslogerr("daemon");
@@ -1148,12 +1176,18 @@ int main (int argc, char *argv[])
 	INIT_LIST_HEAD(&chunkd_srv.wr_trash);
 	chunkd_srv.trash_sz = 0;
 
+	if (cld_begin(chunkd_srv.ourhost, chunkd_srv.cell, chunkd_srv.nid,
+		      &chunkd_srv.loc, NULL)) {
+		rc = 1;
+		goto err_out_session;
+	}
+
 	/* set up server networking */
 	tmpl = chunkd_srv.listeners;
 	while (tmpl) {
 		rc = net_open(tmpl->data);
 		if (rc)
-			goto err_out_pid;
+			goto err_out_listen;
 
 		tmpl = tmpl->next;
 	}
@@ -1173,7 +1207,10 @@ int main (int argc, char *argv[])
 
 	rc = 0;
 
-err_out_pid:
+err_out_listen:
+	cld_end();
+err_out_session:
+	/* net_close(); */
 	unlink(chunkd_srv.pid_file);
 	close(chunkd_srv.pid_fd);
 err_out:

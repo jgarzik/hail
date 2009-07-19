@@ -77,6 +77,7 @@ AC_CHECK_LIB(ssl, SSL_new, SSL_LIBS=-lssl)
 AC_CHECK_LIB(event, event_base_new, EVENT_LIBS=-levent, exit 1)
 AC_CHECK_LIB(argp, argp_parse, ARGP_LIBS=-largp)
 AC_CHECK_LIB(socket, bind, SOCKET_LIBS=-lsocket)
+PKG_CHECK_MODULES(CLDC, libcldc)
 
 dnl -------------------------------------
 dnl Checks for optional library functions

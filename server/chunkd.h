@@ -14,6 +14,8 @@
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 #endif
 
+#define ADDRSIZE	24	/* Enough for IPv6, including port. */
+
 enum {
 	STORAGED_PGSZ_INODE	= 1024,
 	STORAGED_PGSZ_SESSION	= 512,
@@ -111,10 +113,20 @@ struct backend_obj {
 	char			hashstr[50];
 };
 
+enum st_cld {
+	ST_CLD_INIT, ST_CLD_ACTIVE
+};
+
 struct listen_cfg {
 	char			*node;
 	char			*port;
 	bool			encrypt;
+};
+
+struct geo {
+	char			*area;
+	char			*zone;		/* Building */
+	char			*rack;
 };
 
 struct server_stats {
@@ -143,7 +155,11 @@ struct server {
 	struct list_head	wr_trash;
 	unsigned int		trash_sz;
 
+	char			*ourhost;
 	char			*vol_path;
+	char			*cell;
+	uint32_t		nid;
+	struct geo		loc;
 
 	struct server_stats	stats;		/* global statistics */
 };
@@ -170,6 +186,12 @@ extern bool cli_evt_data_in(struct client *cli, unsigned int events);
 extern void cli_out_end(struct client *cli);
 extern void cli_in_end(struct client *cli);
 
+/* cldu.c */
+extern void cldu_add_host(const char *host, unsigned int port);
+extern int cld_begin(const char *thishost, const char *thiscell, uint32_t nid,
+	      struct geo *locp, void (*cb)(enum st_cld));
+extern void cld_end(void);
+
 /* util.c */
 extern size_t strlist_len(GList *l);
 extern void __strlist_free(GList *l);
@@ -180,7 +202,6 @@ extern int write_pid_file(const char *pid_fn);
 extern int fsetflags(const char *prefix, int fd, int or_flags);
 extern char *time2str(char *strbuf, time_t time);
 extern void shastr(const unsigned char *digest, char *outstr);
-extern void read_config(void);
 
 /* server.c */
 extern SSL_CTX *ssl_ctx;
@@ -195,6 +216,9 @@ extern bool cli_cb_free(struct client *cli, struct client_write *wr,
 extern bool cli_write_start(struct client *cli);
 extern int cli_req_avail(struct client *cli);
 extern int cli_poll_mod(struct client *cli);
+
+/* config.c */
+extern void read_config(void);
 
 static inline bool use_sendfile(struct client *cli)
 {

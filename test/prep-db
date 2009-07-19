@@ -1,8 +1,11 @@
 #!/bin/sh
 
 DATADIR=data
+CLDDIR=$DATADIR/cld
+CHUNKDIR=$DATADIR/chunk
 
-mkdir -p $DATADIR/testvol
+mkdir -p $CLDDIR
+mkdir -p $CHUNKDIR
 
 if [ ! -f ssl-cert.pem ]
 then

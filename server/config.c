@@ -21,12 +21,39 @@
 
 struct config_context {
 	char		*text;
+	bool		badnid;
 	bool		in_ssl;
 	bool		in_listen;
 	bool		have_ssl;
 	char		*vol_path;
+
+	bool		in_geo;
+	char		*geo_area, *geo_zone, *geo_rack;
+
+	bool		in_cld;
+	unsigned short	cld_port;
+	char		*cld_host;
+
 	struct listen_cfg tmp_listen;
 };
+
+static bool is_good_cell_name(const char *s)
+{
+	char c;
+	int n;
+
+	n = 0;
+	while ((c = *s++) != 0) {
+		if (n >= 64)
+			return false;
+		/* whatever we allow in the future, we must filter '/' */
+		if (!(isalpha(c) || isdigit(c) ||
+		    c == '-' || c == '_' || c == '.'))
+			return false;
+		n++;
+	}
+	return true;
+}
 
 static bool str_n_isspace(const char *s, size_t n)
 {
@@ -74,6 +101,111 @@ static void cfg_elm_start (GMarkupParseContext *context,
 			syslog(LOG_ERR, "Nested Listen in configuration");
 		}
 	}
+	else if (!strcmp(element_name, "Geo")) {
+		if (!cc->in_geo) {
+			cc->in_geo = true;
+		} else {
+			syslog(LOG_ERR, "Nested Geo in configuration");
+		}
+	}
+	else if (!strcmp(element_name, "CLD")) {
+		if (!cc->in_cld) {
+			cc->in_cld = true;
+		} else {
+			syslog(LOG_ERR, "Nested CLD in configuration");
+		}
+	}
+}
+
+static void cfg_elm_end_listen(struct config_context *cc)
+{
+	struct listen_cfg *cfg;
+
+	if (cc->text) {
+		syslog(LOG_WARNING, "cfgfile: Extra text '%s' in Listen",
+		       cc->text);
+		free(cc->text);
+		cc->text = NULL;
+		return;
+	}
+
+	if (!cc->tmp_listen.port) {
+		free(cc->tmp_listen.node);
+		memset(&cc->tmp_listen, 0, sizeof(struct listen_cfg));
+		syslog(LOG_WARNING, "cfgfile: TCP port not specified in Listen");
+		return;
+	}
+
+	cfg = malloc(sizeof(*cfg));
+	if (!cfg) {
+		free(cc->tmp_listen.node);
+		free(cc->tmp_listen.port);
+		memset(&cc->tmp_listen, 0, sizeof(struct listen_cfg));
+		syslog(LOG_ERR, "OOM");
+		return;
+	}
+
+	memcpy(cfg, &cc->tmp_listen, sizeof(*cfg));
+	chunkd_srv.listeners = g_list_append(chunkd_srv.listeners, cfg);
+	memset(&cc->tmp_listen, 0, sizeof(struct listen_cfg));
+}
+
+static void cfg_elm_end_geo(struct config_context *cc)
+{
+	if (cc->text) {
+		syslog(LOG_WARNING, "cfgfile: Extra text '%s' in Geo",
+		       cc->text);
+		free(cc->text);
+		cc->text = NULL;
+		goto err_out;
+	}
+
+	free(chunkd_srv.loc.area);
+	chunkd_srv.loc.area = cc->geo_area;
+	cc->geo_area = NULL;
+	free(chunkd_srv.loc.zone);
+	chunkd_srv.loc.zone = cc->geo_zone;
+	cc->geo_zone = NULL;
+	free(chunkd_srv.loc.rack);
+	chunkd_srv.loc.rack = cc->geo_rack;
+	cc->geo_rack = NULL;
+
+	return;
+
+err_out:
+	free(cc->geo_area);
+	cc->geo_area = NULL;
+	free(cc->geo_zone);
+	cc->geo_zone = NULL;
+	free(cc->geo_rack);
+	cc->geo_rack = NULL;
+}
+
+static void cfg_elm_end_cld(struct config_context *cc)
+{
+	if (cc->text) {
+		syslog(LOG_WARNING, "Extra text in CLD element: \"%s\"",
+		       cc->text);
+		free(cc->text);
+		cc->text = NULL;
+		goto end;
+	}
+
+	if (!cc->cld_host) {
+		syslog(LOG_WARNING, "No host for CLD element");
+		goto end;
+	}
+	if (!cc->cld_port) {
+		syslog(LOG_WARNING, "No port for CLD element");
+		goto end;
+	}
+
+	cldu_add_host(cc->cld_host, cc->cld_port);
+
+end:
+	free(cc->cld_host);
+	cc->cld_host = NULL;
+	cc->cld_port = 0;
 }
 
 static void cfg_elm_end (GMarkupParseContext *context,
@@ -83,6 +215,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 {
 	struct config_context *cc = user_data;
 	struct stat st;
+	long n;
 
 	if (!strcmp(element_name, "PID") && cc->text) {
 		if (chunkd_srv.pid_file) {
@@ -139,59 +272,66 @@ static void cfg_elm_end (GMarkupParseContext *context,
 	}
 
 	else if (!strcmp(element_name, "Listen")) {
-		struct listen_cfg *cfg;
-
-		if (cc->text) {
-			syslog(LOG_WARNING,
-			       "cfgfile: Extra text '%s' in Listen",
-			       cc->text);
-			free(cc->text);
-			cc->text = NULL;
-			return;
-		}
-
+		cfg_elm_end_listen(cc);
 		cc->in_listen = false;
-
-		if (!cc->tmp_listen.port) {
-			free(cc->tmp_listen.node);
-			memset(&cc->tmp_listen, 0, sizeof(struct listen_cfg));
-			syslog(LOG_WARNING, "cfgfile: TCP port not specified in Listen");
-			return;
-		}
-
-		cfg = malloc(sizeof(*cfg));
-		if (!cfg) {
-			free(cc->tmp_listen.node);
-			free(cc->tmp_listen.port);
-			memset(&cc->tmp_listen, 0, sizeof(struct listen_cfg));
-			syslog(LOG_ERR, "OOM");
-			return;
-		}
-
-		memcpy(cfg, &cc->tmp_listen, sizeof(*cfg));
-		chunkd_srv.listeners =
-			g_list_append(chunkd_srv.listeners, cfg);
-		memset(&cc->tmp_listen, 0, sizeof(struct listen_cfg));
 	}
 
-	else if (cc->in_listen && cc->text && !strcmp(element_name, "Port")) {
-		int i = atoi(cc->text);
+	else if (!strcmp(element_name, "CLD")) {
+		cfg_elm_end_cld(cc);
+		cc->in_cld = false;
+	}
 
-		if (i > 0 && i < 65536) {
-			free(cc->tmp_listen.port);
-			cc->tmp_listen.port = cc->text;
-		} else {
-			syslog(LOG_WARNING, "cfgfile Port '%s' invalid, ignoring",
-				cc->text);
-			free(cc->text);
+	else if (!strcmp(element_name, "Port")) {
+		if (!cc->text) {
+			syslog(LOG_WARNING, "Port element empty");
+			return;
 		}
 
-		cc->text = NULL;
+		if (cc->in_listen) {
+			n = strtol(cc->text, NULL, 10);
+			if (n > 0 && n < 65536) {
+				free(cc->tmp_listen.port);
+				cc->tmp_listen.port = cc->text;
+			} else {
+				syslog(LOG_WARNING,
+				       "Port '%s' invalid, ignoring", cc->text);
+				free(cc->text);
+			}
+			cc->text = NULL;
+		} else if (cc->in_cld) {
+			n = strtol(cc->text, NULL, 10);
+			if (n > 0 && n < 65536)
+				cc->cld_port = n;
+			else
+				syslog(LOG_WARNING,
+				       "Port '%s' invalid, ignoring", cc->text);
+			free(cc->text);
+			cc->text = NULL;
+		} else {
+			syslog(LOG_WARNING,
+			       "Port element not in Listen or CLD");
+			return;
+		}
 	}
 
 	else if (cc->in_listen && cc->text && !strcmp(element_name, "Node")) {
 		cc->tmp_listen.node = cc->text;
 		cc->text = NULL;
+	}
+
+	else if (!strcmp(element_name, "Host")) {
+		if (!cc->text) {
+			syslog(LOG_WARNING, "Host element empty");
+			return;
+		}
+
+		if (cc->in_cld) {
+			free(cc->cld_host);
+			cc->cld_host = cc->text;
+			cc->text = NULL;
+		} else {
+			syslog(LOG_WARNING, "Host element not in CLD");
+		}
 	}
 
 	else if (cc->in_listen && cc->text &&
@@ -202,6 +342,41 @@ static void cfg_elm_end (GMarkupParseContext *context,
 
 		free(cc->text);
 		cc->text = NULL;
+	}
+
+	else if (!strcmp(element_name, "Cell") && cc->text) {
+		free(chunkd_srv.cell);
+		chunkd_srv.cell = cc->text;
+		cc->text = NULL;
+	}
+
+	else if (!strcmp(element_name, "NID") && cc->text) {
+		n = strtol(cc->text, NULL, 10);
+		if (n <= 0 || n >= LONG_MAX) {
+			syslog(LOG_ERR, "NID '%s' is invalid", cc->text);
+			cc->badnid = true;
+			free(cc->text);
+			cc->text = NULL;
+			return;
+		}
+		/*
+		 * Well-meaning but misguided users are quick to generate
+		 * overlong NIDs for various reasons, like using a date with
+		 * nanoseconds. On 32-bitters we just truncate them and
+		 * hope nobody notices.
+		 */
+		chunkd_srv.nid = n;
+		free(cc->text);
+		cc->text = NULL;
+	}
+
+	else if (!strcmp(element_name, "Geo") && cc->text) {
+		cfg_elm_end_geo(cc);
+		cc->in_geo = false;
+	}
+
+	else {
+		syslog(LOG_WARNING, "Unknown element \"%s\"", element_name);
 	}
 
 }
@@ -265,5 +440,21 @@ void read_config(void)
 			exit(1);
 		}
 	}
+
+	if (chunkd_srv.cell && !is_good_cell_name(chunkd_srv.cell)) {
+		syslog(LOG_ERR, "Cell name '%s' is invalid", chunkd_srv.cell);
+		exit(1);
+	}
+
+	if (chunkd_srv.nid == 0) {	/* We have no NID, it's fatal */
+		if (!ctx.badnid) {	/* NID is missing (not invalid) */
+			syslog(LOG_ERR, "No NID configured");
+		}
+		exit(1);
+	}
+
+	free(ctx.geo_area);
+	free(ctx.geo_zone);
+	free(ctx.geo_rack);
 }
 

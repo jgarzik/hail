@@ -13,8 +13,9 @@ Source2:	chunkd.init
 Source3:	chunkd.sysconf
 BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
+# N.B. We need cld to build, because our "make check" spawns a private copy.
 BuildRequires:	libevent-devel glib2-devel openssl-devel zlib-devel
-BuildRequires:	libxml2-devel procps
+BuildRequires:	libxml2-devel procps cld cld-devel
 
 # cld is broken on big-endian... embarrassing!!!
 # FIXME: remove this when cld is fixed
