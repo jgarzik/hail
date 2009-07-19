@@ -23,7 +23,12 @@ BuildRequires:	libxml2-devel procps cld cld-devel
 ExcludeArch: ppc ppc64
 
 %description
-Data storage daemon.
+Single-node data storage daemon for cloud computing.
+
+This TCP network service is a very simple PUT/GET/DELETE data storage
+service.  It is intended to be used as a low-level piece of large-scale
+distributed data storage infrastructure.  The service provides
+operations on stored data ("objects").
 
 %package devel
 Summary: Development files for %{name}
