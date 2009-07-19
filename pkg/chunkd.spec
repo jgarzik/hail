@@ -8,6 +8,7 @@ License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
 # pulled from upstream git, commit 6f54181c2667a65dc61bb25dfd64766c60202ded
+# to recreate tarball, check out commit, then run "make dist"
 Source0:	chunkd-%{version}git.tar.gz
 Source2:	chunkd.init
 Source3:	chunkd.sysconf
