@@ -330,7 +330,7 @@ static int cldu_getaddr(struct cld_session *sp, const char *thishost)
 			if (rrlen < 8) {	/* 2+2+2 and 2 for host */
 				if (debugging) {
 					syslog(LOG_INFO,
-					       "cldc_getaddr: SRV len %d", 
+					       "cldc_getaddr: SRV len %d",
 					       rrlen);
 				}
 				break;

@@ -6,7 +6,7 @@ How to get chunkd running in typical configurations:
 [root@table1 ~]# host -t srv _cld._udp
 _cld._udp.phx2.ex.com has SRV record 10 50 8081 pacman.phx2.ex.com.
 _cld._udp.phx2.ex.com has SRV record 10 50 8081 maika.phx2.ex.com.
-[root@table1 ~]# 
+[root@table1 ~]#
 
    If this does not work, set up CLD before proceeding.
 
