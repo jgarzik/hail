@@ -8,6 +8,7 @@ License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
 # pulled from upstream git, commit 023a127de02c91f62f3911978b59244009c67b2c
+# to recreate tarball, check out commit, then run "make dist"
 Source0:	cld-%{version}git.tar.gz
 Source2:	cld.init
 Source3:	cld.sysconf
