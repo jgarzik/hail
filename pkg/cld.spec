@@ -1,6 +1,6 @@
 Name:		cld
 Version:	0.2
-Release:	0.1.g023a127d%{?dist}
+Release:	0.2.g023a127d%{?dist}
 Summary:	Coarse locking daemon
 
 Group:		System Environment/Base
@@ -101,6 +101,10 @@ fi
 %{_includedir}/*
 
 %changelog
+* Sun Jul 19 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-0.2.g023a127d
+- improve package description
+- per guidelines, indicate how to regenerate tarball from git repo
+
 * Fri Jul 17 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-0.1.g023a127d
 - update with new release version scheme
 - kill RPM_BUILD_ROOT
