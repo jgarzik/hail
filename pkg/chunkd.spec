@@ -1,13 +1,13 @@
 Name:		chunkd
 Version:	0.4
-Release:	0.1.g6f54181c%{?dist}
+Release:	0.2.ge073b822%{?dist}
 Summary:	Data storage daemon
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-# pulled from upstream git, commit 6f54181c2667a65dc61bb25dfd64766c60202ded
+# pulled from upstream git, commit e073b82297fc3c88f94f524c82e9e6e86fb2cd0a
 # to recreate tarball, check out commit, then run "make dist"
 Source0:	chunkd-%{version}git.tar.gz
 Source2:	chunkd.init
@@ -86,7 +86,7 @@ fi
 
 %files
 %defattr(-,root,root,-)
-%doc AUTHORS COPYING README NEWS doc/*.txt
+%doc AUTHORS COPYING LICENSE README NEWS doc/*.txt
 %{_sbindir}/chunkd
 %{_libdir}/*.so.*
 %attr(0755,root,root)	%{_initddir}/chunkd
@@ -99,6 +99,12 @@ fi
 %{_includedir}/*
 
 %changelog
+* Sun Jul 19 2009 Jeff Garzik <jgarzik@redhat.com> - 0.4-0.2.ge073b822
+- update source to commit e073b82297fc3c88f94f524c82e9e6e86fb2cd0a
+- improve pkg description
+- per pkg guidelines, describe how to regen source tarball from git
+- add doc LICENSE
+
 * Fri Jul 17 2009 Jeff Garzik <jgarzik@redhat.com> - 0.4-0.1.g6f54181c
 - kill RPM_BUILD_ROOT
 - new release version scheme
