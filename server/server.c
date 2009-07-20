@@ -408,6 +408,8 @@ static void udp_srv_event(int fd, short events, void *userdata)
 		resp_copy(resp, msg);
 		resp->hdr.op = cmo_not_master;
 
+		authsign(outpkt, alloc_len);
+
 		udp_tx(sock, (struct sockaddr *) &cli.addr, cli.addr_len,
 		       outpkt, alloc_len);
 	}
@@ -498,16 +500,20 @@ static int net_open(void)
 
 		if (bind(fd, res->ai_addr, res->ai_addrlen) < 0) {
 			syslogerr("tcp bind");
+			close(fd);
 			rc = -errno;
 			goto err_out;
 		}
 
 		rc = fsetflags("udp server", fd, O_NONBLOCK);
-		if (rc)
+		if (rc) {
+			close(fd);
 			goto err_out;
+		}
 
 		sock = calloc(1, sizeof(*sock));
 		if (!sock) {
+			close(fd);
 			rc = -ENOMEM;
 			goto err_out;
 		}
@@ -517,6 +523,13 @@ static int net_open(void)
 		event_set(&sock->ev, fd, EV_READ | EV_PERSIST,
 			  udp_srv_event, sock);
 
+		if (event_add(&sock->ev, NULL) < 0) {
+			syslog(LOG_ERR, "UDP socket event_add");
+			free(sock);
+			close(fd);
+			rc = -ENOMEM;
+			goto err_out;
+		}
 		cld_srv.sockets = g_list_append(cld_srv.sockets, sock);
 	}
 
@@ -528,20 +541,6 @@ err_out:
 	freeaddrinfo(res0);
 err_addr:
 	return rc;
-}
-
-static void net_listen(void)
-{
-	GList *tmp;
-
-	for (tmp = cld_srv.sockets; tmp; tmp = tmp->next) {
-		struct server_socket *sock = tmp->data;
-
-		if (event_add(&sock->ev, NULL) < 0) {
-			syslog(LOG_WARNING, "tcp socket event_add");
-			continue;
-		}
-	}
 }
 
 static void term_signal(int signal)
@@ -611,8 +610,6 @@ int main (int argc, char *argv[])
 {
 	error_t aprc;
 	int rc = 1;
-	char debugstr[32] = "";
-	bool have_opts = false;
 
 	/* isspace() and strcasecmp() consistency requires this */
 	setlocale(LC_ALL, "C");
@@ -635,9 +632,6 @@ int main (int argc, char *argv[])
 	 */
 
 	openlog(PROGRAM_NAME, LOG_PID, LOG_LOCAL3);
-
-	if (debugging)
-		sprintf(debugstr, "debug %d", debugging);
 
 	if ((!(cld_srv.flags & SFL_FOREGROUND)) && (daemon(1, 0) < 0)) {
 		syslogerr("daemon");
@@ -683,14 +677,10 @@ int main (int argc, char *argv[])
 	rc = net_open();
 	if (rc)
 		goto err_out_pid;
-	net_listen();
 
-	have_opts = (debugging > 0);
-
-	syslog(LOG_INFO, "initialized%s%s%s",
-	       have_opts ? " (" : "",
-	       debugstr,
-	       have_opts ? ")" : "");
+	syslog(LOG_INFO, "initialized: cport %s, dbg %u",
+	       cld_srv.port,
+	       debugging);
 
 	while (server_running) {
 		event_dispatch();
