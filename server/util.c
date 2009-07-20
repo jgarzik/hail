@@ -172,7 +172,7 @@ time_t timers_run(void)
 		timer_list = g_list_delete_link(timer_list, timer_list);
 	}
 
-	return 1;
+	return 0;
 }
 
 #ifndef HAVE_STRNLEN

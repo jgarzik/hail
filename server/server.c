@@ -674,7 +674,8 @@ int main (int argc, char *argv[])
 		for (i = 0; i < cld_srv.n_polls; i++)
 			cld_srv.polls[i].revents = 0;
 
-		rc = poll(cld_srv.polls, cld_srv.n_polls, next_timeout * 1000);
+		rc = poll(cld_srv.polls, cld_srv.n_polls,
+			  next_timeout ? (next_timeout * 1000) : -1);
 		if (rc < 0) {
 			syslogerr("poll");
 			if (errno != EINTR)
