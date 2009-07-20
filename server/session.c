@@ -46,8 +46,8 @@ struct session_outpkt {
 	void			*done_data;
 };
 
-static void session_retry(int fd, short events, void *userdata);
-static void session_timeout(int fd, short events, void *userdata);
+static void session_retry(struct timer *);
+static void session_timeout(struct timer *);
 static int sess_load_db(GHashTable *ss, DB_TXN *txn);
 
 uint64_t next_seqid_le(uint64_t *seq)
@@ -109,8 +109,8 @@ static struct session *session_new(void)
 
 	__cld_rand64(&sess->next_seqid_out);
 
-	evtimer_set(&sess->timer, session_timeout, sess);
-	evtimer_set(&sess->retry_timer, session_retry, sess);
+	timer_init(&sess->timer, session_timeout, sess);
+	timer_init(&sess->retry_timer, session_retry, sess);
 
 	return sess;
 }
@@ -122,8 +122,8 @@ static void session_free(struct session *sess)
 
 	g_hash_table_remove(cld_srv.sessions, sess->sid);
 
-	evtimer_del(&sess->timer);
-	evtimer_del(&sess->retry_timer);
+	timer_del(&sess->timer);
+	timer_del(&sess->retry_timer);
 
 	free(sess);
 }
@@ -377,32 +377,24 @@ static void session_ping(struct session *sess)
 	sess_sendmsg(sess, &resp, sizeof(resp), session_ping_done, NULL);
 }
 
-static void session_timeout(int fd, short events, void *userdata)
+static void session_timeout(struct timer *timer)
 {
-	struct session *sess = userdata;
+	struct session *sess = timer->userdata;
 	uint64_t sess_expire;
 	int rc;
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	DB_TXN *txn;
-
-	gettimeofday(&current_time, NULL);
+	time_t now = time(NULL);
 
 	sess_expire = sess->last_contact + CLD_SESS_TIMEOUT;
-	if (sess_expire > current_time.tv_sec) {
-		struct timeval tv;
-
+	if (sess_expire > now) {
 		if (!sess->ping_open &&
 		    (sess_expire > (sess->last_contact + (CLD_SESS_TIMEOUT / 2) &&
 		    sess->sock)))
 			session_ping(sess);
 
-		tv.tv_sec = ((sess_expire - current_time.tv_sec) / 2) + 1;
-		tv.tv_usec = 0;
-
-		if (evtimer_add(&sess->timer, &tv) < 0)
-			syslog(LOG_WARNING, "evtimer_add session_tmout failed");
-		else
-			return;	/* timer added; do not time out session */
+		timer_add(&sess->timer, now + ((sess_expire - now) / 2) + 1);
+		return;	/* timer added; do not time out session */
 	}
 
 	syslog(LOG_INFO, "session timeout, addr %s sid " SIDFMT,
@@ -557,17 +549,13 @@ static int sess_retry_output(struct session *sess)
 	return rc;
 }
 
-static void session_retry(int fd, short events, void *userdata)
+static void session_retry(struct timer *timer)
 {
-	struct session *sess = userdata;
-	struct timeval tv = { CLD_RETRY_START, 0 };
-
-	gettimeofday(&current_time, NULL);
+	struct session *sess = timer->userdata;
 
 	sess_retry_output(sess);
 
-	if (evtimer_add(&sess->retry_timer, &tv) < 0)
-		syslog(LOG_WARNING, "failed to re-add retry timer");
+	timer_add(&sess->retry_timer, time(NULL) + CLD_RETRY_START);
 }
 
 bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
@@ -621,11 +609,8 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
 	}
 
 	/* if out_q empty, start retry timer */
-	if (!sess->out_q) {
-		struct timeval tv = { CLD_RETRY_START, 0 };
-		if (evtimer_add(&sess->retry_timer, &tv) < 0)
-			syslog(LOG_WARNING, "retry timer start failed");
-	}
+	if (!sess->out_q)
+		timer_add(&sess->retry_timer, time(NULL) + CLD_RETRY_START);
 
 	sess->out_q = g_list_append(sess->out_q, op);
 
@@ -673,8 +658,7 @@ void msg_ack(struct msg_params *mp)
 	}
 
 	if (!sess->out_q)
-		if (evtimer_del(&sess->retry_timer) < 0)
-			syslog(LOG_WARNING, "failed to delete retry timer");
+		timer_del(&sess->retry_timer);
 }
 
 void msg_new_sess(struct msg_params *mp, const struct client *cli)
@@ -684,7 +668,6 @@ void msg_new_sess(struct msg_params *mp, const struct client *cli)
 	struct session *sess = NULL;
 	DBT key, val;
 	int rc;
-	struct timeval tv;
 	enum cle_err_codes resp_rc = CLE_OK;
 	struct cld_msg_resp *resp;
 	struct cld_packet *outpkt;
@@ -736,10 +719,7 @@ void msg_new_sess(struct msg_params *mp, const struct client *cli)
 	g_hash_table_insert(cld_srv.sessions, sess->sid, sess);
 
 	/* begin session timer */
-	tv.tv_sec = CLD_SESS_TIMEOUT / 2;
-	tv.tv_usec = 0;
-	if (evtimer_add(&sess->timer, &tv) < 0)
-		syslog(LOG_WARNING, "evtimer_add session_new failed");
+	timer_add(&sess->timer, time(NULL) + (CLD_SESS_TIMEOUT / 2));
 
 	resp_ok(sess, mp->msg);
 	return;
@@ -861,7 +841,6 @@ static int sess_load_db(GHashTable *ss, DB_TXN *txn)
 	DBT key, val;
 	struct session *sess;
 	struct raw_session raw_sess;
-	struct timeval tv;
 	int rc;
 
 	rc = db->cursor(db, txn, &cur, 0);
@@ -908,10 +887,7 @@ static int sess_load_db(GHashTable *ss, DB_TXN *txn)
 		g_hash_table_insert(ss, sess->sid, sess);
 
 		/* begin session timer */
-		tv.tv_sec = CLD_SESS_TIMEOUT / 2;
-		tv.tv_usec = 0;
-		if (evtimer_add(&sess->timer, &tv) < 0)
-			syslog(LOG_WARNING, "evtimer_add sess_load failed");
+		timer_add(&sess->timer, time(NULL) + (CLD_SESS_TIMEOUT / 2));
 	}
 
 	cur->close(cur);

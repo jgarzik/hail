@@ -22,11 +22,12 @@
 
 #include <netinet/in.h>
 #include <sys/time.h>
-#include <event.h>
+#include <poll.h>
 #include <glib.h>
 #include "cldb.h"
 #include <cld_msg.h>
 
+struct timer;
 struct client;
 struct server_socket;
 struct session_outpkt;
@@ -35,11 +36,19 @@ struct session_outpkt;
 
 enum {
 	CLD_IPADDR_SZ		= 64,
+	CLD_MAX_POLL		= 32,
 	CLD_SESS_TIMEOUT	= 60,
 	CLD_MSGID_EXPIRE	= CLD_SESS_TIMEOUT * 2,
 	CLD_RETRY_START		= 2,		/* initial retry after 2sec */
 	CLD_CHKPT_SEC		= 60 * 5,	/* secs between db4 chkpt */
 	SFL_FOREGROUND		= (1 << 0),	/* run in foreground */
+};
+
+struct timer {
+	bool			fired;
+	void			(*cb)(struct timer *);
+	void			*userdata;
+	time_t			expires;
 };
 
 struct client {
@@ -59,7 +68,7 @@ struct session {
 
 	uint64_t		last_contact;
 	uint64_t		next_fh;
-	struct event		timer;
+	struct timer		timer;
 
 	uint64_t		next_seqid_in;
 	uint64_t		next_seqid_out;
@@ -68,7 +77,7 @@ struct session {
 	GList			*data_q;	/* queued data pkts */
 
 	GList			*out_q;		/* outgoing pkts (to client) */
-	struct event		retry_timer;
+	struct timer		retry_timer;
 
 	char			user[CLD_MAX_USERNAME];
 
@@ -93,7 +102,6 @@ struct server_stats {
 struct server_socket {
 	/* FIXME add refcount for sessions pointing here. */
 	int			fd;
-	struct event		ev;
 };
 
 struct server {
@@ -107,13 +115,16 @@ struct server {
 
 	struct cldb		cldb;		/* database info */
 
-	GList			*sockets;
+	GArray			*sockets;
+
+	struct pollfd		polls[CLD_MAX_POLL];
+	int			n_polls;
 
 	GHashTable		*sessions;
 
 	GQueue			*timers;
 
-	struct event		chkpt_timer;	/* db4 checkpoint timer */
+	struct timer		chkpt_timer;	/* db4 checkpoint timer */
 
 	struct server_stats	stats;		/* global statistics */
 };
@@ -164,6 +175,17 @@ extern bool authsign(struct cld_packet *pkt, size_t pkt_len);
 extern int write_pid_file(const char *pid_fn);
 extern void syslogerr(const char *prefix);
 extern int fsetflags(const char *prefix, int fd, int or_flags);
+extern void timer_add(struct timer *timer, time_t expires);
+extern void timer_del(struct timer *timer);
+extern time_t timers_run(void);
+
+static inline void timer_init(struct timer *timer, void (*cb)(struct timer *),
+			      void *userdata)
+{
+	memset(timer, 0, sizeof(*timer));
+	timer->cb = cb;
+	timer->userdata = userdata;
+}
 
 #ifndef HAVE_STRNLEN
 extern size_t strnlen(const char *s, size_t maxlen);

@@ -32,6 +32,8 @@
 #include <syslog.h>
 #include "cld.h"
 
+static GList *timer_list;
+
 int write_pid_file(const char *pid_fn)
 {
 	char str[32], *s;
@@ -128,6 +130,49 @@ int fsetflags(const char *prefix, int fd, int or_flags)
 		}
 
 	return rc;
+}
+
+static gint timer_cmp(gconstpointer a_, gconstpointer b_)
+{
+	const struct timer *a = a_;
+	const struct timer *b = b_;
+
+	if (a->expires > b->expires)
+		return 1;
+	if (a->expires == b->expires)
+		return 0;
+	return -1;
+}
+
+void timer_add(struct timer *timer, time_t expires)
+{
+	timer->fired = false;
+	timer->expires = expires;
+	timer_list = g_list_insert_sorted(timer_list, timer, timer_cmp);
+}
+
+void timer_del(struct timer *timer)
+{
+	timer_list = g_list_remove(timer_list, timer);
+}
+
+time_t timers_run(void)
+{
+	struct timer *timer;
+	time_t now = time(NULL);
+
+	while (timer_list) {
+		timer = timer_list->data;
+		if (timer->expires > now)
+			return (timer->expires - now);
+
+		timer->fired = true;
+		timer->cb(timer);
+
+		timer_list = g_list_delete_link(timer_list, timer_list);
+	}
+
+	return 1;
 }
 
 #ifndef HAVE_STRNLEN

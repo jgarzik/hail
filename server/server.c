@@ -346,9 +346,8 @@ err_out:
 	       outpkt, alloc_len);
 }
 
-static void udp_srv_event(int fd, short events, void *userdata)
+static void udp_srv_event(struct server_socket *sock)
 {
-	struct server_socket *sock = userdata;
 	struct client cli;
 	char host[64];
 	ssize_t rrc;
@@ -417,13 +416,10 @@ static void udp_srv_event(int fd, short events, void *userdata)
 
 static void add_chkpt_timer(void)
 {
-	struct timeval tv = { CLD_CHKPT_SEC, 0 };
-
-	if (evtimer_add(&cld_srv.chkpt_timer, &tv) < 0)
-		syslog(LOG_WARNING, "unable to add checkpoint timer");
+	timer_add(&cld_srv.chkpt_timer, time(NULL) + CLD_CHKPT_SEC);
 }
 
-static void cldb_checkpoint(int fd, short events, void *userdata)
+static void cldb_checkpoint(struct timer *timer)
 {
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	int rc;
@@ -478,7 +474,8 @@ static int net_open(void)
 	}
 
 	for (res = res0; res; res = res->ai_next) {
-		struct server_socket *sock;
+		struct server_socket sock;
+		struct pollfd *pfd;
 		int fd, on;
 
 		if (ipv6_found && res->ai_family == PF_INET)
@@ -511,26 +508,14 @@ static int net_open(void)
 			goto err_out;
 		}
 
-		sock = calloc(1, sizeof(*sock));
-		if (!sock) {
-			close(fd);
-			rc = -ENOMEM;
-			goto err_out;
-		}
+		memset(&sock, 0, sizeof(sock));
+		sock.fd = fd;
 
-		sock->fd = fd;
+		pfd = &cld_srv.polls[cld_srv.n_polls++];
+		pfd->fd = fd;
+		pfd->events = POLLIN;
 
-		event_set(&sock->ev, fd, EV_READ | EV_PERSIST,
-			  udp_srv_event, sock);
-
-		if (event_add(&sock->ev, NULL) < 0) {
-			syslog(LOG_ERR, "UDP socket event_add");
-			free(sock);
-			close(fd);
-			rc = -ENOMEM;
-			goto err_out;
-		}
-		cld_srv.sockets = g_list_append(cld_srv.sockets, sock);
+		g_array_append_val(cld_srv.sockets, sock);
 	}
 
 	freeaddrinfo(res0);
@@ -546,13 +531,11 @@ err_addr:
 static void term_signal(int signal)
 {
 	server_running = false;
-	event_loopbreak();
 }
 
 static void stats_signal(int signal)
 {
 	dump_stats = true;
-	event_loopbreak();
 }
 
 #define X(stat) \
@@ -610,6 +593,7 @@ int main (int argc, char *argv[])
 {
 	error_t aprc;
 	int rc = 1;
+	time_t next_timeout;
 
 	/* isspace() and strcasecmp() consistency requires this */
 	setlocale(LC_ALL, "C");
@@ -651,8 +635,6 @@ int main (int argc, char *argv[])
 	signal(SIGTERM, term_signal);
 	signal(SIGUSR1, stats_signal);
 
-	event_init();
-
 	if (cldb_init(&cld_srv.cldb, cld_srv.data_dir, NULL,
 		      DB_CREATE | DB_THREAD | DB_RECOVER,
 		      "cld", true,
@@ -661,12 +643,13 @@ int main (int argc, char *argv[])
 
 	ensure_root();
 
-	evtimer_set(&cld_srv.chkpt_timer, cldb_checkpoint, NULL);
+	timer_init(&cld_srv.chkpt_timer, cldb_checkpoint, NULL);
 	add_chkpt_timer();
 
 	cld_srv.sessions = g_hash_table_new(sess_hash, sess_equal);
 	cld_srv.timers = g_queue_new();
-	if (!cld_srv.sessions || !cld_srv.timers)
+	cld_srv.sockets = g_array_new(FALSE,FALSE,sizeof(struct server_socket));
+	if (!cld_srv.sessions || !cld_srv.timers || !cld_srv.sockets)
 		goto err_out_pid;
 
 	rc = 1;
@@ -682,13 +665,33 @@ int main (int argc, char *argv[])
 	       cld_srv.port,
 	       debugging);
 
+	next_timeout = timers_run();
+
 	while (server_running) {
-		event_dispatch();
+		int i;
+
+		/* necessary to zero??? */
+		for (i = 0; i < cld_srv.n_polls; i++)
+			cld_srv.polls[i].revents = 0;
+
+		rc = poll(cld_srv.polls, cld_srv.n_polls, next_timeout * 1000);
+		if (rc < 0) {
+			syslogerr("poll");
+			if (errno != EINTR)
+				break;
+		}
+
+		for (i = 0; i < cld_srv.n_polls; i++)
+			if (cld_srv.polls[i].revents & POLLIN)
+				udp_srv_event(&g_array_index(cld_srv.sockets,
+						struct server_socket, i));
 
 		if (dump_stats) {
 			dump_stats = false;
 			stats_dump();
 		}
+
+		next_timeout = timers_run();
 	}
 
 	syslog(LOG_INFO, "shutting down");
