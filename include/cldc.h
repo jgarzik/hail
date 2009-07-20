@@ -200,8 +200,14 @@ extern bool cldc_levent_timer(void *private, bool add,
 		       time_t secs);
 
 /* cldc-dns */
-extern int cldc_getaddr(struct cldc_session *sess, GList **host_list,
-		 const char *thishost);
+extern int cldc_getaddr(GList **host_list, const char *thishost, bool verbose,
+		 void (*act_log)(const char *fmt, ...));
+extern int cldc_saveaddr(struct cldc_host *hp,
+			 unsigned int priority,
+			 unsigned int weight, unsigned int port,
+			 unsigned int nlen, const char *name,
+			 bool verbose,
+			 void (*act_log)(const char *fmt, ...));
 
 static inline bool seqid_after_eq(uint64_t a_, uint64_t b_)
 {

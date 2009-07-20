@@ -16,10 +16,12 @@
  * Helper: Look up the host to verify it, then save the parameters into
  * our struct (*hp). This way the application quits early if DNS is set wrong.
  */
-static int cldc_saveaddr(struct cldc_session *sess, struct cldc_host *hp,
+int cldc_saveaddr(struct cldc_host *hp,
 			 unsigned int priority,
 			 unsigned int weight, unsigned int port,
-			 unsigned int nlen, const char *name)
+			 unsigned int nlen, const char *name,
+			 bool verbose,
+			 void (*act_log)(const char *fmt, ...))
 {
 	char portstr[11];
 	char *hostname;
@@ -44,7 +46,7 @@ static int cldc_saveaddr(struct cldc_session *sess, struct cldc_host *hp,
 
 	rc = getaddrinfo(hostname, portstr, &hints, &res0);
 	if (rc) {
-		sess->act_log("getaddrinfo(%s,%s) failed: %s",
+		act_log("getaddrinfo(%s,%s) failed: %s",
 		       hostname, portstr, gai_strerror(rc));
 		rc = -EINVAL;
 		goto err_addr;
@@ -63,7 +65,7 @@ static int cldc_saveaddr(struct cldc_session *sess, struct cldc_host *hp,
 	}
 
 	if (!something_suitable) {
-		sess->act_log("Host %s port %u has no addresses",
+		act_log("Host %s port %u has no addresses",
 		       hostname, port);
 		rc = -EINVAL;
 		goto err_suitable;
@@ -74,8 +76,8 @@ static int cldc_saveaddr(struct cldc_session *sess, struct cldc_host *hp,
 	hp->prio = priority;
 	hp->weight = weight;
 
-	if (sess->verbose) {
-		sess->act_log(
+	if (verbose) {
+		act_log(
 		       "Found CLD host %s prio %d weight %d",
 		       hostname, priority, weight);
 	}
@@ -96,8 +98,9 @@ err_name:
  * the hostname, then lop off the first member. We do not support running
  * on YP-driven networks with nonqualified hostnames (at least for now).
  */
-static int cldc_make_fqdn(struct cldc_session *sess, char *buf, int size,
-			  const char *srvname, const char *thishost)
+static int cldc_make_fqdn(char *buf, int size, const char *srvname,
+			  const char *thishost,
+		 	  void (*act_log)(const char *fmt, ...))
 {
 	char *s;
 	int nlen;
@@ -105,18 +108,18 @@ static int cldc_make_fqdn(struct cldc_session *sess, char *buf, int size,
 
 	nlen = strlen(srvname);
 	if (nlen >= size-20) {
-		sess->act_log(
+		act_log(
 		       "cldc_getaddr: internal error (nlen %d size %d)",
 		       nlen, size);
 		return -1;
 	}
 
 	if (thishost == NULL) {
-		sess->act_log("cldc_getaddr: internal error (null hostname)");
+		act_log("cldc_getaddr: internal error (null hostname)");
 		return -1;
 	}
 	if ((s = strchr(thishost, '.')) == NULL) {
-		sess->act_log(
+		act_log(
 		       "cldc_getaddr: hostname is not FQDN: \"%s\"",
 		       thishost);
 		return -1;
@@ -125,7 +128,7 @@ static int cldc_make_fqdn(struct cldc_session *sess, char *buf, int size,
 
 	dlen = strlen(s);
 	if (nlen + 1 + dlen + 1 > size) {
-		sess->act_log(
+		act_log(
 		       "cldc_getaddr: domain is too long: \"%s\"", s);
 		return -1;
 	}
@@ -156,8 +159,8 @@ static void push_host(GList **host_list, struct cldc_host *hp_in)
  * Despite taking session pointer like everything else, this is not reentrant.
  * Better be called before any other threads are started.
  */
-int cldc_getaddr(struct cldc_session *sess, GList **host_list,
-		 const char *thishost)
+int cldc_getaddr(GList **host_list, const char *thishost, bool verbose,
+		 void (*act_log)(const char *fmt, ...))
 {
 	enum { hostsz = 64 };
 	char cldb[hostsz];
@@ -179,7 +182,7 @@ int cldc_getaddr(struct cldc_session *sess, GList **host_list,
 	 * is a lookup in the DNS root (probably the standard-compliant
 	 * dot between "_cld" and "_udp" hurts us here).
 	 */
-	if (cldc_make_fqdn(sess, cldb, hostsz, "_cld._udp", thishost) != 0)
+	if (cldc_make_fqdn(cldb, hostsz, "_cld._udp", thishost, act_log) != 0)
 		return -1;
 
 do_try_again:
@@ -187,10 +190,10 @@ do_try_again:
 	if (rc < 0) {
 		switch (h_errno) {
 		case HOST_NOT_FOUND:
-			sess->act_log("No _cld._udp SRV record");
+			act_log("No _cld._udp SRV record");
 			return -1;
 		case NO_DATA:
-			sess->act_log("Cannot find _cld._udp SRV record");
+			act_log("Cannot find _cld._udp SRV record");
 			return -1;
 		case TRY_AGAIN:
 			if (search_retries-- > 0)
@@ -198,7 +201,7 @@ do_try_again:
 			/* fall through */
 		case NO_RECOVERY:
 		default:
-			sess->act_log(
+			act_log(
 			       "cldc_getaddr: res_search error (%d): %s",
 			       h_errno, hstrerror(h_errno));
 			return -1;
@@ -207,13 +210,13 @@ do_try_again:
 	rlen = rc;
 
 	if (rlen == 0) {
-		sess->act_log(
+		act_log(
 		       "cldc_getaddr: res_search returned empty reply");
 		return -1;
 	}
 
 	if (ns_initparse(resp, rlen, &nsb) < 0) {
-		sess->act_log(
+		act_log(
 		       "cldc_getaddr: ns_initparse error");
 		return -1;
 	}
@@ -233,8 +236,8 @@ do_try_again:
 		case ns_t_srv:
 			rrlen = ns_rr_rdlen(rrb);
 			if (rrlen < 8) {	/* 2+2+2 and 2 for host */
-				if (sess->verbose) {
-					sess->act_log(
+				if (verbose) {
+					act_log(
 					       "cldc_getaddr: SRV len %d", 
 					       rrlen);
 				}
@@ -243,23 +246,23 @@ do_try_again:
 			p = ns_rr_rdata(rrb);
 			rc = dn_expand(resp, resp+rlen, p+6, hostb, hostsz);
 			if (rc < 0) {
-				if (sess->verbose) {
-					sess->act_log("cldc_getaddr: "
+				if (verbose) {
+					act_log("cldc_getaddr: "
 					       "dn_expand error %d", rc);
 				}
 				break;
 			}
 			if (rc < 2) {
-				if (sess->verbose) {
-					sess->act_log("cldc_getaddr: "
+				if (verbose) {
+					act_log("cldc_getaddr: "
 					       "dn_expand short %d", rc);
 				}
 				break;
 			}
 
-			if (cldc_saveaddr(sess, &hp, ns_get16(p+0),
+			if (cldc_saveaddr(&hp, ns_get16(p+0),
 					  ns_get16(p+2), ns_get16(p+4),
-					  rc, hostb))
+					  rc, hostb, verbose, act_log))
 				break;
 
 			hp.known = 1;
@@ -268,8 +271,8 @@ do_try_again:
 			push_host(host_list, &hp);
 			break;
 		case ns_t_cname:	/* impossible, but */
-			if (sess->verbose) {
-				sess->act_log(
+			if (verbose) {
+				act_log(
 				       "CNAME in SRV request, ignored");
 			}
 			break;
