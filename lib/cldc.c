@@ -269,6 +269,7 @@ static int cldc_rx_not_master(struct cldc_session *sess,
 			      const void *msgbuf,
 			      size_t buflen)
 {
+	sess->act_log("FIXME: not-master message received\n");
 	return -1055;	/* FIXME */
 }
 
