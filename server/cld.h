@@ -36,7 +36,6 @@ struct session_outpkt;
 
 enum {
 	CLD_IPADDR_SZ		= 64,
-	CLD_MAX_POLL		= 32,
 	CLD_SESS_TIMEOUT	= 60,
 	CLD_MSGID_EXPIRE	= CLD_SESS_TIMEOUT * 2,
 	CLD_RETRY_START		= 2,		/* initial retry after 2sec */
@@ -117,8 +116,7 @@ struct server {
 
 	GArray			*sockets;
 
-	struct pollfd		polls[CLD_MAX_POLL];
-	int			n_polls;
+	GArray			*polls;
 
 	GHashTable		*sessions;
 

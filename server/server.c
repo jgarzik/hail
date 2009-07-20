@@ -475,7 +475,7 @@ static int net_open(void)
 
 	for (res = res0; res; res = res->ai_next) {
 		struct server_socket sock;
-		struct pollfd *pfd;
+		struct pollfd pfd;
 		int fd, on;
 
 		if (ipv6_found && res->ai_family == PF_INET)
@@ -508,14 +508,13 @@ static int net_open(void)
 			goto err_out;
 		}
 
-		memset(&sock, 0, sizeof(sock));
 		sock.fd = fd;
-
-		pfd = &cld_srv.polls[cld_srv.n_polls++];
-		pfd->fd = fd;
-		pfd->events = POLLIN;
-
 		g_array_append_val(cld_srv.sockets, sock);
+
+		pfd.fd = fd;
+		pfd.events = POLLIN;
+		pfd.revents = 0;
+		g_array_append_val(cld_srv.polls, pfd);
 	}
 
 	freeaddrinfo(res0);
@@ -648,8 +647,11 @@ int main (int argc, char *argv[])
 
 	cld_srv.sessions = g_hash_table_new(sess_hash, sess_equal);
 	cld_srv.timers = g_queue_new();
-	cld_srv.sockets = g_array_new(FALSE,FALSE,sizeof(struct server_socket));
-	if (!cld_srv.sessions || !cld_srv.timers || !cld_srv.sockets)
+	cld_srv.sockets = g_array_sized_new(FALSE, FALSE,
+					   sizeof(struct server_socket), 4);
+	cld_srv.polls = g_array_sized_new(FALSE,FALSE,sizeof(struct pollfd), 4);
+	if (!cld_srv.sessions || !cld_srv.timers || !cld_srv.sockets ||
+	    !cld_srv.polls)
 		goto err_out_pid;
 
 	rc = 1;
@@ -668,13 +670,17 @@ int main (int argc, char *argv[])
 	next_timeout = timers_run();
 
 	while (server_running) {
+		struct pollfd *pfd;
 		int i;
 
 		/* necessary to zero??? */
-		for (i = 0; i < cld_srv.n_polls; i++)
-			cld_srv.polls[i].revents = 0;
+		for (i = 0; i < cld_srv.polls->len; i++) {
+			pfd = &g_array_index(cld_srv.polls, struct pollfd, i);
+			pfd->revents = 0;
+		}
 
-		rc = poll(cld_srv.polls, cld_srv.n_polls,
+		rc = poll(&g_array_index(cld_srv.polls, struct pollfd, 0),
+			  cld_srv.polls->len,
 			  next_timeout ? (next_timeout * 1000) : -1);
 		if (rc < 0) {
 			syslogerr("poll");
@@ -682,10 +688,12 @@ int main (int argc, char *argv[])
 				break;
 		}
 
-		for (i = 0; i < cld_srv.n_polls; i++)
-			if (cld_srv.polls[i].revents & POLLIN)
+		for (i = 0; i < cld_srv.polls->len; i++) {
+			pfd = &g_array_index(cld_srv.polls, struct pollfd, i);
+			if (pfd->revents & POLLIN)
 				udp_srv_event(&g_array_index(cld_srv.sockets,
 						struct server_socket, i));
+		}
 
 		if (dump_stats) {
 			dump_stats = false;
