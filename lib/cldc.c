@@ -767,6 +767,10 @@ int cldc_new_sess(const struct cldc_ops *ops,
 	if (!sess)
 		return -ENOMEM;
 
+#if 0
+	sess->verbose = true;
+#endif
+
 	sess->private = private;
 	sess->ops = ops;
 	sess->act_log = ops->printf ? ops->printf : cldc_log;
