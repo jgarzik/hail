@@ -99,8 +99,13 @@ struct server_stats {
 };
 
 struct server_socket {
-	/* FIXME add refcount for sessions pointing here. */
 	int			fd;
+};
+
+struct server_poll {
+	int			fd;
+	bool			(*cb)(int fd, short events, void *userdata);
+	void			*userdata;
 };
 
 struct server {
@@ -114,9 +119,8 @@ struct server {
 
 	struct cldb		cldb;		/* database info */
 
-	GArray			*sockets;
-
 	GArray			*polls;
+	GArray			*poll_data;
 
 	GHashTable		*sessions;
 

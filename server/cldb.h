@@ -110,6 +110,7 @@ enum db_event {
 struct cldb {
 	bool		is_master;
 	bool		keyed;			/* using encryption? */
+	bool		up;			/* databases open? */
 
 	const char	*home;			/* database home dir */
 	void		(*state_cb)(enum db_event);

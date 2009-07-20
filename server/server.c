@@ -69,7 +69,6 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state);
 static const struct argp argp = { options, parse_opt, NULL, doc };
 
 static bool server_running = true;
-static bool am_master = true;
 static bool dump_stats;
 int debugging = 0;
 struct timeval current_time;
@@ -346,8 +345,9 @@ err_out:
 	       outpkt, alloc_len);
 }
 
-static void udp_srv_event(struct server_socket *sock)
+static bool udp_srv_event(int fd, short events, void *userdata)
 {
+	struct server_socket sock = { fd };
 	struct client cli;
 	char host[64];
 	ssize_t rrc;
@@ -369,10 +369,10 @@ static void udp_srv_event(struct server_socket *sock)
 	hdr.msg_control = ctl_msg;
 	hdr.msg_controllen = sizeof(ctl_msg);
 
-	rrc = recvmsg(sock->fd, &hdr, 0);
+	rrc = recvmsg(fd, &hdr, 0);
 	if (rrc < 0) {
 		syslogerr("UDP recvmsg");
-		return;
+		return true; /* continue main loop; do NOT terminate server */
 	}
 	cli.addr_len = hdr.msg_namelen;
 
@@ -387,8 +387,8 @@ static void udp_srv_event(struct server_socket *sock)
 		syslog(LOG_DEBUG, "client %s message (%d bytes)",
 		       host, (int) rrc);
 
-	if (am_master)
-		udp_rx(sock, &cli, raw_pkt, rrc);
+	if (cld_srv.cldb.is_master && cld_srv.cldb.up)
+		udp_rx(&sock, &cli, raw_pkt, rrc);
 
 	else {
 		struct cld_packet *outpkt, *pkt = (struct cld_packet *) raw_pkt;
@@ -409,9 +409,11 @@ static void udp_srv_event(struct server_socket *sock)
 
 		authsign(outpkt, alloc_len);
 
-		udp_tx(sock, (struct sockaddr *) &cli.addr, cli.addr_len,
+		udp_tx(&sock, (struct sockaddr *) &cli.addr, cli.addr_len,
 		       outpkt, alloc_len);
 	}
+
+	return true;	/* continue main loop; do NOT terminate server */
 }
 
 static void add_chkpt_timer(void)
@@ -474,7 +476,7 @@ static int net_open(void)
 	}
 
 	for (res = res0; res; res = res->ai_next) {
-		struct server_socket sock;
+		struct server_poll sp;
 		struct pollfd pfd;
 		int fd, on;
 
@@ -508,8 +510,10 @@ static int net_open(void)
 			goto err_out;
 		}
 
-		sock.fd = fd;
-		g_array_append_val(cld_srv.sockets, sock);
+		sp.fd = fd;
+		sp.cb = udp_srv_event;
+		sp.userdata = NULL;
+		g_array_append_val(cld_srv.poll_data, sp);
 
 		pfd.fd = fd;
 		pfd.events = POLLIN;
@@ -525,6 +529,12 @@ err_out:
 	freeaddrinfo(res0);
 err_addr:
 	return rc;
+}
+
+static void segv_signal(int signal)
+{
+	syslog(LOG_ERR, "SIGSEGV");
+	exit(1);
 }
 
 static void term_signal(int signal)
@@ -630,6 +640,7 @@ int main (int argc, char *argv[])
 	 * properly capture TERM and other signals
 	 */
 	signal(SIGHUP, SIG_IGN);
+	signal(SIGSEGV, segv_signal);
 	signal(SIGINT, term_signal);
 	signal(SIGTERM, term_signal);
 	signal(SIGUSR1, stats_signal);
@@ -645,16 +656,17 @@ int main (int argc, char *argv[])
 	timer_init(&cld_srv.chkpt_timer, cldb_checkpoint, NULL);
 	add_chkpt_timer();
 
+	rc = 1;
+
 	cld_srv.sessions = g_hash_table_new(sess_hash, sess_equal);
 	cld_srv.timers = g_queue_new();
-	cld_srv.sockets = g_array_sized_new(FALSE, FALSE,
-					   sizeof(struct server_socket), 4);
+	cld_srv.poll_data = g_array_sized_new(FALSE, FALSE,
+					   sizeof(struct server_poll), 4);
 	cld_srv.polls = g_array_sized_new(FALSE,FALSE,sizeof(struct pollfd), 4);
-	if (!cld_srv.sessions || !cld_srv.timers || !cld_srv.sockets ||
+	if (!cld_srv.sessions || !cld_srv.timers || !cld_srv.poll_data ||
 	    !cld_srv.polls)
 		goto err_out_pid;
 
-	rc = 1;
 	if (sess_load(cld_srv.sessions) != 0)
 		goto err_out_pid;
 
@@ -671,7 +683,7 @@ int main (int argc, char *argv[])
 
 	while (server_running) {
 		struct pollfd *pfd;
-		int i;
+		int i, fired;
 
 		/* necessary to zero??? */
 		for (i = 0; i < cld_srv.polls->len; i++) {
@@ -679,6 +691,7 @@ int main (int argc, char *argv[])
 			pfd->revents = 0;
 		}
 
+		/* poll for fd activity, or next timer event */
 		rc = poll(&g_array_index(cld_srv.polls, struct pollfd, 0),
 			  cld_srv.polls->len,
 			  next_timeout ? (next_timeout * 1000) : -1);
@@ -688,11 +701,33 @@ int main (int argc, char *argv[])
 				break;
 		}
 
+		/* determine which fd's fired; call their callbacks */
+		fired = 0;
 		for (i = 0; i < cld_srv.polls->len; i++) {
+			struct server_poll *sp;
+
+			/* ref pollfd struct */
 			pfd = &g_array_index(cld_srv.polls, struct pollfd, i);
-			if (pfd->revents & POLLIN)
-				udp_srv_event(&g_array_index(cld_srv.sockets,
-						struct server_socket, i));
+
+			/* if no events fired, move on to next */
+			if (!pfd->revents)
+				continue;
+
+			fired++;
+
+			/* ref 1:1 matching server_poll struct */
+			sp = &g_array_index(cld_srv.poll_data,
+					    struct server_poll, i);
+
+			/* call callback, shutting down server if requested */
+			server_running =
+				sp->cb(sp->fd, pfd->revents, sp->userdata);
+
+			/* if we reached poll(2) activity count, it is
+			 * pointless to continue looping
+			 */
+			if (fired == rc)
+				break;
 		}
 
 		if (dump_stats) {
@@ -705,7 +740,8 @@ int main (int argc, char *argv[])
 
 	syslog(LOG_INFO, "shutting down");
 
-	cldb_down(&cld_srv.cldb);
+	if (cld_srv.cldb.up)
+		cldb_down(&cld_srv.cldb);
 	cldb_fini(&cld_srv.cldb);
 
 	rc = 0;

@@ -375,6 +375,8 @@ static int cldb_up(struct cldb *cldb, unsigned int flags)
 	if (rc)
 		goto err_out_handle_idx;
 
+	cldb->up = true;
+
 	syslog(LOG_INFO, "databases up");
 	return 0;
 
@@ -399,6 +401,8 @@ err_out:
  */
 void cldb_down(struct cldb *cldb)
 {
+	cldb->up = false;
+
 	cldb->locks->close(cldb->locks, 0);
 	cldb->handle_idx->close(cldb->handle_idx, 0);
 	cldb->handles->close(cldb->handles, 0);
