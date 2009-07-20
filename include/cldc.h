@@ -117,6 +117,15 @@ struct cldc_session {
 	bool		confirmed;
 };
 
+/** Information for a single CLD server host */
+struct cldc_host {
+	int		known;
+	unsigned int	prio;
+	unsigned int	weight;
+	char		*host;
+	unsigned short	port;
+};
+
 /** A UDP implementation of the CLD client protocol */
 struct cldc_udp {
 	uint8_t		addr[64];		/* server address */
@@ -177,6 +186,7 @@ extern int cldc_put(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 extern int cldc_get(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 	     bool metadata_only);
 
+/* cldc-udp */
 extern void cldc_udp_free(struct cldc_udp *udp);
 extern int cldc_udp_new(const char *hostname, int port,
 		 struct cldc_udp **udp_out);
@@ -188,6 +198,10 @@ extern bool cldc_levent_timer(void *private, bool add,
 		       int (*cb)(struct cldc_session *, void *),
 		       void *cb_private,
 		       time_t secs);
+
+/* cldc-dns */
+extern int cldc_getaddr(struct cldc_session *sess, GList **host_list,
+		 const char *thishost);
 
 static inline bool seqid_after_eq(uint64_t a_, uint64_t b_)
 {
