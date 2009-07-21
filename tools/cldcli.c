@@ -300,6 +300,18 @@ static void handle_user_command(void)
 
 	read(to_thread[0], &creq, sizeof(creq));
 
+	if (debugging)
+		switch (creq.cmd) {
+		case CREQ_CD:
+		case CREQ_CAT:
+		case CREQ_LS:
+		case CREQ_RM:
+		case CREQ_MKDIR:
+			fprintf(stderr, "DEBUG: thr rx'd path '%s'\n",
+				creq.u.path);
+			break;
+		}
+
 	switch (creq.cmd) {
 	case CREQ_CD:
 		copts.cb = cb_cd_1;
@@ -474,7 +486,8 @@ static void cmd_mkdir(const char *arg)
 		return;
 	}
 
-	len = snprintf(creq.u.path, sizeof(creq.u.path), "%s/%s", clicwd, arg);
+	len = snprintf(creq.u.path, sizeof(creq.u.path), "%s/%s",
+		       !strcmp(clicwd, "/") ? "" : clicwd, arg);
 	if (len >= sizeof(creq.u.path)) {
 		fprintf(stderr, "%s: path too long\n", arg);
 		return;
@@ -505,7 +518,8 @@ static void cmd_rm(const char *arg)
 		return;
 	}
 
-	len = snprintf(creq.u.path, sizeof(creq.u.path), "%s/%s", clicwd, arg);
+	len = snprintf(creq.u.path, sizeof(creq.u.path), "%s/%s",
+		       !strcmp(clicwd, "/") ? "" : clicwd, arg);
 	if (len >= sizeof(creq.u.path)) {
 		fprintf(stderr, "%s: path too long\n", arg);
 		return;
@@ -570,15 +584,15 @@ static void cmd_ls(const char *arg)
 	size_t len;
 	int i;
 
-	if (!*arg) {
-		fprintf(stderr, "ls: argument required\n");
-		return;
-	}
-
-	len = snprintf(creq.u.path, sizeof(creq.u.path), "%s/%s", clicwd, arg);
-	if (len >= sizeof(creq.u.path)) {
-		fprintf(stderr, "%s: path too long\n", arg);
-		return;
+	if (!*arg)
+		strcpy(creq.u.path, clicwd);
+	else {
+		len = snprintf(creq.u.path, sizeof(creq.u.path), "%s/%s",
+			       !strcmp(clicwd, "/") ? "" : clicwd, arg);
+		if (len >= sizeof(creq.u.path)) {
+			fprintf(stderr, "%s: path too long\n", arg);
+			return;
+		}
 	}
 
 	creq.cmd = CREQ_LS;
@@ -615,7 +629,8 @@ static void cmd_cat(const char *arg)
 		return;
 	}
 
-	len = snprintf(creq.u.path, sizeof(creq.u.path), "%s/%s", clicwd, arg);
+	len = snprintf(creq.u.path, sizeof(creq.u.path), "%s/%s",
+		       !strcmp(clicwd, "/") ? "" : clicwd, arg);
 	if (len >= sizeof(creq.u.path)) {
 		fprintf(stderr, "%s: path too long\n", arg);
 		return;
