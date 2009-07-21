@@ -90,15 +90,6 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state);
 
 static const struct argp argp = { options, parse_opt, NULL, doc };
 
-void cld_p_log(const char *fmt, ...)
-{
-	va_list ap;
-
-	va_start(ap, fmt);
-	vfprintf(stderr, fmt, ap);
-	va_end(ap);
-}
-
 static int cb_ok_done(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 {
 	struct cresp cresp = { .tcode = TC_FAILED, };
@@ -338,7 +329,40 @@ static int cb_new_sess(struct cldc_call_opts *copts, enum cle_err_codes errc)
 	return 0;
 }
 
+static bool cld_p_timer_ctl(void *private, bool add,
+			    int (*cb)(struct cldc_session *, void *),
+			    void *cb_private, time_t secs)
+{
+	fprintf(stderr, "FIXME: timer_ctl\n");
+	return false;
+}
+
+static int cld_p_pkt_send(void *priv, const void *addr, size_t addrlen,
+			       const void *buf, size_t buflen)
+{
+	struct cldc_udp *udp = priv;
+	return cldc_udp_pkt_send(udp, addr, addrlen, buf, buflen);
+}
+
+static void cld_p_event(void *private, struct cldc_session *sess,
+			struct cldc_fh *fh, uint32_t what)
+{
+	fprintf(stderr, "FIXME: event\n");
+}
+
+static void cld_p_log(const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
+}
+
 static struct cldc_ops cld_ops = {
+	.timer_ctl	= cld_p_timer_ctl,
+	.pkt_send	= cld_p_pkt_send,
+	.event		= cld_p_event,
 	.printf		= cld_p_log,
 };
 
@@ -364,7 +388,7 @@ static gpointer cld_thread(gpointer dummy)
 	}
 
 	if (cldc_new_sess(&cld_ops, &copts, udp->addr, udp->addr_len,
-			  "cldcli", "cldcli", NULL, &udp->sess)) {
+			  "cldcli", "cldcli", udp, &udp->sess)) {
 		fprintf(stderr, "cldthr: new_sess failed\n");
 		write(from_thread[1], &tcode, 1);
 		return NULL;
@@ -707,7 +731,6 @@ int main (int argc, char *argv[])
 	}
 
 	fprintf(stderr, "Waiting for thread startup...\n");
-	errno = 0;
 	if (read(from_thread[0], &tcode, 1) != 1) {
 		perror("read");
 		return 1;
