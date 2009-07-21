@@ -1,13 +1,13 @@
 Name:		cld
 Version:	0.2
-Release:	0.2.g023a127d%{?dist}
+Release:	0.3.gc5b5f962%{?dist}
 Summary:	Coarse locking daemon
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-# pulled from upstream git, commit 023a127de02c91f62f3911978b59244009c67b2c
+# pulled from upstream git, commit c5b5f9622334b273c47e7aad5bd53e280041a045
 # to recreate tarball, check out commit, then run "make dist"
 Source0:	cld-%{version}git.tar.gz
 Source2:	cld.init
@@ -101,6 +101,9 @@ fi
 %{_includedir}/*
 
 %changelog
+* Tue Jul 21 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-0.3.gc5b5f962
+- update to commit c5b5f9622334b273c47e7aad5bd53e280041a045
+
 * Sun Jul 19 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-0.2.g023a127d
 - improve package description
 - per guidelines, indicate how to regenerate tarball from git repo
