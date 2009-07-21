@@ -705,6 +705,7 @@ int main (int argc, char *argv[])
 		fired = 0;
 		for (i = 0; i < cld_srv.polls->len; i++) {
 			struct server_poll *sp;
+			bool runrunrun;
 
 			/* ref pollfd struct */
 			pfd = &g_array_index(cld_srv.polls, struct pollfd, i);
@@ -720,8 +721,11 @@ int main (int argc, char *argv[])
 					    struct server_poll, i);
 
 			/* call callback, shutting down server if requested */
-			server_running =
-				sp->cb(sp->fd, pfd->revents, sp->userdata);
+			runrunrun = sp->cb(sp->fd, pfd->revents, sp->userdata);
+			if (!runrunrun) {
+				server_running = false;
+				break;
+			}
 
 			/* if we reached poll(2) activity count, it is
 			 * pointless to continue looping
