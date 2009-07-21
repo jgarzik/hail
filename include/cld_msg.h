@@ -25,6 +25,8 @@
 #define CLD_PKT_MAGIC	"CLDc1pkt"
 #define CLD_MSG_MAGIC	"CLDc1msg"
 
+#define CLD_ALIGN8(n) ((8 - ((n) & 7)) & 7)
+
 enum {
 	CLD_MAGIC_SZ		= 8,		/**< length of magic number */
 	CLD_SID_SZ		= 8,		/**< length of session id */

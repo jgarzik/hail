@@ -648,7 +648,7 @@ struct raw_inode *cldb_inode_mem(const char *name, size_t name_len,
 	void *mem;
 
 	/* build in-memory inode */
-	mem = calloc(1, sizeof(*ino) + name_len + ALIGN8(name_len));
+	mem = calloc(1, sizeof(*ino) + name_len + CLD_ALIGN8(name_len));
 	if (!mem)
 		return NULL;
 

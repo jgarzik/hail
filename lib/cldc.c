@@ -1218,3 +1218,113 @@ int cldc_get(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 	return sess_send(sess, msg);
 }
 
+int cldc_dirent_count(const void *data, size_t data_len)
+{
+	const void *p = data;
+	size_t tmp_len = data_len;
+	size_t str_len, rec_len, pad, total_len;
+	const uint16_t *tmp16;
+	int count = 0;
+
+	while (tmp_len > 0) {
+		if (tmp_len < 2)
+			return -2;
+
+		tmp16		= p;
+		str_len		= GUINT16_FROM_LE(*tmp16);
+		rec_len		= str_len + 2;
+		pad		= CLD_ALIGN8(rec_len);
+		total_len	= rec_len + pad;
+
+		if (total_len > tmp_len)
+			return -2;
+
+		count++;
+
+		p += total_len;
+		tmp_len -= total_len;
+	}
+
+	return count;
+}
+
+static int dirent_length(const void *buf, size_t buflen, size_t *str_len_out)
+{
+	size_t str_len, rec_len, pad, total_len;
+	const uint16_t *tmp16;
+
+	if (buflen < 2)
+		return -1;
+
+	tmp16		= buf;
+	str_len		= GUINT16_FROM_LE(*tmp16);
+	rec_len		= str_len + 2;
+	pad		= CLD_ALIGN8(rec_len);
+	total_len	= rec_len + pad;
+
+	if (total_len > buflen)
+		return -1;
+
+	if (str_len_out)
+		*str_len_out = str_len;
+
+	return total_len;
+}
+
+int cldc_dirent_first(struct cld_dirent_cur *dc)
+{
+	int dirent_len;
+
+	dirent_len = dirent_length(dc->p, dc->tmp_len, NULL);
+	if (dirent_len < 0)
+		return -2;
+
+	return 0;
+}
+
+int cldc_dirent_next(struct cld_dirent_cur *dc)
+{
+	int dirent_len;
+
+	dirent_len = dirent_length(dc->p, dc->tmp_len, NULL);
+	if (dirent_len < 0)
+		return -2;
+
+	dc->p += dirent_len;
+	dc->tmp_len -= dirent_len;
+
+	dirent_len = dirent_length(dc->p, dc->tmp_len, NULL);
+	if (dirent_len < 0)
+		return -2;
+
+	return 0;
+}
+
+void cldc_dirent_cur_init(struct cld_dirent_cur *dc, const void *buf, size_t buflen)
+{
+	memset(dc, 0, sizeof(*dc));
+	dc->p = buf;
+	dc->tmp_len = buflen;
+}
+
+void cldc_dirent_cur_fini(struct cld_dirent_cur *dc)
+{
+	/* do nothing */
+}
+
+char *cldc_dirent_name(struct cld_dirent_cur *dc)
+{
+	const uint16_t *tmp16 = dc->p;
+	size_t str_len = GUINT16_FROM_LE(*tmp16);
+	char *s;
+
+	s = malloc(str_len + 1);
+	if (!s)
+		return NULL;
+	
+	memcpy(s, dc->p + 2, str_len);
+	s[str_len] = 0;
+
+	return s;
+}
+

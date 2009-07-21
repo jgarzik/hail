@@ -69,8 +69,6 @@ struct cresp {
 };
 
 struct ls_rec {
-	uint64_t		last_mod;
-	uint64_t		size;
 	char			name[CLD_INODE_NAME_MAX + 1];
 };
 
@@ -111,9 +109,79 @@ static int cb_ok_done(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 	return 0;
 }
 
+static int cb_ls_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
+{
+	struct cresp cresp = { .tcode = TC_FAILED, };
+	struct cldc_call_opts copts = { NULL, };
+	struct cld_dirent_cur dc;
+	int rc, i;
+	bool first = true;
+
+	if (errc != CLE_OK) {
+		write(from_thread[1], &cresp, sizeof(cresp));
+		return 0;
+	}
+
+	rc = cldc_dirent_count(copts_in->u.get.buf, copts_in->u.get.size);
+	if (rc < 0) {
+		write(from_thread[1], &cresp, sizeof(cresp));
+		return 0;
+	}
+
+	cresp.tcode = TC_OK;
+	cresp.u.n_records = rc;
+
+	write(from_thread[1], &cresp, sizeof(cresp));
+
+	cldc_dirent_cur_init(&dc, copts_in->u.get.buf, copts_in->u.get.size);
+
+	for (i = 0; i < rc; i++) {
+		struct ls_rec lsr;
+		char *s;
+
+		if (first) {
+			first = false;
+			
+			if (cldc_dirent_first(&dc) < 0)
+				break;
+		} else {
+			if (cldc_dirent_next(&dc) < 0)
+				break;
+		}
+
+		s = cldc_dirent_name(&dc);
+		strcpy(lsr.name, s);
+		free(s);
+
+		write(from_thread[1], &lsr, sizeof(lsr));
+
+	}
+
+	cldc_dirent_cur_fini(&dc);
+
+	/* FIXME: race; should wait until close succeeds/fails before
+	 * returning any data.  'fh' may still be in use, otherwise.
+	 */
+	cldc_close(fh, &copts);
+
+	return 0;
+}
+
 static int cb_ls_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 {
-	/* FIXME */
+	struct cresp cresp = { .tcode = TC_FAILED, };
+	struct cldc_call_opts copts = { .cb = cb_ls_2, };
+
+	if (errc != CLE_OK) {
+		write(from_thread[1], &cresp, sizeof(cresp));
+		return 0;
+	}
+
+	if (cldc_get(fh, &copts, false)) {
+		write(from_thread[1], &cresp, sizeof(cresp));
+		return 0;
+	}
+
 	return 0;
 }
 
@@ -208,7 +276,7 @@ static void handle_user_command(void)
 	case CREQ_LS:
 		copts.cb = cb_ls_1;
 		rc = cldc_open(udp->sess, &copts, creq.u.path,
-			       COM_DIRECTORY, 0, &fh);
+			       COM_DIRECTORY | COM_READ, 0, &fh);
 		if (rc) {
 			write(from_thread[1], &cresp, sizeof(cresp));
 			return;
@@ -334,18 +402,7 @@ static void cmd_cd(const char *arg)
 
 static void show_lsr(const struct ls_rec *lsr)
 {
-	time_t t = lsr->last_mod;
-	struct tm tm;
-	char last_mod[128];
-
-	localtime_r(&t, &tm);
-
-	strftime(last_mod, sizeof(last_mod), "%F %T", &tm);
-
-	fprintf(stdout, "\t%8llu\t%s %s\n",
-		(unsigned long long) lsr->size,
-		last_mod,
-		lsr->name);
+	fprintf(stdout, "%s\n", lsr->name);
 }
 
 static void cmd_ls(const char *arg)

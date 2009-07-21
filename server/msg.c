@@ -104,7 +104,7 @@ static int dirent_find(const void *data, size_t data_len,
 		tmp16		= p;
 		str_len		= GUINT16_FROM_LE(*tmp16);
 		rec_len		= str_len + 2;
-		pad		= ALIGN8(rec_len);
+		pad		= CLD_ALIGN8(rec_len);
 		total_len	= rec_len + pad;
 
 		if (total_len > tmp_len)
@@ -161,7 +161,7 @@ static bool dirdata_append(void **data, size_t *data_len,
 	uint16_t *raw_len;
 
 	rec_len		= name_len + 2;
-	pad		= ALIGN8(rec_len);
+	pad		= CLD_ALIGN8(rec_len);
 	rec_alloc	= rec_len + pad;
 	orig_len	= *data_len;
 	new_len		= orig_len + rec_alloc;

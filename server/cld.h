@@ -32,8 +32,6 @@ struct client;
 struct server_socket;
 struct session_outpkt;
 
-#define ALIGN8(n) ((8 - ((n) & 7)) & 7)
-
 enum {
 	CLD_IPADDR_SZ		= 64,
 	CLD_SESS_TIMEOUT	= 60,
