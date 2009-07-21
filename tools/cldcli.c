@@ -51,6 +51,8 @@ enum creq_cmd {
 	CREQ_CD,
 	CREQ_CAT,
 	CREQ_LS,
+	CREQ_RM,
+	CREQ_MKDIR,
 };
 
 struct creq {
@@ -245,6 +247,24 @@ static int cb_cd_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 	return 0;
 }
 
+static int cb_mkdir_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
+{
+	struct cresp cresp = { .tcode = TC_FAILED, };
+	struct cldc_call_opts copts = { NULL, };
+
+	if (errc == CLE_OK)
+		cresp.tcode = TC_OK;
+
+	write(from_thread[1], &cresp, sizeof(cresp));
+
+	/* FIXME: race; should wait until close succeeds/fails before
+	 * returning any data.  'fh' may still be in use, otherwise.
+	 */
+	cldc_close(fh, &copts);
+
+	return 0;
+}
+
 static void handle_user_command(void)
 {
 	struct creq creq;
@@ -277,6 +297,23 @@ static void handle_user_command(void)
 		copts.cb = cb_ls_1;
 		rc = cldc_open(udp->sess, &copts, creq.u.path,
 			       COM_DIRECTORY | COM_READ, 0, &fh);
+		if (rc) {
+			write(from_thread[1], &cresp, sizeof(cresp));
+			return;
+		}
+		break;
+	case CREQ_RM:
+		copts.cb = cb_ok_done;
+		rc = cldc_del(udp->sess, &copts, creq.u.path);
+		if (rc) {
+			write(from_thread[1], &cresp, sizeof(cresp));
+			return;
+		}
+		break;
+	case CREQ_MKDIR:
+		copts.cb = cb_mkdir_1;
+		rc = cldc_open(udp->sess, &copts, creq.u.path,
+			       COM_DIRECTORY | COM_CREATE | COM_EXCL, 0, &fh);
 		if (rc) {
 			write(from_thread[1], &cresp, sizeof(cresp));
 			return;
@@ -365,6 +402,68 @@ static gpointer cld_thread(gpointer dummy)
 	}
 
 	return NULL;
+}
+
+static void cmd_mkdir(const char *arg)
+{
+	struct creq creq;
+	struct cresp cresp;
+	int len;
+
+	if (!*arg) {
+		fprintf(stderr, "mkdir: argument required\n");
+		return;
+	}
+
+	len = snprintf(creq.u.path, sizeof(creq.u.path), "%s/%s", clicwd, arg);
+	if (len >= sizeof(creq.u.path)) {
+		fprintf(stderr, "%s: path too long\n", arg);
+		return;
+	}
+
+	creq.cmd = CREQ_MKDIR;
+
+	/* send message to thread */
+	write(to_thread[1], &creq, sizeof(creq));
+
+	/* wait for and receive response from thread */
+	read(from_thread[0], &cresp, sizeof(cresp));
+
+	if (cresp.tcode != TC_OK) {
+		fprintf(stderr, "%s: mkdir failed\n", arg);
+		return;
+	}
+}
+
+static void cmd_rm(const char *arg)
+{
+	struct creq creq;
+	struct cresp cresp;
+	int len;
+
+	if (!*arg) {
+		fprintf(stderr, "rm: argument required\n");
+		return;
+	}
+
+	len = snprintf(creq.u.path, sizeof(creq.u.path), "%s/%s", clicwd, arg);
+	if (len >= sizeof(creq.u.path)) {
+		fprintf(stderr, "%s: path too long\n", arg);
+		return;
+	}
+
+	creq.cmd = CREQ_RM;
+
+	/* send message to thread */
+	write(to_thread[1], &creq, sizeof(creq));
+
+	/* wait for and receive response from thread */
+	read(from_thread[0], &cresp, sizeof(cresp));
+
+	if (cresp.tcode != TC_OK) {
+		fprintf(stderr, "%s: remove failed\n", arg);
+		return;
+	}
 }
 
 static void cmd_cd(const char *arg)
@@ -657,6 +756,10 @@ int main (int argc, char *argv[])
 			cmd_cd(tok2);
 		else if (!strcmp(tok1, "ls"))
 			cmd_ls(tok2);
+		else if (!strcmp(tok1, "rm"))
+			cmd_rm(tok2);
+		else if (!strcmp(tok1, "mkdir"))
+			cmd_mkdir(tok2);
 		else if (!strcmp(tok1, "cat"))
 			cmd_cat(tok2);
 		else {
