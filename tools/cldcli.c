@@ -64,6 +64,7 @@ struct creq {
 
 struct cresp {
 	enum thread_codes	tcode;
+	char			msg[64];
 	union {
 		unsigned int	file_len;
 		unsigned int	n_records;
@@ -90,12 +91,40 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state);
 
 static const struct argp argp = { options, parse_opt, NULL, doc };
 
+static const char *names_cle_err[] = {
+	[CLE_OK]		= "CLE_OK",
+	[CLE_SESS_EXISTS]	= "CLE_SESS_EXISTS",
+	[CLE_SESS_INVAL]	= "CLE_SESS_INVAL",
+	[CLE_DB_ERR]		= "CLE_DB_ERR",
+	[CLE_BAD_PKT]		= "CLE_BAD_PKT",
+	[CLE_INODE_INVAL]	= "CLE_INODE_INVAL",
+	[CLE_NAME_INVAL]	= "CLE_NAME_INVAL",
+	[CLE_OOM]		= "CLE_OOM",
+	[CLE_FH_INVAL]		= "CLE_FH_INVAL",
+	[CLE_DATA_INVAL]	= "CLE_DATA_INVAL",
+	[CLE_LOCK_INVAL]	= "CLE_LOCK_INVAL",
+	[CLE_LOCK_CONFLICT]	= "CLE_LOCK_CONFLICT",
+	[CLE_LOCK_PENDING]	= "CLE_LOCK_PENDING",
+	[CLE_MODE_INVAL]	= "CLE_MODE_INVAL",
+	[CLE_INODE_EXISTS]	= "CLE_INODE_EXISTS",
+	[CLE_DIR_NOTEMPTY]	= "CLE_DIR_NOTEMPTY",
+	[CLE_INTERNAL_ERR]	= "CLE_INTERNAL_ERR",
+	[CLE_TIMEOUT]		= "CLE_TIMEOUT",
+	[CLE_SIG_INVAL]		= "CLE_SIG_INVAL",
+};
+
+static void errc_msg(struct cresp *cresp, enum cle_err_codes errc)
+{
+	strcpy(cresp->msg, names_cle_err[errc]);
+}
+
 static int cb_ok_done(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 {
 	struct cresp cresp = { .tcode = TC_FAILED, };
 
 	if (errc == CLE_OK)
 		cresp.tcode = TC_OK;
+	errc_msg(&cresp, errc);
 
 	write(from_thread[1], &cresp, sizeof(cresp));
 
@@ -111,6 +140,7 @@ static int cb_ls_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 	bool first = true;
 
 	if (errc != CLE_OK) {
+		errc_msg(&cresp, errc);
 		write(from_thread[1], &cresp, sizeof(cresp));
 		return 0;
 	}
@@ -166,6 +196,7 @@ static int cb_ls_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 	struct cldc_call_opts copts = { .cb = cb_ls_2, };
 
 	if (errc != CLE_OK) {
+		errc_msg(&cresp, errc);
 		write(from_thread[1], &cresp, sizeof(cresp));
 		return 0;
 	}
@@ -184,6 +215,7 @@ static int cb_cat_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 	struct cldc_call_opts copts = { NULL, };
 
 	if (errc != CLE_OK) {
+		errc_msg(&cresp, errc);
 		write(from_thread[1], &cresp, sizeof(cresp));
 		return 0;
 	}
@@ -208,6 +240,7 @@ static int cb_cat_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 	struct cldc_call_opts copts = { .cb = cb_cat_2, };
 
 	if (errc != CLE_OK) {
+		errc_msg(&cresp, errc);
 		write(from_thread[1], &cresp, sizeof(cresp));
 		return 0;
 	}
@@ -226,6 +259,7 @@ static int cb_cd_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 	struct cldc_call_opts copts = { .cb = cb_ok_done, };
 
 	if (errc != CLE_OK) {
+		errc_msg(&cresp, errc);
 		write(from_thread[1], &cresp, sizeof(cresp));
 		return 0;
 	}
@@ -245,6 +279,7 @@ static int cb_mkdir_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 
 	if (errc == CLE_OK)
 		cresp.tcode = TC_OK;
+	errc_msg(&cresp, errc);
 
 	write(from_thread[1], &cresp, sizeof(cresp));
 
@@ -454,7 +489,7 @@ static void cmd_mkdir(const char *arg)
 	read(from_thread[0], &cresp, sizeof(cresp));
 
 	if (cresp.tcode != TC_OK) {
-		fprintf(stderr, "%s: mkdir failed\n", arg);
+		fprintf(stderr, "%s: mkdir failed: %s\n", arg, cresp.msg);
 		return;
 	}
 }
@@ -485,7 +520,7 @@ static void cmd_rm(const char *arg)
 	read(from_thread[0], &cresp, sizeof(cresp));
 
 	if (cresp.tcode != TC_OK) {
-		fprintf(stderr, "%s: remove failed\n", arg);
+		fprintf(stderr, "%s: remove failed: %s\n", arg, cresp.msg);
 		return;
 	}
 }
@@ -516,7 +551,7 @@ static void cmd_cd(const char *arg)
 	read(from_thread[0], &cresp, sizeof(cresp));
 
 	if (cresp.tcode != TC_OK) {
-		fprintf(stderr, "%s: change dir failed\n", arg);
+		fprintf(stderr, "%s: change dir failed: %s\n", arg, cresp.msg);
 		return;
 	}
 
@@ -555,7 +590,7 @@ static void cmd_ls(const char *arg)
 	read(from_thread[0], &cresp, sizeof(cresp));
 
 	if (cresp.tcode != TC_OK) {
-		fprintf(stderr, "%s: ls failed\n", arg);
+		fprintf(stderr, "%s: ls failed: %s\n", arg, cresp.msg);
 		return;
 	}
 
@@ -595,7 +630,7 @@ static void cmd_cat(const char *arg)
 	read(from_thread[0], &cresp, sizeof(cresp));
 
 	if (cresp.tcode != TC_OK) {
-		fprintf(stderr, "%s: cat failed\n", arg);
+		fprintf(stderr, "%s: cat failed: %s\n", arg, cresp.msg);
 		return;
 	}
 
