@@ -398,7 +398,7 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 	enum cle_err_codes resp_rc = CLE_OK;
 	cldino_t inum;
 	uint32_t name_len;
-	uint32_t data_size, omode;
+	uint32_t omode;
 	void *data_mem = NULL;
 	size_t data_mem_len = 0;
 	uint64_t rand_strid;
@@ -446,7 +446,6 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 	}
 
 	name_len = GUINT32_FROM_LE(inode->ino_len);
-	data_size = GUINT32_FROM_LE(inode->size);
 
 	resp_len = sizeof(*resp) + name_len + SHA_DIGEST_LENGTH;
 	resp = alloca(resp_len);
