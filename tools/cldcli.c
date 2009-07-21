@@ -670,6 +670,27 @@ static void cmd_cat(const char *arg)
 	free(mem);
 }
 
+static void cmd_help(void)
+{
+	fprintf(stderr,
+
+"cldcli command quick reference\n"
+"------------------------------\n"
+"cd		Change to root dir\n"
+"cd DIR		Change to DIR\n"
+"ls		List files in current dir\n"
+"ls DIR		List files in DIR\n"
+"rm FILE	Delete FILE\n"
+"mkdir DIR	Create new directory DIR\n"
+"cat FILE	Output contents of FILE\n"
+"quit		Exit cldcli\n"
+"exit		Exit cldcli\n"
+"<end of file>	Exit cldcli\n"
+"\n"
+
+		);
+}
+
 static bool push_host(const char *arg)
 {
 	char *colon;
@@ -794,6 +815,7 @@ int main (int argc, char *argv[])
 		return 1;
 	}
 
+	fprintf(stderr, "Type 'help' at the prompt to list commands.\n");
 	prompt();
 
 	while (fgets(linebuf, sizeof(linebuf), stdin) != NULL) {
@@ -839,6 +861,10 @@ int main (int argc, char *argv[])
 			cmd_mkdir(tok2);
 		else if (!strcmp(tok1, "cat"))
 			cmd_cat(tok2);
+		else if (!strcmp(tok1, "help"))
+			cmd_help();
+		else if (!strcmp(tok1, "quit") || !strcmp(tok1, "exit"))
+			break;
 		else {
 			fprintf(stderr, "INVALID COMMAND: %s %s\n",
 				tok1, tok2);
