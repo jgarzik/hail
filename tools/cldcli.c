@@ -40,7 +40,7 @@ static struct argp_option options[] = {
 };
 
 static const char doc[] =
-PROGRAM_NAME " - command line interface to coarse locking service";
+"cldcli - command line interface to coarse locking service";
 
 struct db_remote {
 	char		*host;
