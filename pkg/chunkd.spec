@@ -1,6 +1,6 @@
 Name:		chunkd
 Version:	0.4
-Release:	0.3.g5f69efd9%{?dist}
+Release:	0.4.g5f69efd9%{?dist}
 Summary:	Data storage daemon for cloud computing
 
 Group:		System Environment/Base
@@ -99,6 +99,9 @@ fi
 %{_includedir}/*
 
 %changelog
+* Tue Jul 21 2009 Jeff Garzik <jgarzik@redhat.com> - 0.4-0.4.g5f69efd9
+- rebuild for koji silliness
+
 * Tue Jul 21 2009 Jeff Garzik <jgarzik@redhat.com> - 0.4-0.3.g5f69efd9
 - update source to commit 5f69efd93fb6dc0c2e9882cd3c22cc096eede486
 
