@@ -105,7 +105,7 @@ dnl --------------------------
 
 PKG_PROG_PKG_CONFIG()
 
-AM_PATH_GLIB_2_0(2.0.0)
+AM_PATH_GLIB_2_0(2.0.0,,,gthread)
 
 AC_SUBST(DB4_LIBS)
 AC_SUBST(EVENT_LIBS)
@@ -120,5 +120,6 @@ AC_CONFIG_FILES([
 	lib/libcldc-uninstalled.pc
 	include/Makefile
 	server/Makefile
-	test/Makefile])
+	test/Makefile
+	tools/Makefile])
 AC_OUTPUT
