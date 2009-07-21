@@ -475,20 +475,37 @@ static gpointer cld_thread(gpointer dummy)
 	return NULL;
 }
 
+static bool make_abs_path(char *dest, size_t dest_len, const char *src)
+{
+	int len;
+
+	if (src[0] == '/') {
+		if (strlen(src) > dest_len)
+			return false;
+
+		strcpy(dest, src);
+		return true;
+	}
+
+	len = snprintf(dest, dest_len, "%s/%s",
+		       !strcmp(clicwd, "/") ? "" : clicwd, src);
+	if (len >= dest_len)
+		return false;
+	
+	return true;
+}
+
 static void cmd_mkdir(const char *arg)
 {
 	struct creq creq;
 	struct cresp cresp;
-	int len;
 
 	if (!*arg) {
 		fprintf(stderr, "mkdir: argument required\n");
 		return;
 	}
 
-	len = snprintf(creq.u.path, sizeof(creq.u.path), "%s/%s",
-		       !strcmp(clicwd, "/") ? "" : clicwd, arg);
-	if (len >= sizeof(creq.u.path)) {
+	if (!make_abs_path(creq.u.path, sizeof(creq.u.path), arg)) {
 		fprintf(stderr, "%s: path too long\n", arg);
 		return;
 	}
@@ -511,16 +528,13 @@ static void cmd_rm(const char *arg)
 {
 	struct creq creq;
 	struct cresp cresp;
-	int len;
 
 	if (!*arg) {
 		fprintf(stderr, "rm: argument required\n");
 		return;
 	}
 
-	len = snprintf(creq.u.path, sizeof(creq.u.path), "%s/%s",
-		       !strcmp(clicwd, "/") ? "" : clicwd, arg);
-	if (len >= sizeof(creq.u.path)) {
+	if (!make_abs_path(creq.u.path, sizeof(creq.u.path), arg)) {
 		fprintf(stderr, "%s: path too long\n", arg);
 		return;
 	}
@@ -545,16 +559,12 @@ static void cmd_cd(const char *arg)
 	struct cresp cresp;
 
 	if (!*arg)
-		strcpy(creq.u.path, "/");
-	else if (*arg != '/') {
-		size_t len = snprintf(creq.u.path, sizeof(creq.u.path),
-				      "%s/%s", clicwd, arg);
-		if (len >= sizeof(creq.u.path)) {
-			fprintf(stderr, "%s: path too long\n", arg);
-			return;
-		}
-	} else
-		strcpy(creq.u.path, arg);
+		arg = "/";
+
+	if (!make_abs_path(creq.u.path, sizeof(creq.u.path), arg)) {
+		fprintf(stderr, "%s: path too long\n", arg);
+		return;
+	}
 
 	creq.cmd = CREQ_CD;
 
@@ -581,18 +591,14 @@ static void cmd_ls(const char *arg)
 {
 	struct creq creq;
 	struct cresp cresp;
-	size_t len;
 	int i;
 
 	if (!*arg)
-		strcpy(creq.u.path, clicwd);
-	else {
-		len = snprintf(creq.u.path, sizeof(creq.u.path), "%s/%s",
-			       !strcmp(clicwd, "/") ? "" : clicwd, arg);
-		if (len >= sizeof(creq.u.path)) {
-			fprintf(stderr, "%s: path too long\n", arg);
-			return;
-		}
+		arg = clicwd;
+
+	if (!make_abs_path(creq.u.path, sizeof(creq.u.path), arg)) {
+		fprintf(stderr, "%s: path too long\n", arg);
+		return;
 	}
 
 	creq.cmd = CREQ_LS;
@@ -629,9 +635,7 @@ static void cmd_cat(const char *arg)
 		return;
 	}
 
-	len = snprintf(creq.u.path, sizeof(creq.u.path), "%s/%s",
-		       !strcmp(clicwd, "/") ? "" : clicwd, arg);
-	if (len >= sizeof(creq.u.path)) {
+	if (!make_abs_path(creq.u.path, sizeof(creq.u.path), arg)) {
 		fprintf(stderr, "%s: path too long\n", arg);
 		return;
 	}
