@@ -1,6 +1,6 @@
 Name:		cld
 Version:	0.2
-Release:	0.3.gc5b5f962%{?dist}
+Release:	0.4.gc5b5f962%{?dist}
 Summary:	Coarse locking daemon
 
 Group:		System Environment/Base
@@ -101,6 +101,9 @@ fi
 %{_includedir}/*
 
 %changelog
+* Tue Jul 21 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-0.4.gc5b5f962
+- rebuild for koji silliness
+
 * Tue Jul 21 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-0.3.gc5b5f962
 - update to commit c5b5f9622334b273c47e7aad5bd53e280041a045
 
