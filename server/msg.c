@@ -168,7 +168,8 @@ static bool dirdata_append(void **data, size_t *data_len,
 
 	mem = realloc(*data, new_len);
 	if (!mem) {
-		syslog(LOG_CRIT, "out of memory for data [%lu]", new_len);
+		cldlog(LOG_CRIT, "out of memory for data [%lu]\n",
+		       (long)new_len);
 		return false;
 	}
 
@@ -236,14 +237,14 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 
 		sess = g_hash_table_lookup(cld_srv.sessions, h.sid);
 		if (!sess) {
-			syslog(LOG_WARNING, "inode_notify BUG");
+			cldlog(LOG_WARNING, "inode_notify BUG\n");
 			continue;
 		}
 
 		if (!sess->sock) {		/* Freshly recovered session */
 			if (debugging)
-				syslog(LOG_DEBUG,
-				       "Lost notify sid " SIDFMT " ino %lld",
+				cldlog(LOG_DEBUG,
+				       "Lost notify sid " SIDFMT " ino %lld\n",
 				       SIDARG(sess->sid), (long long) inum);
 			continue;
 		}
@@ -360,7 +361,7 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 
 		sess = g_hash_table_lookup(cld_srv.sessions, lock.sid);
 		if (!sess) {
-			syslog(LOG_WARNING, "inode_lock_rescan BUG");
+			cldlog(LOG_WARNING, "inode_lock_rescan BUG\n");
 			break;
 		}
 
@@ -370,8 +371,8 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 
 		if (!sess->sock) {		/* Freshly recovered session */
 			if (debugging)
-				syslog(LOG_DEBUG,
-				       "Lost success sid " SIDFMT " ino %lld",
+				cldlog(LOG_DEBUG,
+				       "Lost success sid " SIDFMT " ino %lld\n",
 				       SIDARG(sess->sid), (long long) inum);
 			continue;
 		}
@@ -621,7 +622,7 @@ void msg_open(struct msg_params *mp)
 		/* create new in-memory inode */
 		inode = cldb_inode_new(txn, name, name_len, 0);
 		if (!inode) {
-			syslog(LOG_CRIT, "cannot allocate new inode");
+			cldlog(LOG_CRIT, "cannot allocate new inode\n");
 			resp_rc = CLE_OOM;
 			goto err_out;
 		}
@@ -678,7 +679,7 @@ void msg_open(struct msg_params *mp)
 	/* alloc & init new handle; updates session's next_fh */
 	h = cldb_handle_new(mp->sess, inum, msg_mode, msg_events);
 	if (!h) {
-		syslog(LOG_CRIT, "cannot allocate handle");
+		cldlog(LOG_CRIT, "cannot allocate handle\n");
 		resp_rc = CLE_OOM;
 		goto err_out;
 	}
@@ -706,7 +707,7 @@ void msg_open(struct msg_params *mp)
 	raw_sess = session_new_raw(mp->sess);
 
 	if (!raw_sess) {
-		syslog(LOG_CRIT, "cannot allocate session");
+		cldlog(LOG_CRIT, "cannot allocate session\n");
 		resp_rc = CLE_OOM;
 		goto err_out;
 	}
@@ -804,6 +805,11 @@ static void try_commit_data(struct msg_params *mp,
 		if (nseg > CLD_MAX_DATA_MSGS)
 			break;
 	}
+
+	if (debugging)
+		cldlog(LOG_DEBUG,
+		       "    data scan: end %d nseg %u last %u len %u/%u\n",
+		       have_end_seg, nseg, last_seg, tmp_size, data_size);
 
 	/* return if data stream not yet 100% received */
 	if (!have_end_seg || tmp_size < data_size)
@@ -960,6 +966,10 @@ void msg_data(struct msg_params *mp)
 
 	if (mp->msg_len < (sizeof(*msg) + seg_len))
 		return;
+
+	if (debugging)
+		cldlog(LOG_DEBUG, "    data strid %016llx\n",
+		       (unsigned long long) msg->strid);
 
 	/* search for PUT message with strid == our strid; that is how we
 	 * associate DATA messages with the initial PUT msg
@@ -1311,7 +1321,7 @@ void msg_del(struct msg_params *mp)
 	/* remove record from inode's directory data */
 	if (!dirdata_delete(&parent_data, &parent_len,
 			    pinfo.base, pinfo.base_len)) {
-		syslog(LOG_WARNING, "dirent del failed");
+		cldlog(LOG_WARNING, "dirent del failed\n");
 		resp_rc = CLE_DB_ERR;
 		goto err_out;
 	}

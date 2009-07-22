@@ -133,12 +133,14 @@ static int cldc_rx_generic(struct cldc_session *sess,
 	while (tmp) {
 		req = tmp->data;
 
+#if 0 /* too verbose */
 		if (sess->verbose)
 			sess->act_log("rx_gen: comparing req->xid (%llu) with resp->xid_in (%llu)\n",
 			        (unsigned long long)
 					GUINT64_FROM_LE(req->xid),
 			        (unsigned long long)
 					GUINT64_FROM_LE(resp->xid_in));
+#endif
 
 		if (req->xid == resp->xid_in)
 			break;
@@ -436,13 +438,35 @@ int cldc_receive_pkt(struct cldc_session *sess,
 		return -EPROTO;
 	}
 
-	if (sess->verbose)
-		sess->act_log("receive pkt: len %u, "
-			"op %s, seqid %llu, user %s\n",
-			(unsigned int) pkt_len,
-			opstr(msg->op),
-			(unsigned long long) GUINT64_FROM_LE(pkt->seqid),
-			pkt->user);
+	if (sess->verbose) {
+		if (msg->op == cmo_get) {
+			struct cld_msg_get_resp *dp;
+			dp = (struct cld_msg_get_resp *) msg;
+			sess->act_log("receive pkt: len %u, op cmo_get"
+				", seqid %llu, user %s, size %u\n",
+				(unsigned int) pkt_len,
+				(unsigned long long) GUINT64_FROM_LE(pkt->seqid),
+				pkt->user,
+				GUINT32_FROM_LE(dp->size));
+		} else if (msg->op == cmo_data_c) {
+			struct cld_msg_data *dp;
+			dp = (struct cld_msg_data *) msg;
+			sess->act_log("receive pkt: len %u, op cmo_data_c"
+				", seqid %llu, user %s, seg %u, len %u\n",
+				(unsigned int) pkt_len,
+				(unsigned long long) GUINT64_FROM_LE(pkt->seqid),
+				pkt->user,
+				GUINT32_FROM_LE(dp->seg),
+				GUINT32_FROM_LE(dp->seg_len));
+		} else {
+			sess->act_log("receive pkt: len %u, "
+				"op %s, seqid %llu, user %s\n",
+				(unsigned int) pkt_len,
+				opstr(msg->op),
+				(unsigned long long) GUINT64_FROM_LE(pkt->seqid),
+				pkt->user);
+		}
+	}
 
 	if (memcmp(pkt->magic, CLD_PKT_MAGIC, sizeof(pkt->magic))) {
 		if (sess->verbose)

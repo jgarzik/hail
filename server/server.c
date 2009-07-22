@@ -51,6 +51,8 @@ static struct argp_option options[] = {
 	  "Store database environment in DIRECTORY" },
 	{ "debug", 'D', "LEVEL", 0,
 	  "Set debug output to LEVEL (0 = off, 2 = max verbose)" },
+	{ "stderr", 'E', NULL, 0,
+	  "Switch the log to standard error" },
 	{ "foreground", 'F', NULL, 0,
 	  "Run in foreground, do not fork" },
 	{ "port", 'p', "PORT", 0,
@@ -70,6 +72,7 @@ static const struct argp argp = { options, parse_opt, NULL, doc };
 
 static bool server_running = true;
 static bool dump_stats;
+static bool use_syslog = true;
 int debugging = 0;
 struct timeval current_time;
 
@@ -80,6 +83,18 @@ struct server cld_srv = {
 };
 
 static void ensure_root(void);
+
+void cldlog(int prio, const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	if (use_syslog)
+		vsyslog(prio, fmt, ap);
+	else
+		vfprintf(stderr, fmt, ap);
+	va_end(ap);
+}
 
 int udp_tx(struct server_socket *sock, struct sockaddr *addr,
 	   socklen_t addr_len, const void *data, size_t data_len)
@@ -113,7 +128,7 @@ void resp_err(struct session *sess,
 	resp.code = GUINT32_TO_LE(errcode);
 
 	if (sess->sock == NULL) {
-		syslog(LOG_ERR, "Nul sock in response\n");
+		cldlog(LOG_ERR, "Nul sock in response\n");
 		return;
 	}
 
@@ -175,7 +190,7 @@ bool authsign(struct cld_packet *pkt, size_t pkt_len)
 	     md, &md_len);
 
 	if (md_len != SHA_DIGEST_LENGTH)
-		syslog(LOG_ERR, "authsign BUG: md_len != SHA_DIGEST_LENGTH");
+		cldlog(LOG_ERR, "authsign BUG: md_len != SHA_DIGEST_LENGTH\n");
 
 	memcpy(buf + pkt_len - SHA_DIGEST_LENGTH, md, SHA_DIGEST_LENGTH);
 
@@ -277,10 +292,29 @@ static void udp_rx(struct server_socket *sock,
 	mp.msg = msg;
 	mp.msg_len = pkt_len - sizeof(*pkt);
 
-	if (debugging)
-		syslog(LOG_DEBUG, "    msg op %s, seqid %llu",
-		       opstr(msg->op),
-		       (unsigned long long) GUINT64_FROM_LE(pkt->seqid));
+	if (debugging) {
+		if (msg->op == cmo_data_s) {
+			struct cld_msg_data *dp = (struct cld_msg_data *) msg;
+			cldlog(LOG_DEBUG,
+			       "    msg op %s, seqid %llu, seg %u, len %u\n",
+			       opstr(msg->op),
+			       (unsigned long long) GUINT64_FROM_LE(pkt->seqid),
+			       GUINT32_FROM_LE(dp->seg),
+			       GUINT32_FROM_LE(dp->seg_len));
+		} else if (msg->op == cmo_put) {
+			struct cld_msg_put *dp = (struct cld_msg_put *) msg;
+			cldlog(LOG_DEBUG,
+			       "    msg op %s, seqid %llu, size %u\n",
+			       opstr(msg->op),
+			       (unsigned long long) GUINT64_FROM_LE(pkt->seqid),
+			       GUINT32_FROM_LE(dp->data_size));
+		} else {
+			cldlog(LOG_DEBUG,
+			       "    msg op %s, seqid %llu\n",
+			       opstr(msg->op),
+			       (unsigned long long) GUINT64_FROM_LE(pkt->seqid));
+		}
+	}
 
 	if (msg->op != cmo_new_sess) {
 		if (!sess) {
@@ -295,7 +329,7 @@ static void udp_rx(struct server_socket *sock,
 			/* eliminate duplicates; do not return any response */
 			if (GUINT64_FROM_LE(pkt->seqid) != sess->next_seqid_in) {
 				if (debugging)
-					syslog(LOG_DEBUG, "dropping dup");
+					cldlog(LOG_DEBUG, "dropping dup\n");
 				return;
 			}
 
@@ -307,7 +341,7 @@ static void udp_rx(struct server_socket *sock,
 			/* eliminate duplicates; do not return any response */
 			if (GUINT64_FROM_LE(pkt->seqid) != sess->next_seqid_in) {
 				if (debugging)
-					syslog(LOG_DEBUG, "dropping dup");
+					cldlog(LOG_DEBUG, "dropping dup\n");
 				return;
 			}
 
@@ -334,8 +368,8 @@ err_out:
 	authsign(outpkt, alloc_len);
 
 	if (debugging)
-		syslog(LOG_DEBUG,
-		       "udp_rx err: sid " SIDFMT ", op %s, seqid %llu, code %d",
+		cldlog(LOG_DEBUG, "udp_rx err: "
+		       "sid " SIDFMT ", op %s, seqid %llu, code %d\n",
 		       SIDARG(outpkt->sid),
 		       opstr(resp->hdr.op),
 		       (unsigned long long) GUINT64_FROM_LE(outpkt->seqid),
@@ -384,7 +418,7 @@ static bool udp_srv_event(int fd, short events, void *userdata)
 	strcpy(cli.addr_host, host);
 
 	if (debugging)
-		syslog(LOG_DEBUG, "client %s message (%d bytes)",
+		cldlog(LOG_DEBUG, "client %s message (%d bytes)\n",
 		       host, (int) rrc);
 
 	if (cld_srv.cldb.is_master && cld_srv.cldb.up)
@@ -429,7 +463,7 @@ static void cldb_checkpoint(struct timer *timer)
 	gettimeofday(&current_time, NULL);
 
 	if (debugging)
-		syslog(LOG_INFO, "db4 checkpoint");
+		cldlog(LOG_INFO, "db4 checkpoint\n");
 
 	/* flush logs to db, if log files >= 1MB */
 	rc = dbenv->txn_checkpoint(dbenv, 1024, 0, 0);
@@ -453,7 +487,7 @@ static int net_open(void)
 
 	rc = getaddrinfo(NULL, cld_srv.port, &hints, &res0);
 	if (rc) {
-		syslog(LOG_ERR, "getaddrinfo(*:%s) failed: %s",
+		cldlog(LOG_ERR, "getaddrinfo(*:%s) failed: %s\n",
 		       cld_srv.port, gai_strerror(rc));
 		rc = -EINVAL;
 		goto err_addr;
@@ -533,7 +567,7 @@ err_addr:
 
 static void segv_signal(int signal)
 {
-	syslog(LOG_ERR, "SIGSEGV");
+	cldlog(LOG_ERR, "SIGSEGV\n");
 	exit(1);
 }
 
@@ -548,7 +582,7 @@ static void stats_signal(int signal)
 }
 
 #define X(stat) \
-	syslog(LOG_INFO, "STAT %s %lu", #stat, cld_srv.stats.stat)
+	cldlog(LOG_INFO, "STAT %s %lu\n", #stat, cld_srv.stats.stat)
 
 static void stats_dump(void)
 {
@@ -571,6 +605,9 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 			fprintf(stderr, "invalid debug level: '%s'\n", arg);
 			argp_usage(state);
 		}
+		break;
+	case 'E':
+		use_syslog = false;
 		break;
 	case 'F':
 		cld_srv.flags |= SFL_FOREGROUND;
@@ -624,9 +661,10 @@ int main (int argc, char *argv[])
 	 * open syslog, background outselves, write PID file ASAP
 	 */
 
-	openlog(PROGRAM_NAME, LOG_PID, LOG_LOCAL3);
+	if (use_syslog)
+		openlog(PROGRAM_NAME, LOG_PID, LOG_LOCAL3);
 
-	if ((!(cld_srv.flags & SFL_FOREGROUND)) && (daemon(1, 0) < 0)) {
+	if (!(cld_srv.flags & SFL_FOREGROUND) && (daemon(1, !use_syslog) < 0)) {
 		syslogerr("daemon");
 		goto err_out;
 	}
@@ -647,7 +685,7 @@ int main (int argc, char *argv[])
 
 	if (cldb_init(&cld_srv.cldb, cld_srv.data_dir, NULL,
 		      DB_CREATE | DB_THREAD | DB_RECOVER,
-		      "cld", true,
+		      "cld", use_syslog,
 		      DB_CREATE | DB_THREAD, NULL))
 		exit(1);
 
@@ -675,7 +713,7 @@ int main (int argc, char *argv[])
 	if (rc)
 		goto err_out_pid;
 
-	syslog(LOG_INFO, "initialized: cport %s, dbg %u",
+	cldlog(LOG_INFO, "initialized: cport %s, dbg %u\n",
 	       cld_srv.port,
 	       debugging);
 
@@ -742,7 +780,7 @@ int main (int argc, char *argv[])
 		next_timeout = timers_run();
 	}
 
-	syslog(LOG_INFO, "shutting down");
+	cldlog(LOG_INFO, "shutting down\n");
 
 	if (cld_srv.cldb.up)
 		cldb_down(&cld_srv.cldb);
@@ -777,12 +815,12 @@ static void ensure_root()
 	rc = cldb_inode_get_byname(txn, "/", sizeof("/")-1, &inode, false, 0);
 	if (rc == 0) {
 		if (debugging)
-			syslog(LOG_DEBUG, "Root inode found, ino %llu\n",
+			cldlog(LOG_DEBUG, "Root inode found, ino %llu\n",
 			       (unsigned long long) cldino_from_le(inode->inum));
 	} else if (rc == DB_NOTFOUND) {
 		inode = cldb_inode_mem("/", sizeof("/")-1, CIFL_DIR, CLD_INO_ROOT);
 		if (!inode) {
-			syslog(LOG_CRIT, "Cannot allocate new root inode");
+			cldlog(LOG_CRIT, "Cannot allocate new root inode\n");
 			goto err_;
 		}
 
@@ -793,12 +831,12 @@ static void ensure_root()
 		rc = cldb_inode_put(txn, inode, 0);
 		if (rc) {
 			free(inode);
-			syslog(LOG_CRIT, "Cannot allocate new root inode");
+			cldlog(LOG_CRIT, "Cannot allocate new root inode\n");
 			goto err_;
 		}
 
 		if (debugging)
-			syslog(LOG_DEBUG, "Root inode created, ino %llu\n",
+			cldlog(LOG_DEBUG, "Root inode created, ino %llu\n",
 			       (unsigned long long) cldino_from_le(inode->inum));
 		free(inode);
 	} else {

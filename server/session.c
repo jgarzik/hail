@@ -355,7 +355,7 @@ int session_dispose(DB_TXN *txn, struct session *sess)
 	session_free(sess);
 
 	if (rc)
-		syslog(LOG_WARNING, "failed to remove session");
+		cldlog(LOG_WARNING, "failed to remove session\n");
 
 	return rc;
 }
@@ -397,7 +397,7 @@ static void session_timeout(struct timer *timer)
 		return;	/* timer added; do not time out session */
 	}
 
-	syslog(LOG_INFO, "session timeout, addr %s sid " SIDFMT,
+	cldlog(LOG_INFO, "session timeout, addr %s sid " SIDFMT "\n",
 		sess->ipaddr, SIDARG(sess->sid));
 
 	/* open transaction */
@@ -531,8 +531,8 @@ static int sess_retry_output(struct session *sess)
 			continue;
 
 		if (debugging)
-			syslog(LOG_DEBUG,
-			       "retry: sid " SIDFMT ", op %s, seqid %llu",
+			cldlog(LOG_DEBUG,
+			       "retry: sid " SIDFMT ", op %s, seqid %llu\n",
 			       SIDARG(outpkt->sid),
 			       opstr(outmsg->op),
 			       (unsigned long long)
@@ -569,11 +569,38 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
 
 	if (debugging) {
 		const struct cld_msg_hdr *hdr = msg_;
+		const struct cld_msg_resp *rsp;
 
-		syslog(LOG_DEBUG, "sendmsg: sid " SIDFMT ", op %s, msglen %u",
-		       SIDARG(sess->sid),
-		       opstr(hdr->op),
-		       (unsigned int) msglen);
+		switch (hdr->op) {
+		/* This is the command set that gets to cldc_rx_generic */
+		case cmo_nop:
+		case cmo_close:
+		case cmo_del:
+		case cmo_lock:
+		case cmo_unlock:
+		case cmo_trylock:
+		case cmo_put:
+		case cmo_new_sess:
+		case cmo_end_sess:
+		case cmo_open:
+		case cmo_data_s:
+		case cmo_get_meta:
+		case cmo_get:
+			rsp = (struct cld_msg_resp *) msg_;
+			cldlog(LOG_DEBUG, "sendmsg: "
+			       "sid " SIDFMT ", op %s, msglen %u, code %u\n",
+			       SIDARG(sess->sid),
+			       opstr(hdr->op),
+			       (unsigned int) msglen,
+			       GUINT32_FROM_LE(rsp->code));
+			break;
+		default:
+			cldlog(LOG_DEBUG,
+			       "sendmsg: sid " SIDFMT ", op %s, msglen %u\n",
+			       SIDARG(sess->sid),
+			       opstr(hdr->op),
+			       (unsigned int) msglen);
+		}
 	}
 
 	op = op_alloc(sizeof(*outpkt) + msglen + SHA_DIGEST_LENGTH);
@@ -646,7 +673,7 @@ void msg_ack(struct msg_params *mp)
 			continue;
 
 		if (debugging)
-			syslog(LOG_DEBUG, "    expiring seqid %llu",
+			cldlog(LOG_DEBUG, "    expiring seqid %llu\n",
 		           (unsigned long long) GUINT64_FROM_LE(outpkt->seqid));
 
 		/* remove and delete the ack'd msg; call ack'd callback */
@@ -740,7 +767,8 @@ err_out:
 	authsign(outpkt, alloc_len);
 
 	if (debugging)
-		syslog(LOG_DEBUG, "new_sess err: sid " SIDFMT ", op %s, seqid %llu",
+		cldlog(LOG_DEBUG,
+		       "new_sess err: sid " SIDFMT ", op %s, seqid %llu\n",
 		       SIDARG(outpkt->sid),
 		       opstr(resp->hdr.op),
 		       (unsigned long long) GUINT64_FROM_LE(outpkt->seqid));
@@ -749,7 +777,7 @@ err_out:
 	       mp->cli->addr_len, outpkt, alloc_len);
 
 	if (debugging)
-		syslog(LOG_DEBUG, "NEW-SESS failed: %d", resp_rc);
+		cldlog(LOG_DEBUG, "NEW-SESS failed: %d\n", resp_rc);
 }
 
 static void end_sess_done(struct session_outpkt *outpkt)
@@ -804,7 +832,7 @@ err_out_noabort:
 
 /*
  * Fill ss with contents of the database.
- * Returns -1 on error because it prints the diagnostic to syslog.
+ * Returns -1 on error because it prints the diagnostic to the log.
  */
 int sess_load(GHashTable *ss)
 {
@@ -876,7 +904,7 @@ static int sess_load_db(GHashTable *ss, DB_TXN *txn)
 		session_decode(sess, &raw_sess);
 
 		if (debugging)
-			syslog(LOG_DEBUG,
+			cldlog(LOG_DEBUG,
 			       " loaded sid " SIDFMT " next seqid %llu/%llu",
 			       SIDARG(sess->sid),
 			       (unsigned long long)
