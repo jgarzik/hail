@@ -1086,7 +1086,7 @@ int cldc_put(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 	put = (struct cld_msg_put *) msg->data;
 	put->fh = fh->fh_le;
 	__cld_rand64(&put->strid);
-	put->data_size = data_len;
+	put->data_size = GUINT32_TO_LE(data_len);
 
 	memset(datamsg, 0, sizeof(datamsg));
 
