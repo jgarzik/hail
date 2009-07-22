@@ -780,7 +780,7 @@ static void try_commit_data(struct msg_params *mp,
 	 */
 	tmp = sess->data_q;
 	while (tmp) {
-		uint32_t tmp_seg, tmp_seg_len;
+		uint32_t tmp_seg_len;
 
 		dmsg = tmp->data;
 		tmp = tmp->next;
