@@ -49,7 +49,7 @@ int write_pid_file(const char *pid_fn)
 	fd = open(pid_fn, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
 	if (fd < 0) {
 		err = errno;
-		cldlog(LOG_ERR, "Cannot open PID file %s: %s\n",
+		cldlog(LOG_ERR, "Cannot open PID file %s: %s",
 		       pid_fn, strerror(err));
 		return -err;
 	}
@@ -61,10 +61,10 @@ int write_pid_file(const char *pid_fn)
 	if (fcntl(fd, F_SETLK, &lock) != 0) {
 		err = errno;
 		if (err == EAGAIN) {
-			cldlog(LOG_ERR, "PID file %s is already locked\n",
+			cldlog(LOG_ERR, "PID file %s is already locked",
 			       pid_fn);
 		} else {
-			cldlog(LOG_ERR, "Cannot lock PID file %s: %s\n",
+			cldlog(LOG_ERR, "Cannot lock PID file %s: %s",
 			       pid_fn, strerror(err));
 		}
 		close(fd);
@@ -78,7 +78,7 @@ int write_pid_file(const char *pid_fn)
 		ssize_t rc = write(fd, s, bytes);
 		if (rc < 0) {
 			err = errno;
-			cldlog(LOG_ERR, "PID number write failed: %s\n",
+			cldlog(LOG_ERR, "PID number write failed: %s",
 			       strerror(err));
 			goto err_out;
 		}
@@ -90,7 +90,7 @@ int write_pid_file(const char *pid_fn)
 	/* make sure file data is written to disk */
 	if (fsync(fd) < 0) {
 		err = errno;
-		cldlog(LOG_ERR, "PID file fsync failed: %s\n", strerror(err));
+		cldlog(LOG_ERR, "PID file fsync failed: %s", strerror(err));
 		goto err_out;
 	}
 
@@ -104,7 +104,7 @@ err_out:
 
 void syslogerr(const char *prefix)
 {
-	cldlog(LOG_ERR, "%s: %s\n", prefix, strerror(errno));
+	cldlog(LOG_ERR, "%s: %s", prefix, strerror(errno));
 }
 
 int fsetflags(const char *prefix, int fd, int or_flags)
@@ -114,7 +114,7 @@ int fsetflags(const char *prefix, int fd, int or_flags)
 	/* get current flags */
 	old_flags = fcntl(fd, F_GETFL);
 	if (old_flags < 0) {
-		cldlog(LOG_ERR, "%s F_GETFL: %s\n", prefix, strerror(errno));
+		cldlog(LOG_ERR, "%s F_GETFL: %s", prefix, strerror(errno));
 		return -errno;
 	}
 
@@ -125,7 +125,7 @@ int fsetflags(const char *prefix, int fd, int or_flags)
 	/* set new flags */
 	if (flags != old_flags)
 		if (fcntl(fd, F_SETFL, flags) < 0) {
-			cldlog(LOG_ERR, "%s F_SETFL: %s\n", prefix,
+			cldlog(LOG_ERR, "%s F_SETFL: %s", prefix,
 			       strerror(errno));
 			rc = -errno;
 		}

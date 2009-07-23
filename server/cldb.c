@@ -240,7 +240,7 @@ int cldb_init(struct cldb *cldb, const char *db_home, const char *db_password,
 
 	rc = db_env_create(&cldb->env, 0);
 	if (rc) {
-		cldlog(LOG_WARNING, "cldb->env_create failed: %d\n", rc);
+		cldlog(LOG_WARNING, "cldb->env_create failed: %d", rc);
 		return rc;
 	}
 
@@ -374,7 +374,7 @@ static int cldb_up(struct cldb *cldb, unsigned int flags)
 
 	cldb->up = true;
 
-	cldlog(LOG_INFO, "databases up\n");
+	cldlog(LOG_INFO, "databases up");
 	return 0;
 
 err_out_handle_idx:
@@ -416,7 +416,7 @@ void cldb_down(struct cldb *cldb)
 	cldb->inodes = NULL;
 	cldb->sessions = NULL;
 
-	cldlog(LOG_INFO, "databases down\n");
+	cldlog(LOG_INFO, "databases down");
 }
 
 void cldb_fini(struct cldb *cldb)

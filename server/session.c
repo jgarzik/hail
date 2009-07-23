@@ -355,7 +355,7 @@ int session_dispose(DB_TXN *txn, struct session *sess)
 	session_free(sess);
 
 	if (rc)
-		cldlog(LOG_WARNING, "failed to remove session\n");
+		cldlog(LOG_WARNING, "failed to remove session");
 
 	return rc;
 }
@@ -397,7 +397,7 @@ static void session_timeout(struct timer *timer)
 		return;	/* timer added; do not time out session */
 	}
 
-	cldlog(LOG_INFO, "session timeout, addr %s sid " SIDFMT "\n",
+	cldlog(LOG_INFO, "session timeout, addr %s sid " SIDFMT,
 		sess->ipaddr, SIDARG(sess->sid));
 
 	/* open transaction */
@@ -532,7 +532,7 @@ static int sess_retry_output(struct session *sess)
 
 		if (debugging)
 			cldlog(LOG_DEBUG,
-			       "retry: sid " SIDFMT ", op %s, seqid %llu\n",
+			       "retry: sid " SIDFMT ", op %s, seqid %llu",
 			       SIDARG(outpkt->sid),
 			       opstr(outmsg->op),
 			       (unsigned long long)
@@ -588,15 +588,15 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
 		case cmo_get:
 			rsp = (struct cld_msg_resp *) msg_;
 			cldlog(LOG_DEBUG, "sendmsg: "
-			       "sid " SIDFMT ", op %s, msglen %u, code %u\n",
+			       "sid " SIDFMT ", op %s, msglen %u, code %u",
 			       SIDARG(sess->sid),
 			       opstr(hdr->op),
 			       (unsigned int) msglen,
 			       GUINT32_FROM_LE(rsp->code));
 			break;
 		default:
-			cldlog(LOG_DEBUG,
-			       "sendmsg: sid " SIDFMT ", op %s, msglen %u\n",
+			cldlog(LOG_DEBUG, "sendmsg: "
+			       "sid " SIDFMT ", op %s, msglen %u",
 			       SIDARG(sess->sid),
 			       opstr(hdr->op),
 			       (unsigned int) msglen);
@@ -673,7 +673,7 @@ void msg_ack(struct msg_params *mp)
 			continue;
 
 		if (debugging)
-			cldlog(LOG_DEBUG, "    expiring seqid %llu\n",
+			cldlog(LOG_DEBUG, "    expiring seqid %llu",
 		           (unsigned long long) GUINT64_FROM_LE(outpkt->seqid));
 
 		/* remove and delete the ack'd msg; call ack'd callback */
@@ -768,7 +768,7 @@ err_out:
 
 	if (debugging)
 		cldlog(LOG_DEBUG,
-		       "new_sess err: sid " SIDFMT ", op %s, seqid %llu\n",
+		       "new_sess err: sid " SIDFMT ", op %s, seqid %llu",
 		       SIDARG(outpkt->sid),
 		       opstr(resp->hdr.op),
 		       (unsigned long long) GUINT64_FROM_LE(outpkt->seqid));
@@ -777,7 +777,7 @@ err_out:
 	       mp->cli->addr_len, outpkt, alloc_len);
 
 	if (debugging)
-		cldlog(LOG_DEBUG, "NEW-SESS failed: %d\n", resp_rc);
+		cldlog(LOG_DEBUG, "NEW-SESS failed: %d", resp_rc);
 }
 
 static void end_sess_done(struct session_outpkt *outpkt)
