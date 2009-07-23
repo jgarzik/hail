@@ -155,9 +155,9 @@ static void push_host(GList **host_list, struct cldc_host *hp_in)
 }
 
 /*
- * Fill out hosts vector in the session.
- * Despite taking session pointer like everything else, this is not reentrant.
- * Better be called before any other threads are started.
+ * Fill out host list, based on DNS lookups.
+ * This is not reentrant.  Better be called before any other threads
+ * are started.
  */
 int cldc_getaddr(GList **host_list, const char *thishost, bool verbose,
 		 void (*act_log)(const char *fmt, ...))
