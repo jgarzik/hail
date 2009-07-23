@@ -38,7 +38,9 @@
 
 #define PROGRAM_NAME "cld"
 
-#define CLD_DEF_PORT "8081"
+#define CLD_DEF_PORT	"8081"
+#define CLD_DEF_PIDFN	"/var/run/cld.pid"
+#define CLD_DEF_DATADIR	"/spare/tmp/cld/lib"
 
 const char *argp_program_version = PACKAGE_VERSION;
 
@@ -48,17 +50,18 @@ enum {
 
 static struct argp_option options[] = {
 	{ "data", 'd', "DIRECTORY", 0,
-	  "Store database environment in DIRECTORY" },
+	  "Store database environment in DIRECTORY.  Default: "
+	  CLD_DEF_DATADIR },
 	{ "debug", 'D', "LEVEL", 0,
-	  "Set debug output to LEVEL (0 = off, 2 = max verbose)" },
+	  "Set debug output to LEVEL (0 = off, 2 = max)" },
 	{ "stderr", 'E', NULL, 0,
 	  "Switch the log to standard error" },
 	{ "foreground", 'F', NULL, 0,
 	  "Run in foreground, do not fork" },
 	{ "port", 'p', "PORT", 0,
-	  "bind to UDP port PORT" },
+	  "bind to UDP port PORT.  Default: " CLD_DEF_PORT },
 	{ "pid", 'P', "FILE", 0,
-	  "Write daemon process id to FILE" },
+	  "Write daemon process id to FILE.  Default: " CLD_DEF_PIDFN },
 	{ }
 };
 
@@ -77,8 +80,8 @@ int debugging = 0;
 struct timeval current_time;
 
 struct server cld_srv = {
-	.data_dir		= "/spare/tmp/cld/lib",
-	.pid_file		= "/var/run/cld.pid",
+	.data_dir		= CLD_DEF_DATADIR,
+	.pid_file		= CLD_DEF_PIDFN,
 	.port			= CLD_DEF_PORT,
 };
 
