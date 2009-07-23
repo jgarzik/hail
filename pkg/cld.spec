@@ -1,18 +1,21 @@
 Name:		cld
 Version:	0.2
-Release:	0.6.g2a5e626a%{?dist}
+Release:	0.7.g487d5fb5%{?dist}
 Summary:	Coarse locking daemon
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-# pulled from upstream git, commit 2a5e626aa6e08d894e74af053236947cced8ff87.
+# pulled from upstream git, commit 487d5fb50be8275a0e0cd36a882acdf1afe9a922
 # to recreate tarball, check out commit, then run "make dist"
 Source0:	cld-%{version}git.tar.gz
 Source2:	cld.init
 Source3:	cld.sysconf
 BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
+
+Requires(post):		chkconfig
+Requires(preun):	chkconfig initscripts
 
 BuildRequires:	db4-devel libevent-devel glib2-devel doxygen openssl-devel
 BuildRequires:	texlive-latex
@@ -97,6 +100,10 @@ fi
 %{_includedir}/*
 
 %changelog
+* Thu Jul 23 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-0.7.g487d5fb5
+- update to commit 487d5fb50be8275a0e0cd36a882acdf1afe9a922
+- require chkconfig, initscripts per pkg guidelines
+
 * Thu Jul 23 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-0.6.g2a5e626a
 - update to commit 2a5e626aa6e08d894e74af053236947cced8ff87
   to fix koji-related 'make check' logging issues.
