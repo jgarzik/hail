@@ -1,13 +1,13 @@
 Name:		cld
 Version:	0.2
-Release:	0.4.gc5b5f962%{?dist}
+Release:	0.6.g2a5e626a%{?dist}
 Summary:	Coarse locking daemon
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-# pulled from upstream git, commit c5b5f9622334b273c47e7aad5bd53e280041a045
+# pulled from upstream git, commit 2a5e626aa6e08d894e74af053236947cced8ff87.
 # to recreate tarball, check out commit, then run "make dist"
 Source0:	cld-%{version}git.tar.gz
 Source2:	cld.init
@@ -16,10 +16,6 @@ BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 BuildRequires:	db4-devel libevent-devel glib2-devel doxygen openssl-devel
 BuildRequires:	texlive-latex
-
-# cld is broken on big-endian... embarrassing!!!
-# FIXME: remove this when cld is fixed
-ExcludeArch: ppc ppc64
 
 %description
 Coarse locking daemon for cloud computing.  This software provides
@@ -101,6 +97,14 @@ fi
 %{_includedir}/*
 
 %changelog
+* Thu Jul 23 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-0.6.g2a5e626a
+- update to commit 2a5e626aa6e08d894e74af053236947cced8ff87
+  to fix koji-related 'make check' logging issues.
+
+* Tue Jul 21 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-0.5.g988e17d1
+- update to commit 988e17d1b0ad8eef6df3f6f237e261d388adff59
+- remove ExcludeArch
+
 * Tue Jul 21 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-0.4.gc5b5f962
 - rebuild for koji silliness
 
