@@ -1,6 +1,6 @@
 Name:		chunkd
 Version:	0.4
-Release:	0.4.g5f69efd9%{?dist}
+Release:	0.5.g5f69efd9%{?dist}
 Summary:	Data storage daemon for cloud computing
 
 Group:		System Environment/Base
@@ -17,10 +17,6 @@ BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 # N.B. We need cld to build, because our "make check" spawns a private copy.
 BuildRequires:	libevent-devel glib2-devel openssl-devel zlib-devel
 BuildRequires:	libxml2-devel procps cld cld-devel
-
-# cld is broken on big-endian... embarrassing!!!
-# FIXME: remove this when cld is fixed
-ExcludeArch: ppc ppc64
 
 %description
 Single-node data storage daemon for cloud computing.
@@ -99,6 +95,9 @@ fi
 %{_includedir}/*
 
 %changelog
+* Wed Jul 22 2009 Jeff Garzik <jgarzik@redhat.com> - 0.4-0.5.g5f69efd9
+- remove ExcludeArch, now that cld is fixed
+
 * Tue Jul 21 2009 Jeff Garzik <jgarzik@redhat.com> - 0.4-0.4.g5f69efd9
 - rebuild for koji silliness
 
