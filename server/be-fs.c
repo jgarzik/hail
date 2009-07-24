@@ -76,7 +76,7 @@ static char *fs_obj_pathname(const char *cookie)
 			goto err_out;
 		}
 	} else if (!S_ISDIR(st.st_mode)) {
-		syslog(LOG_WARNING, "%s: not a dir, fs_obj_pathname go boom", s);
+		applog(LOG_WARNING, "%s: not a dir, fs_obj_pathname go boom", s);
 		goto err_out;
 	}
 
@@ -129,7 +129,7 @@ struct backend_obj *fs_obj_new(const char *cookie,
 
 	if (!cookie_valid(cookie)) {
 		if (debugging)
-			syslog(LOG_ERR, "Bad cookie '%s'", cookie);
+			applog(LOG_ERR, "Bad cookie '%s'", cookie);
 		*err_code = InvalidCookie;
 		return NULL;
 	}
@@ -143,7 +143,7 @@ struct backend_obj *fs_obj_new(const char *cookie,
 	/* build local fs pathname */
 	fn = fs_obj_pathname(cookie);
 	if (!fn) {
-		syslog(LOG_ERR, "OOM in object_put");
+		applog(LOG_ERR, "OOM in object_put");
 		*err_code = InternalError;
 		goto err_out;
 	}
@@ -163,10 +163,10 @@ struct backend_obj *fs_obj_new(const char *cookie,
 	wrc = write(obj->out_fd, &hdr, sizeof(hdr));
 	if (wrc != sizeof(hdr)) {
 		if (wrc < 0)
-			syslog(LOG_ERR, "obj hdr write(%s) failed: %s",
+			applog(LOG_ERR, "obj hdr write(%s) failed: %s",
 				fn, strerror(errno));
 		else
-			syslog(LOG_ERR, "obj hdr write(%s) failed for %s",
+			applog(LOG_ERR, "obj hdr write(%s) failed for %s",
 				fn, "unknown raisins!!!");
 		*err_code = InternalError;
 		goto err_out;
@@ -192,7 +192,7 @@ struct backend_obj *fs_obj_open(const char *cookie,
 
 	if (!cookie_valid(cookie)) {
 		if (debugging)
-			syslog(LOG_ERR, "Bad cookie '%s'", cookie);
+			applog(LOG_ERR, "Bad cookie '%s'", cookie);
 		*err_code = InvalidCookie;
 		return NULL;
 	}
@@ -212,7 +212,7 @@ struct backend_obj *fs_obj_open(const char *cookie,
 
 	obj->in_fd = open(obj->in_fn, O_RDONLY);
 	if (obj->in_fd < 0) {
-		syslog(LOG_ERR, "open obj(%s) failed: %s",
+		applog(LOG_ERR, "open obj(%s) failed: %s",
 		       obj->in_fn, strerror(errno));
 		if (errno == ENOENT)
 			*err_code = NoSuchKey;
@@ -222,7 +222,7 @@ struct backend_obj *fs_obj_open(const char *cookie,
 	}
 
 	if (fstat(obj->in_fd, &st) < 0) {
-		syslog(LOG_ERR, "fstat obj(%s) failed: %s", obj->in_fn,
+		applog(LOG_ERR, "fstat obj(%s) failed: %s", obj->in_fn,
 			strerror(errno));
 		*err_code = InternalError;
 		goto err_out_fd;
@@ -232,10 +232,10 @@ struct backend_obj *fs_obj_open(const char *cookie,
 	rrc = read(obj->in_fd, &hdr, sizeof(hdr));
 	if (rrc != sizeof(hdr)) {
 		if (rrc < 0)
-			syslog(LOG_ERR, "read hdr obj(%s) failed: %s",
+			applog(LOG_ERR, "read hdr obj(%s) failed: %s",
 				obj->in_fn, strerror(errno));
 		else
-			syslog(LOG_ERR, "invalid object header for %s",
+			applog(LOG_ERR, "invalid object header for %s",
 				obj->in_fn);
 		*err_code = InternalError;
 		goto err_out_fd;
@@ -290,7 +290,7 @@ ssize_t fs_obj_read(struct backend_obj *bo, void *ptr, size_t len)
 
 	rc = read(obj->in_fd, ptr, len);
 	if (rc < 0)
-		syslog(LOG_ERR, "obj read(%s) failed: %s",
+		applog(LOG_ERR, "obj read(%s) failed: %s",
 		       obj->in_fn, strerror(errno));
 
 	return rc;
@@ -303,7 +303,7 @@ ssize_t fs_obj_write(struct backend_obj *bo, const void *ptr, size_t len)
 
 	rc = write(obj->out_fd, ptr, len);
 	if (rc < 0)
-		syslog(LOG_ERR, "obj write(%s) failed: %s",
+		applog(LOG_ERR, "obj write(%s) failed: %s",
 		       obj->out_fn, strerror(errno));
 
 	return rc;
@@ -321,7 +321,7 @@ ssize_t fs_obj_sendfile(struct backend_obj *bo, int out_fd, size_t len)
 
 	rc = sendfile(out_fd, obj->in_fd, &obj->sendfile_ofs, len);
 	if (rc < 0)
-		syslog(LOG_ERR, "obj sendfile(%s) failed: %s",
+		applog(LOG_ERR, "obj sendfile(%s) failed: %s",
 		       obj->in_fn, strerror(errno));
 
 	return rc;
@@ -341,7 +341,7 @@ ssize_t fs_obj_sendfile(struct backend_obj *bo, int out_fd, size_t len)
 	rc = sendfile(obj->in_fd, out_fd, obj->sendfile_ofs, len,
 		      NULL, &sbytes, 0);
 	if (rc < 0) {
-		syslog(LOG_ERR, "obj sendfile(%s) failed: %s",
+		applog(LOG_ERR, "obj sendfile(%s) failed: %s",
 		       obj->in_fn, strerror(errno));
 		return rc;
 	}
@@ -355,7 +355,7 @@ ssize_t fs_obj_sendfile(struct backend_obj *bo, int out_fd, size_t len)
 
 ssize_t fs_obj_sendfile(struct backend_obj *bo, int out_fd, size_t len)
 {
-	syslog(LOG_ERR, "BUG: sendfile used but not supported");
+	applog(LOG_ERR, "BUG: sendfile used but not supported");
 	return -EOPNOTSUPP;
 }
 
@@ -374,7 +374,7 @@ bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 
 	/* go back to beginning of file */
 	if (lseek(obj->out_fd, 0, SEEK_SET) < 0) {
-		syslog(LOG_ERR, "lseek(%s) failed: %s",
+		applog(LOG_ERR, "lseek(%s) failed: %s",
 		       obj->out_fn, strerror(errno));
 		return false;
 	}
@@ -383,17 +383,17 @@ bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 	wrc = write(obj->out_fd, &hdr, sizeof(hdr));
 	if (wrc != sizeof(hdr)) {
 		if (wrc < 0)
-			syslog(LOG_ERR, "obj hdr write(%s) failed: %s",
+			applog(LOG_ERR, "obj hdr write(%s) failed: %s",
 				obj->out_fn, strerror(errno));
 		else
-			syslog(LOG_ERR, "obj hdr write(%s) failed for %s",
+			applog(LOG_ERR, "obj hdr write(%s) failed for %s",
 				obj->out_fn, "unknown raisins!!!");
 		return false;
 	}
 
 	/* sync data to disk, if requested */
 	if (sync_data && fsync(obj->out_fd) < 0) {
-		syslog(LOG_ERR, "fsync(%s) failed: %s",
+		applog(LOG_ERR, "fsync(%s) failed: %s",
 		       obj->out_fn, strerror(errno));
 		return false;
 	}
@@ -424,7 +424,7 @@ bool fs_obj_delete(const char *cookie, enum errcode *err_code)
 		if (errno == ENOENT)
 			*err_code = NoSuchKey;
 		else
-			syslog(LOG_ERR, "object data(%s) unlink failed: %s",
+			applog(LOG_ERR, "object data(%s) unlink failed: %s",
 			       fn, strerror(errno));
 		goto err_out;
 	}
@@ -500,7 +500,7 @@ GList *fs_list_objs(void)
 				if (rrc < 0)
 					syslogerr(fn);
 				else
-					syslog(LOG_ERR, "%s hdr read failed", fn);
+					applog(LOG_ERR, "%s hdr read failed", fn);
 				free(fn);
 				break;
 			}

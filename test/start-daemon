@@ -14,7 +14,7 @@ fi
 # May be different on Solaris... like /usr/libexec or such.
 cld -d data/cld -P cld.pid -p 18081
 
-../server/chunkd -C $top_srcdir/test/server-test.cfg $*
+../server/chunkd -C $top_srcdir/test/server-test.cfg -E $*
 
 sleep 3
 

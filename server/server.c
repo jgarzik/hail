@@ -66,6 +66,7 @@ static const struct argp argp = { options, parse_opt, NULL, doc };
 
 static bool server_running = true;
 static bool dump_stats;
+static bool use_syslog = true;
 int debugging = 0;
 SSL_CTX *ssl_ctx = NULL;
 
@@ -119,6 +120,48 @@ static struct {
 	  "Cookie check failed" },
 };
 
+/* FIXME static */ void app_log(const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	if (use_syslog) {
+		vsyslog(LOG_DEBUG, fmt, ap);
+	} else {
+		char *f;
+		int len;
+		int pid;
+
+		pid = getpid() & 0xFFFFFFFF;
+		len = sizeof(PROGRAM_NAME "[0123456789]: ") + strlen(fmt) + 2;
+		f = alloca(len);
+		sprintf(f, PROGRAM_NAME "[%u]: %s\n", pid, fmt);
+		vfprintf(stderr, f, ap);	/* atomic write to stderr */
+	}
+	va_end(ap);
+}
+
+void applog(int prio, const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	if (use_syslog) {
+		vsyslog(prio, fmt, ap);
+	} else {
+		char *f;
+		int len;
+		int pid;
+
+		pid = getpid() & 0xFFFFFFFF;
+		len = sizeof(PROGRAM_NAME "[0123456789]: ") + strlen(fmt) + 2;
+		f = alloca(len);
+		sprintf(f, PROGRAM_NAME "[%u]: %s\n", pid, fmt);
+		vfprintf(stderr, f, ap);	/* atomic write to stderr */
+	}
+	va_end(ap);
+}
+
 static error_t parse_opt (int key, char *arg, struct argp_state *state)
 {
 	switch(key) {
@@ -128,6 +171,9 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 		break;
 	case 'D':
 		debugging = 1;
+		break;
+	case 'E':
+		use_syslog = false;
 		break;
 	case 'F':
 		chunkd_srv.flags |= SFL_FOREGROUND;
@@ -161,13 +207,13 @@ static char *get_hostname(void)
 	char *ret;
 
 	if (gethostname(hostb, hostsz-1) < 0) {
-		syslog(LOG_ERR, "get_hostname: gethostname error (%d): %s",
+		applog(LOG_ERR, "get_hostname: gethostname error (%d): %s",
 		       errno, strerror(errno));
 		exit(1);
 	}
 	hostb[hostsz-1] = 0;
 	if ((ret = strdup(hostb)) == NULL) {
-		syslog(LOG_ERR, "get_hostname: no core (%ld)",
+		applog(LOG_ERR, "get_hostname: no core (%ld)",
 		       (long)strlen(hostb));
 		exit(1);
 	}
@@ -187,7 +233,7 @@ static void stats_signal(int signal)
 }
 
 #define X(stat) \
-	syslog(LOG_INFO, "STAT %s %lu", #stat, chunkd_srv.stats.stat)
+	applog(LOG_INFO, "STAT %s %lu", #stat, chunkd_srv.stats.stat)
 
 static void stats_dump(void)
 {
@@ -239,12 +285,12 @@ static void cli_free(struct client *cli)
 		if (cli->ssl)
 			SSL_shutdown(cli->ssl);
 		if (event_del(&cli->ev) < 0)
-			syslog(LOG_WARNING, "TCP client event_del");
+			applog(LOG_WARNING, "TCP client event_del");
 		close(cli->fd);
 	}
 
 	if (debugging)
-		syslog(LOG_DEBUG, "client %s ended", cli->addr_host);
+		applog(LOG_DEBUG, "client %s ended", cli->addr_host);
 
 	if (cli->ssl)
 		SSL_free(cli->ssl);
@@ -264,7 +310,7 @@ static struct client *cli_alloc(bool encrypt)
 	if (encrypt) {
 		cli->ssl = SSL_new(ssl_ctx);
 		if (!cli->ssl) {
-			syslog(LOG_ERR, "SSL_new failed");
+			applog(LOG_ERR, "SSL_new failed");
 			free(cli);
 			return NULL;
 		}
@@ -561,7 +607,7 @@ bool cli_err(struct client *cli, enum errcode code)
 	struct chunksrv_req *resp = NULL;
 
 	if (code != Success)
-		syslog(LOG_INFO, "client %s error %s",
+		applog(LOG_INFO, "client %s error %s",
 		       cli->addr_host, err_info[code].code);
 
 	resp = malloc(sizeof(*resp));
@@ -779,7 +825,7 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 	cli->state = evt_recycle;
 
 	if (debugging)
-		syslog(LOG_DEBUG, "REQ(op %s, key %s, user %s) seq %x len %lld",
+		applog(LOG_DEBUG, "REQ(op %s, key %s, user %s) seq %x len %lld",
 		       op2str(req->op),
 		       req->key,
 		       req->user,
@@ -915,7 +961,7 @@ static void tcp_srv_event(int fd, short events, void *userdata)
 
 	cli = cli_alloc(sock->encrypt);
 	if (!cli) {
-		syslog(LOG_ERR, "out of memory");
+		applog(LOG_ERR, "out of memory");
 		return;
 	}
 
@@ -934,7 +980,7 @@ static void tcp_srv_event(int fd, short events, void *userdata)
 
 	/* disable delay of small output packets */
 	if (setsockopt(cli->fd, IPPROTO_TCP, TCP_NODELAY, &on, sizeof(on)) < 0)
-		syslog(LOG_WARNING, "TCP_NODELAY failed: %s",
+		applog(LOG_WARNING, "TCP_NODELAY failed: %s",
 		       strerror(errno));
 
 	if (sock->encrypt) {
@@ -956,7 +1002,7 @@ static void tcp_srv_event(int fd, short events, void *userdata)
 
 				if (e)
 					ERR_error_string(e, estr);
-				syslog(LOG_WARNING, "%s SSL error %s",
+				applog(LOG_WARNING, "%s SSL error %s",
 				       cli->addr_host, estr);
 				goto err_out_fd;
 			}
@@ -969,14 +1015,14 @@ static void tcp_srv_event(int fd, short events, void *userdata)
 
 	/* add to poll watchlist */
 	if (event_add(&cli->ev, NULL) < 0) {
-		syslog(LOG_WARNING, "tcp client event_add");
+		applog(LOG_WARNING, "tcp client event_add");
 		goto err_out_fd;
 	}
 
 	if (cli->read_want_write) {
 		cli->writing = true;
 		if (event_add(&cli->write_ev, NULL) < 0) {
-			syslog(LOG_WARNING, "tcp client event_add 2");
+			applog(LOG_WARNING, "tcp client event_add 2");
 			goto err_out_fd;
 		}
 	}
@@ -985,7 +1031,7 @@ static void tcp_srv_event(int fd, short events, void *userdata)
 	getnameinfo((struct sockaddr *) &cli->addr, sizeof(struct sockaddr_in6),
 		    host, sizeof(host), NULL, 0, NI_NUMERICHOST);
 	host[sizeof(host) - 1] = 0;
-	syslog(LOG_INFO, "client %s connected%s", host,
+	applog(LOG_INFO, "client %s connected%s", host,
 		cli->ssl ? " via SSL" : "");
 
 	strcpy(cli->addr_host, host);
@@ -1010,7 +1056,7 @@ static int net_open(const struct listen_cfg *cfg)
 
 	rc = getaddrinfo(cfg->node, cfg->port, &hints, &res0);
 	if (rc) {
-		syslog(LOG_ERR, "getaddrinfo(%s:%s) failed: %s",
+		applog(LOG_ERR, "getaddrinfo(%s:%s) failed: %s",
 		       cfg->node ? cfg->node : "*",
 		       cfg->port, gai_strerror(rc));
 		return -EINVAL;
@@ -1057,7 +1103,7 @@ static int net_open(const struct listen_cfg *cfg)
 			/* sigh... */
 			if (errno == EADDRINUSE && res->ai_family == PF_INET) {
 				if (debugging)
-					syslog(LOG_INFO, "already bound to socket, ignoring");
+					applog(LOG_INFO, "already bound to socket, ignoring");
 				close(fd);
 				continue;
 			}
@@ -1090,7 +1136,7 @@ static int net_open(const struct listen_cfg *cfg)
 			  tcp_srv_event, sock);
 
 		if (event_add(&sock->ev, NULL) < 0) {
-			syslog(LOG_WARNING, "tcp socket event_add");
+			applog(LOG_WARNING, "tcp socket event_add");
 			rc = -EIO;
 			goto err_out;
 		}
@@ -1130,10 +1176,11 @@ int main (int argc, char *argv[])
 	 * open syslog, background outselves, write PID file ASAP
 	 */
 
-	openlog(PROGRAM_NAME, LOG_PID, LOG_LOCAL3);
+	if (use_syslog)
+		openlog(PROGRAM_NAME, LOG_PID, LOG_LOCAL3);
 
 	if (debugging)
-		syslog(LOG_INFO, "Verbose debug output enabled");
+		applog(LOG_INFO, "Verbose debug output enabled");
 
 	g_thread_init(NULL);
 	SSL_library_init();
@@ -1143,7 +1190,7 @@ int main (int argc, char *argv[])
 
 	ssl_ctx = SSL_CTX_new(SSLv23_server_method());
 	if (!ssl_ctx) {
-		syslog(LOG_ERR, "SSL_CTX_new failed");
+		applog(LOG_ERR, "SSL_CTX_new failed");
 		exit(1);
 	}
 
@@ -1156,7 +1203,7 @@ int main (int argc, char *argv[])
 	read_config();
 	chunkd_srv.ourhost = get_hostname();
 
-	if ((!(chunkd_srv.flags & SFL_FOREGROUND)) && (daemon(1, 0) < 0)) {
+	if (!(chunkd_srv.flags & SFL_FOREGROUND) && (daemon(1, !use_syslog) < 0)) {
 		syslogerr("daemon");
 		goto err_out;
 	}
@@ -1182,7 +1229,7 @@ int main (int argc, char *argv[])
 	chunkd_srv.trash_sz = 0;
 
 	if (cld_begin(chunkd_srv.ourhost, chunkd_srv.cell, chunkd_srv.nid,
-		      &chunkd_srv.loc, NULL)) {
+		      &chunkd_srv.loc, NULL, app_log)) {
 		rc = 1;
 		goto err_out_session;
 	}
@@ -1197,7 +1244,7 @@ int main (int argc, char *argv[])
 		tmpl = tmpl->next;
 	}
 
-	syslog(LOG_INFO, "initialized");
+	applog(LOG_INFO, "initialized");
 
 	while (server_running) {
 		event_dispatch();
@@ -1208,7 +1255,7 @@ int main (int argc, char *argv[])
 		}
 	}
 
-	syslog(LOG_INFO, "shutting down");
+	applog(LOG_INFO, "shutting down");
 
 	rc = 0;
 

@@ -19,6 +19,8 @@
 #include <glib.h>
 #include "chunkd.h"
 
+void app_log(const char *fmt, ...);	/* FIXME: get rid of this */
+
 struct config_context {
 	char		*text;
 	bool		badnid;
@@ -98,21 +100,21 @@ static void cfg_elm_start (GMarkupParseContext *context,
 		if (!cc->in_listen) {
 			cc->in_listen = true;
 		} else {
-			syslog(LOG_ERR, "Nested Listen in configuration");
+			applog(LOG_ERR, "Nested Listen in configuration");
 		}
 	}
 	else if (!strcmp(element_name, "Geo")) {
 		if (!cc->in_geo) {
 			cc->in_geo = true;
 		} else {
-			syslog(LOG_ERR, "Nested Geo in configuration");
+			applog(LOG_ERR, "Nested Geo in configuration");
 		}
 	}
 	else if (!strcmp(element_name, "CLD")) {
 		if (!cc->in_cld) {
 			cc->in_cld = true;
 		} else {
-			syslog(LOG_ERR, "Nested CLD in configuration");
+			applog(LOG_ERR, "Nested CLD in configuration");
 		}
 	}
 }
@@ -122,7 +124,7 @@ static void cfg_elm_end_listen(struct config_context *cc)
 	struct listen_cfg *cfg;
 
 	if (cc->text) {
-		syslog(LOG_WARNING, "cfgfile: Extra text '%s' in Listen",
+		applog(LOG_WARNING, "cfgfile: Extra text '%s' in Listen",
 		       cc->text);
 		free(cc->text);
 		cc->text = NULL;
@@ -132,7 +134,7 @@ static void cfg_elm_end_listen(struct config_context *cc)
 	if (!cc->tmp_listen.port) {
 		free(cc->tmp_listen.node);
 		memset(&cc->tmp_listen, 0, sizeof(struct listen_cfg));
-		syslog(LOG_WARNING, "cfgfile: TCP port not specified in Listen");
+		applog(LOG_WARNING, "cfgfile: TCP port not specified in Listen");
 		return;
 	}
 
@@ -141,7 +143,7 @@ static void cfg_elm_end_listen(struct config_context *cc)
 		free(cc->tmp_listen.node);
 		free(cc->tmp_listen.port);
 		memset(&cc->tmp_listen, 0, sizeof(struct listen_cfg));
-		syslog(LOG_ERR, "OOM");
+		applog(LOG_ERR, "OOM");
 		return;
 	}
 
@@ -153,7 +155,7 @@ static void cfg_elm_end_listen(struct config_context *cc)
 static void cfg_elm_end_geo(struct config_context *cc)
 {
 	if (cc->text) {
-		syslog(LOG_WARNING, "cfgfile: Extra text '%s' in Geo",
+		applog(LOG_WARNING, "cfgfile: Extra text '%s' in Geo",
 		       cc->text);
 		free(cc->text);
 		cc->text = NULL;
@@ -184,7 +186,7 @@ err_out:
 static void cfg_elm_end_cld(struct config_context *cc)
 {
 	if (cc->text) {
-		syslog(LOG_WARNING, "Extra text in CLD element: \"%s\"",
+		applog(LOG_WARNING, "Extra text in CLD element: \"%s\"",
 		       cc->text);
 		free(cc->text);
 		cc->text = NULL;
@@ -192,15 +194,15 @@ static void cfg_elm_end_cld(struct config_context *cc)
 	}
 
 	if (!cc->cld_host) {
-		syslog(LOG_WARNING, "No host for CLD element");
+		applog(LOG_WARNING, "No host for CLD element");
 		goto end;
 	}
 	if (!cc->cld_port) {
-		syslog(LOG_WARNING, "No port for CLD element");
+		applog(LOG_WARNING, "No port for CLD element");
 		goto end;
 	}
 
-	cldu_add_host(cc->cld_host, cc->cld_port);
+	cldu_add_host(cc->cld_host, cc->cld_port, app_log);
 
 end:
 	free(cc->cld_host);
@@ -229,13 +231,13 @@ static void cfg_elm_end (GMarkupParseContext *context,
 
 	else if (!strcmp(element_name, "Path") && cc->text) {
 		if (stat(cc->text, &st) < 0) {
-			syslog(LOG_ERR, "stat(2) cfgfile Path '%s' failed: %s",
+			applog(LOG_ERR, "stat(2) cfgfile Path '%s' failed: %s",
 			       cc->text, strerror(errno));
 			return;
 		}
 
 		if (!S_ISDIR(st.st_mode)) {
-			syslog(LOG_ERR, "Path in cfgfile not a dir: %s",
+			applog(LOG_ERR, "Path in cfgfile not a dir: %s",
 			       cc->text);
 			return;
 		}
@@ -250,7 +252,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 	else if (cc->in_ssl && cc->text && !strcmp(element_name, "PrivateKey")) {
 		if (SSL_CTX_use_PrivateKey_file(ssl_ctx, cc->text,
 						SSL_FILETYPE_PEM) <= 0)
-			syslog(LOG_ERR, "Failed to read SSL private key '%s'",
+			applog(LOG_ERR, "Failed to read SSL private key '%s'",
 				cc->text);
 
 		free(cc->text);
@@ -262,7 +264,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 	else if (cc->in_ssl && cc->text && !strcmp(element_name, "Cert")) {
 		if (SSL_CTX_use_certificate_file(ssl_ctx, cc->text,
 						 SSL_FILETYPE_PEM) <= 0)
-			syslog(LOG_ERR, "Failed to read SSL certificate '%s'",
+			applog(LOG_ERR, "Failed to read SSL certificate '%s'",
 				cc->text);
 
 		free(cc->text);
@@ -283,7 +285,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 
 	else if (!strcmp(element_name, "Port")) {
 		if (!cc->text) {
-			syslog(LOG_WARNING, "Port element empty");
+			applog(LOG_WARNING, "Port element empty");
 			return;
 		}
 
@@ -293,7 +295,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 				free(cc->tmp_listen.port);
 				cc->tmp_listen.port = cc->text;
 			} else {
-				syslog(LOG_WARNING,
+				applog(LOG_WARNING,
 				       "Port '%s' invalid, ignoring", cc->text);
 				free(cc->text);
 			}
@@ -303,12 +305,12 @@ static void cfg_elm_end (GMarkupParseContext *context,
 			if (n > 0 && n < 65536)
 				cc->cld_port = n;
 			else
-				syslog(LOG_WARNING,
+				applog(LOG_WARNING,
 				       "Port '%s' invalid, ignoring", cc->text);
 			free(cc->text);
 			cc->text = NULL;
 		} else {
-			syslog(LOG_WARNING,
+			applog(LOG_WARNING,
 			       "Port element not in Listen or CLD");
 			return;
 		}
@@ -321,7 +323,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 
 	else if (!strcmp(element_name, "Host")) {
 		if (!cc->text) {
-			syslog(LOG_WARNING, "Host element empty");
+			applog(LOG_WARNING, "Host element empty");
 			return;
 		}
 
@@ -330,7 +332,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 			cc->cld_host = cc->text;
 			cc->text = NULL;
 		} else {
-			syslog(LOG_WARNING, "Host element not in CLD");
+			applog(LOG_WARNING, "Host element not in CLD");
 		}
 	}
 
@@ -353,7 +355,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 	else if (!strcmp(element_name, "NID") && cc->text) {
 		n = strtol(cc->text, NULL, 10);
 		if (n <= 0 || n >= LONG_MAX) {
-			syslog(LOG_ERR, "NID '%s' is invalid", cc->text);
+			applog(LOG_ERR, "NID '%s' is invalid", cc->text);
 			cc->badnid = true;
 			free(cc->text);
 			cc->text = NULL;
@@ -376,7 +378,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 	}
 
 	else {
-		syslog(LOG_WARNING, "Unknown element \"%s\"", element_name);
+		applog(LOG_WARNING, "Unknown element \"%s\"", element_name);
 	}
 
 }
@@ -397,19 +399,19 @@ void read_config(void)
 	memset(&ctx, 0, sizeof(struct config_context));
 
 	if (!g_file_get_contents(chunkd_srv.config, &text, &len, NULL)) {
-		syslog(LOG_ERR, "failed to read config file %s",
+		applog(LOG_ERR, "failed to read config file %s",
 			chunkd_srv.config);
 		exit(1);
 	}
 
 	parser = g_markup_parse_context_new(&cfg_parse_ops, 0, &ctx, NULL);
 	if (!parser) {
-		syslog(LOG_ERR, "g_markup_parse_context_new failed");
+		applog(LOG_ERR, "g_markup_parse_context_new failed");
 		exit(1);
 	}
 
 	if (!g_markup_parse_context_parse(parser, text, len, NULL)) {
-		syslog(LOG_ERR, "config file parse failure");
+		applog(LOG_ERR, "config file parse failure");
 		exit(1);
 	}
 
@@ -417,7 +419,7 @@ void read_config(void)
 	free(text);
 
 	if (!chunkd_srv.vol_path) {
-		syslog(LOG_ERR, "error: no volume Path defined in cfg file");
+		applog(LOG_ERR, "error: no volume Path defined in cfg file");
 		exit(1);
 	}
 
@@ -425,30 +427,30 @@ void read_config(void)
 		SSL_CTX_free(ssl_ctx);
 		ssl_ctx = NULL;
 	} else if (ctx.have_ssl && !SSL_CTX_check_private_key(ssl_ctx)) {
-		syslog(LOG_ERR, "SSL private key does not match certificate public key");
+		applog(LOG_ERR, "SSL private key does not match certificate public key");
 		exit(1);
 	}
 
 	if (!chunkd_srv.listeners) {
-		syslog(LOG_ERR, "error: no listen addresses specified");
+		applog(LOG_ERR, "error: no listen addresses specified");
 		exit(1);
 	}
 
 	if (!chunkd_srv.pid_file) {
 		if (!(chunkd_srv.pid_file = strdup("/var/run/chunkd.pid"))) {
-			syslog(LOG_ERR, "no core");
+			applog(LOG_ERR, "no core");
 			exit(1);
 		}
 	}
 
 	if (chunkd_srv.cell && !is_good_cell_name(chunkd_srv.cell)) {
-		syslog(LOG_ERR, "Cell name '%s' is invalid", chunkd_srv.cell);
+		applog(LOG_ERR, "Cell name '%s' is invalid", chunkd_srv.cell);
 		exit(1);
 	}
 
 	if (chunkd_srv.nid == 0) {	/* We have no NID, it's fatal */
 		if (!ctx.badnid) {	/* NID is missing (not invalid) */
-			syslog(LOG_ERR, "No NID configured");
+			applog(LOG_ERR, "No NID configured");
 		}
 		exit(1);
 	}

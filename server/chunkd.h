@@ -187,9 +187,11 @@ extern void cli_out_end(struct client *cli);
 extern void cli_in_end(struct client *cli);
 
 /* cldu.c */
-extern void cldu_add_host(const char *host, unsigned int port);
+extern void cldu_add_host(const char *host, unsigned int port,
+			  void print(const char *fmt, ...));
 extern int cld_begin(const char *thishost, const char *thiscell, uint32_t nid,
-	      struct geo *locp, void (*cb)(enum st_cld));
+		     struct geo *locp, void (*cb)(enum st_cld),
+		     void print(const char *fmt, ...));
 extern void cld_end(void);
 
 /* util.c */
@@ -207,6 +209,7 @@ extern void shastr(const unsigned char *digest, char *outstr);
 extern SSL_CTX *ssl_ctx;
 extern int debugging;
 extern struct server chunkd_srv;
+extern void applog(int prio, const char *fmt, ...);
 extern bool cli_err(struct client *cli, enum errcode code);
 extern int cli_writeq(struct client *cli, const void *buf, unsigned int buflen,
 		     cli_write_func cb, void *cb_data);

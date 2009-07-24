@@ -90,7 +90,7 @@ static bool object_put_end(struct client *cli)
 	cli_out_end(cli);
 
 	if (debugging)
-		syslog(LOG_DEBUG, "REQ(write) seq %x done code %d",
+		applog(LOG_DEBUG, "REQ(write) seq %x done code %d",
 		       resp->nonce, resp->resp_code);
 
 	rc = cli_writeq(cli, resp, sizeof(*resp), cli_cb_free, resp);
@@ -141,7 +141,7 @@ bool cli_evt_data_in(struct client *cli, unsigned int events)
 			     MIN(cli->out_len, CLI_DATA_BUF_SZ));
 		if (avail <= 0) {
 			if (avail == 0) {
-				syslog(LOG_ERR, "object read(2) unexpected EOF");
+				applog(LOG_ERR, "object read(2) unexpected EOF");
 				cli->state = evt_dispose;
 				return true;
 			}
@@ -150,14 +150,14 @@ bool cli_evt_data_in(struct client *cli, unsigned int events)
 				return false;
 
 			cli_out_end(cli);
-			syslog(LOG_ERR, "object read(2) error: %s",
+			applog(LOG_ERR, "object read(2) error: %s",
 					strerror(errno));
 			return cli_err(cli, InternalError);
 		}
 	}
 
 	if (debugging)
-		syslog(LOG_DEBUG, "REQ(write) seq %x avail %ld",
+		applog(LOG_DEBUG, "REQ(write) seq %x avail %ld",
 		       cli->creq.nonce, (long)avail);
 
 	while (avail > 0) {
