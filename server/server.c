@@ -41,9 +41,13 @@ enum {
 
 static struct argp_option options[] = {
 	{ "config", 'f', "FILE", 0,
+	  "Read master configuration from FILE (deprecated)" },
+	{ "config", 'C', "FILE", 0,
 	  "Read master configuration from FILE" },
 	{ "debug", 'D', NULL, 0,
 	  "Enable debug output" },
+	{ "stderr", 'E', NULL, 0,
+	  "Switch the log to standard error" },
 	{ "foreground", 'F', NULL, 0,
 	  "Run in foreground, do not fork" },
 	{ "pid", 'P', "FILE", 0,
@@ -119,6 +123,7 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 {
 	switch(key) {
 	case 'f':
+	case 'C':
 		chunkd_srv.config = arg;
 		break;
 	case 'D':

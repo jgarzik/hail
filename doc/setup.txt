@@ -93,5 +93,5 @@ _cld._udp.phx2.ex.com has SRV record 10 50 8081 maika.phx2.ex.com.
 *) start daemon (it will put itself into the background) with the
    configuration file just created:
 
-	/usr/sbin/chunkd -f /etc/chunkd.conf
+	/usr/sbin/chunkd -C /etc/chunkd.conf
 
