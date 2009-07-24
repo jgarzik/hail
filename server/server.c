@@ -39,8 +39,8 @@
 #define PROGRAM_NAME "cld"
 
 #define CLD_DEF_PORT	"8081"
-#define CLD_DEF_PIDFN	"/var/run/cld.pid"
-#define CLD_DEF_DATADIR	"/spare/tmp/cld/lib"
+#define CLD_DEF_PIDFN	CLD_LOCAL_STATE_DIR "/run/cld.pid"
+#define CLD_DEF_DATADIR	CLD_LIBDIR "/cld/lib"
 
 const char *argp_program_version = PACKAGE_VERSION;
 

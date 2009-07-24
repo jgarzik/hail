@@ -1,5 +1,7 @@
 
-INCLUDES	= -I$(top_srcdir)/include @GLIB_CFLAGS@
+INCLUDES	= -I$(top_srcdir)/include @GLIB_CFLAGS@ \
+		  -DCLD_LIBDIR=\""$(libdir)"\" \
+		  -DCLD_LOCAL_STATE_DIR="\"$(localstatedir)\""
 
 sbin_PROGRAMS	= cld cldbadm
 

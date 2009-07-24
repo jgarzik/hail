@@ -41,7 +41,7 @@ struct {
 
 	struct cldb		cldb;
 } cld_adm = {
-	.data_dir		= "/spare/tmp/cld/lib",
+	.data_dir		= CLD_LIBDIR "/cld/lib",
 };
 
 const char *argp_program_version = PACKAGE_VERSION;
