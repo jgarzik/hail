@@ -74,7 +74,8 @@ dnl Checks for required libraries
 dnl -----------------------------
 AC_CHECK_LIB(crypto, MD5_Init, CRYPTO_LIBS=-lcrypto)
 AC_CHECK_LIB(ssl, SSL_new, SSL_LIBS=-lssl)
-AC_CHECK_LIB(event, event_base_new, EVENT_LIBS=-levent, exit 1)
+AC_CHECK_LIB(event, event_base_new, EVENT_LIBS=-levent,
+   [AC_MSG_ERROR([Missing required libevent])])
 AC_CHECK_LIB(argp, argp_parse, ARGP_LIBS=-largp)
 AC_CHECK_LIB(socket, bind, SOCKET_LIBS=-lsocket)
 PKG_CHECK_MODULES(CLDC, libcldc)
