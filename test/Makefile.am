@@ -7,6 +7,7 @@ EXTRA_DIST =			\
 	server-test.cfg		\
 	prep-db			\
 	start-daemon		\
+	start-daemon.real	\
 	pid-exists		\
 	daemon-running		\
 	stop-daemon		\

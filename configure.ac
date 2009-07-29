@@ -80,6 +80,24 @@ AC_CHECK_LIB(argp, argp_parse, ARGP_LIBS=-largp)
 AC_CHECK_LIB(socket, bind, SOCKET_LIBS=-lsocket)
 PKG_CHECK_MODULES(CLDC, libcldc)
 
+dnl -----------------------------
+dnl Check for cld program, used
+dnl in the test process.
+dnl
+dnl Either use pkg-config or
+dnl define CLDC_PREFIX in
+dnl configure's environment.
+dnl -----------------------------
+_PKG_CONFIG([CLDC_PREFIX], [variable=prefix], [libcldc])
+AS_IF([test "x$pkg_failed" = xyes],
+ [AC_WARN([No CLDC_PREFIX defined, using /usr])
+  CLDC_PREFIX="/usr"],
+ [CLDC_PREFIX=$pkg_cv_CLDC_PREFIX])
+AC_PATH_PROG([CLDC_CMD], [cld], [no],
+             [$PATH$PATH_SEPARATOR$CLDC_PREFIX/bin$PATH_SEPARATOR$CLDC_PREFIX/sbin$PATH_SEPARATOR$CLDC_PREFIX/libexec])
+AS_IF([test "x$CLDC_CMD" = xno],
+  [AC_MSG_ERROR([Missing cld program])])
+
 dnl -------------------------------------
 dnl Checks for optional library functions
 dnl -------------------------------------
@@ -111,5 +129,6 @@ AC_CONFIG_FILES([doc/Makefile
 		 include/Makefile
 		 server/Makefile
 		 test/Makefile
+		 test/start-daemon.real
 		 Makefile])
 AC_OUTPUT
