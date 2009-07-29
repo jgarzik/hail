@@ -1,6 +1,6 @@
 Name:		chunkd
 Version:	0.4
-Release:	0.5.g5f69efd9%{?dist}
+Release:	0.6.g5f69efd9%{?dist}
 Summary:	Data storage daemon for cloud computing
 
 Group:		System Environment/Base
@@ -95,6 +95,9 @@ fi
 %{_includedir}/*
 
 %changelog
+* Fri Jul 24 2009 Fedora Release Engineering <rel-eng@lists.fedoraproject.org> - 0.4-0.6.g5f69efd9
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_12_Mass_Rebuild
+
 * Wed Jul 22 2009 Jeff Garzik <jgarzik@redhat.com> - 0.4-0.5.g5f69efd9
 - remove ExcludeArch, now that cld is fixed
 
