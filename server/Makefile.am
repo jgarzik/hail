@@ -1,5 +1,5 @@
 
-INCLUDES	= -I$(top_srcdir)/include @GLIB_CFLAGS@
+INCLUDES	= -I$(top_srcdir)/include @GLIB_CFLAGS@ @CLDC_CFLAGS@
 
 sbin_PROGRAMS	= chunkd
 
