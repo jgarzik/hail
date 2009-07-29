@@ -1,6 +1,6 @@
 Name:		cld
 Version:	0.2
-Release:	0.7.g487d5fb5%{?dist}
+Release:	0.8.g487d5fb5%{?dist}
 Summary:	Coarse locking daemon
 
 Group:		System Environment/Base
@@ -100,6 +100,9 @@ fi
 %{_includedir}/*
 
 %changelog
+* Fri Jul 24 2009 Fedora Release Engineering <rel-eng@lists.fedoraproject.org> - 0.2-0.8.g487d5fb5
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_12_Mass_Rebuild
+
 * Thu Jul 23 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-0.7.g487d5fb5
 - update to commit 487d5fb50be8275a0e0cd36a882acdf1afe9a922
 - require chkconfig, initscripts per pkg guidelines
