@@ -7,3 +7,5 @@ nop
 .libs
 libtest.a
 
+start-daemon.real
+
