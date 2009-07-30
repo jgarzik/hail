@@ -1,13 +1,13 @@
 Name:		chunkd
 Version:	0.4
-Release:	0.6.g5f69efd9%{?dist}
+Release:	0.7.g6b1e9b66%{?dist}
 Summary:	Data storage daemon for cloud computing
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-# pulled from upstream git, commit 5f69efd93fb6dc0c2e9882cd3c22cc096eede486
+# pulled from upstream git, commit 6b1e9b6641df0353a81c7b1352f5f652c5a7f9d8
 # to recreate tarball, check out commit, then run "make dist"
 Source0:	chunkd-%{version}git.tar.gz
 Source2:	chunkd.init
@@ -17,6 +17,9 @@ BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 # N.B. We need cld to build, because our "make check" spawns a private copy.
 BuildRequires:	libevent-devel glib2-devel openssl-devel zlib-devel
 BuildRequires:	libxml2-devel procps cld cld-devel
+
+# ugly and embarrassing!  pkg build fails on big endian
+ExcludeArch:	ppc ppc64
 
 %description
 Single-node data storage daemon for cloud computing.
@@ -95,6 +98,9 @@ fi
 %{_includedir}/*
 
 %changelog
+* Wed Jul 29 2009 Jeff Garzik <jgarzik@redhat.com> - 0.4-0.7.g6b1e9b66
+- update source to commit 6b1e9b6641df0353a81c7b1352f5f652c5a7f9d8
+
 * Fri Jul 24 2009 Fedora Release Engineering <rel-eng@lists.fedoraproject.org> - 0.4-0.6.g5f69efd9
 - Rebuilt for https://fedoraproject.org/wiki/Fedora_12_Mass_Rebuild
 
