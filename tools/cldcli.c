@@ -118,6 +118,52 @@ static void errc_msg(struct cresp *cresp, enum cle_err_codes errc)
 	strcpy(cresp->msg, names_cle_err[errc]);
 }
 
+static void do_write(int fd, const void *buf, size_t buflen, const char *msg)
+{
+	ssize_t rc;
+
+	rc = write(fd, buf, buflen);
+	if (rc < 0)
+		perror(msg);
+	else if (rc != buflen)
+		fprintf(stderr, "%s: short write\n", msg);
+}
+
+static void do_read(int fd, void *buf, size_t buflen, const char *msg)
+{
+	ssize_t rc;
+
+	rc = read(fd, buf, buflen);
+	if (rc < 0)
+		perror(msg);
+	else if (rc != buflen)
+		fprintf(stderr, "%s: short read\n", msg);
+}
+
+/* send message thread -> main */
+static void write_from_thread(const void *buf, size_t buflen)
+{
+	do_write(from_thread[1], buf, buflen, "write-from-thread");
+}
+
+/* send message main -> thread */
+static void write_to_thread(const void *buf, size_t buflen)
+{
+	do_write(to_thread[1], buf, buflen, "write-to-thread");
+}
+
+/* receive message thread -> main */
+static void read_from_thread(void *buf, size_t buflen)
+{
+	do_read(from_thread[0], buf, buflen, "read-from-thread");
+}
+
+/* receive message main -> thread */
+static void read_to_thread(void *buf, size_t buflen)
+{
+	do_read(to_thread[0], buf, buflen, "read-to-thread");
+}
+
 static int cb_ok_done(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 {
 	struct cresp cresp = { .tcode = TC_FAILED, };
@@ -126,7 +172,7 @@ static int cb_ok_done(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 		cresp.tcode = TC_OK;
 	errc_msg(&cresp, errc);
 
-	write(from_thread[1], &cresp, sizeof(cresp));
+	write_from_thread(&cresp, sizeof(cresp));
 
 	return 0;
 }
@@ -141,20 +187,20 @@ static int cb_ls_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 
 	if (errc != CLE_OK) {
 		errc_msg(&cresp, errc);
-		write(from_thread[1], &cresp, sizeof(cresp));
+		write_from_thread(&cresp, sizeof(cresp));
 		return 0;
 	}
 
 	rc = cldc_dirent_count(copts_in->u.get.buf, copts_in->u.get.size);
 	if (rc < 0) {
-		write(from_thread[1], &cresp, sizeof(cresp));
+		write_from_thread(&cresp, sizeof(cresp));
 		return 0;
 	}
 
 	cresp.tcode = TC_OK;
 	cresp.u.n_records = rc;
 
-	write(from_thread[1], &cresp, sizeof(cresp));
+	write_from_thread(&cresp, sizeof(cresp));
 
 	cldc_dirent_cur_init(&dc, copts_in->u.get.buf, copts_in->u.get.size);
 
@@ -176,7 +222,7 @@ static int cb_ls_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 		strcpy(lsr.name, s);
 		free(s);
 
-		write(from_thread[1], &lsr, sizeof(lsr));
+		write_from_thread(&lsr, sizeof(lsr));
 
 	}
 
@@ -197,12 +243,12 @@ static int cb_ls_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 
 	if (errc != CLE_OK) {
 		errc_msg(&cresp, errc);
-		write(from_thread[1], &cresp, sizeof(cresp));
+		write_from_thread(&cresp, sizeof(cresp));
 		return 0;
 	}
 
 	if (cldc_get(fh, &copts, false)) {
-		write(from_thread[1], &cresp, sizeof(cresp));
+		write_from_thread(&cresp, sizeof(cresp));
 		return 0;
 	}
 
@@ -216,15 +262,15 @@ static int cb_cat_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 
 	if (errc != CLE_OK) {
 		errc_msg(&cresp, errc);
-		write(from_thread[1], &cresp, sizeof(cresp));
+		write_from_thread(&cresp, sizeof(cresp));
 		return 0;
 	}
 
 	cresp.tcode = TC_OK;
 	cresp.u.file_len = copts_in->u.get.size;
 
-	write(from_thread[1], &cresp, sizeof(cresp));
-	write(from_thread[1], copts_in->u.get.buf, copts_in->u.get.size);
+	write_from_thread(&cresp, sizeof(cresp));
+	write_from_thread(copts_in->u.get.buf, copts_in->u.get.size);
 
 	/* FIXME: race; should wait until close succeeds/fails before
 	 * returning any data.  'fh' may still be in use, otherwise.
@@ -241,12 +287,12 @@ static int cb_cat_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 
 	if (errc != CLE_OK) {
 		errc_msg(&cresp, errc);
-		write(from_thread[1], &cresp, sizeof(cresp));
+		write_from_thread(&cresp, sizeof(cresp));
 		return 0;
 	}
 
 	if (cldc_get(fh, &copts, false)) {
-		write(from_thread[1], &cresp, sizeof(cresp));
+		write_from_thread(&cresp, sizeof(cresp));
 		return 0;
 	}
 
@@ -260,12 +306,12 @@ static int cb_cd_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 
 	if (errc != CLE_OK) {
 		errc_msg(&cresp, errc);
-		write(from_thread[1], &cresp, sizeof(cresp));
+		write_from_thread(&cresp, sizeof(cresp));
 		return 0;
 	}
 
 	if (cldc_close(fh, &copts)) {
-		write(from_thread[1], &cresp, sizeof(cresp));
+		write_from_thread(&cresp, sizeof(cresp));
 		return 0;
 	}
 
@@ -281,7 +327,7 @@ static int cb_mkdir_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 		cresp.tcode = TC_OK;
 	errc_msg(&cresp, errc);
 
-	write(from_thread[1], &cresp, sizeof(cresp));
+	write_from_thread(&cresp, sizeof(cresp));
 
 	/* FIXME: race; should wait until close succeeds/fails before
 	 * returning any data.  'fh' may still be in use, otherwise.
@@ -298,7 +344,7 @@ static void handle_user_command(void)
 	struct cldc_call_opts copts = { NULL, };
 	int rc;
 
-	read(to_thread[0], &creq, sizeof(creq));
+	read_to_thread(&creq, sizeof(creq));
 
 	if (debugging)
 		switch (creq.cmd) {
@@ -318,7 +364,7 @@ static void handle_user_command(void)
 		rc = cldc_open(udp->sess, &copts, creq.u.path,
 			       COM_DIRECTORY, 0, &fh);
 		if (rc) {
-			write(from_thread[1], &cresp, sizeof(cresp));
+			write_from_thread(&cresp, sizeof(cresp));
 			return;
 		}
 		break;
@@ -327,7 +373,7 @@ static void handle_user_command(void)
 		rc = cldc_open(udp->sess, &copts, creq.u.path,
 			       COM_READ, 0, &fh);
 		if (rc) {
-			write(from_thread[1], &cresp, sizeof(cresp));
+			write_from_thread(&cresp, sizeof(cresp));
 			return;
 		}
 		break;
@@ -336,7 +382,7 @@ static void handle_user_command(void)
 		rc = cldc_open(udp->sess, &copts, creq.u.path,
 			       COM_DIRECTORY | COM_READ, 0, &fh);
 		if (rc) {
-			write(from_thread[1], &cresp, sizeof(cresp));
+			write_from_thread(&cresp, sizeof(cresp));
 			return;
 		}
 		break;
@@ -344,7 +390,7 @@ static void handle_user_command(void)
 		copts.cb = cb_ok_done;
 		rc = cldc_del(udp->sess, &copts, creq.u.path);
 		if (rc) {
-			write(from_thread[1], &cresp, sizeof(cresp));
+			write_from_thread(&cresp, sizeof(cresp));
 			return;
 		}
 		break;
@@ -353,7 +399,7 @@ static void handle_user_command(void)
 		rc = cldc_open(udp->sess, &copts, creq.u.path,
 			       COM_DIRECTORY | COM_CREATE | COM_EXCL, 0, &fh);
 		if (rc) {
-			write(from_thread[1], &cresp, sizeof(cresp));
+			write_from_thread(&cresp, sizeof(cresp));
 			return;
 		}
 		break;
@@ -365,13 +411,13 @@ static int cb_new_sess(struct cldc_call_opts *copts, enum cle_err_codes errc)
 	char tcode = TC_FAILED;
 
 	if (errc != CLE_OK) {
-		write(from_thread[1], &tcode, 1);
+		write_from_thread(&tcode, 1);
 		return 0;
 	}
 
 	/* signal we are up and ready for commands */
 	tcode = TC_OK;
-	write(from_thread[1], &tcode, 1);
+	write_from_thread(&tcode, 1);
 
 	return 0;
 }
@@ -422,7 +468,7 @@ static gpointer cld_thread(gpointer dummy)
 
 	if (!host_list) {
 		fprintf(stderr, "cldthr: no host list\n");
-		write(from_thread[1], &tcode, 1);
+		write_from_thread(&tcode, 1);
 		return NULL;
 	}
 
@@ -430,14 +476,14 @@ static gpointer cld_thread(gpointer dummy)
 
 	if (cldc_udp_new(dr->host, dr->port, &udp)) {
 		fprintf(stderr, "cldthr: UDP create failed\n");
-		write(from_thread[1], &tcode, 1);
+		write_from_thread(&tcode, 1);
 		return NULL;
 	}
 
 	if (cldc_new_sess(&cld_ops, &copts, udp->addr, udp->addr_len,
 			  "cldcli", "cldcli", udp, &udp->sess)) {
 		fprintf(stderr, "cldthr: new_sess failed\n");
-		write(from_thread[1], &tcode, 1);
+		write_from_thread(&tcode, 1);
 		return NULL;
 	}
 
@@ -513,10 +559,10 @@ static void cmd_mkdir(const char *arg)
 	creq.cmd = CREQ_MKDIR;
 
 	/* send message to thread */
-	write(to_thread[1], &creq, sizeof(creq));
+	write_to_thread(&creq, sizeof(creq));
 
 	/* wait for and receive response from thread */
-	read(from_thread[0], &cresp, sizeof(cresp));
+	read_from_thread(&cresp, sizeof(cresp));
 
 	if (cresp.tcode != TC_OK) {
 		fprintf(stderr, "%s: mkdir failed: %s\n", arg, cresp.msg);
@@ -542,10 +588,10 @@ static void cmd_rm(const char *arg)
 	creq.cmd = CREQ_RM;
 
 	/* send message to thread */
-	write(to_thread[1], &creq, sizeof(creq));
+	write_to_thread(&creq, sizeof(creq));
 
 	/* wait for and receive response from thread */
-	read(from_thread[0], &cresp, sizeof(cresp));
+	read_from_thread(&cresp, sizeof(cresp));
 
 	if (cresp.tcode != TC_OK) {
 		fprintf(stderr, "%s: remove failed: %s\n", arg, cresp.msg);
@@ -569,10 +615,10 @@ static void cmd_cd(const char *arg)
 	creq.cmd = CREQ_CD;
 
 	/* send message to thread */
-	write(to_thread[1], &creq, sizeof(creq));
+	write_to_thread(&creq, sizeof(creq));
 
 	/* wait for and receive response from thread */
-	read(from_thread[0], &cresp, sizeof(cresp));
+	read_from_thread(&cresp, sizeof(cresp));
 
 	if (cresp.tcode != TC_OK) {
 		fprintf(stderr, "%s: change dir failed: %s\n", arg, cresp.msg);
@@ -604,10 +650,10 @@ static void cmd_ls(const char *arg)
 	creq.cmd = CREQ_LS;
 
 	/* send message to thread */
-	write(to_thread[1], &creq, sizeof(creq));
+	write_to_thread(&creq, sizeof(creq));
 
 	/* wait for and receive response from thread */
-	read(from_thread[0], &cresp, sizeof(cresp));
+	read_from_thread(&cresp, sizeof(cresp));
 
 	if (cresp.tcode != TC_OK) {
 		fprintf(stderr, "%s: ls failed: %s\n", arg, cresp.msg);
@@ -617,7 +663,7 @@ static void cmd_ls(const char *arg)
 	for (i = 0; i < cresp.u.n_records; i++) {
 		struct ls_rec lsr;
 
-		read(from_thread[0], &lsr, sizeof(lsr));
+		read_from_thread(&lsr, sizeof(lsr));
 
 		show_lsr(&lsr);
 	}
@@ -643,10 +689,10 @@ static void cmd_cat(const char *arg)
 	creq.cmd = CREQ_CAT;
 
 	/* send message to thread */
-	write(to_thread[1], &creq, sizeof(creq));
+	write_to_thread(&creq, sizeof(creq));
 
 	/* wait for and receive response from thread */
-	read(from_thread[0], &cresp, sizeof(cresp));
+	read_from_thread(&cresp, sizeof(cresp));
 
 	if (cresp.tcode != TC_OK) {
 		fprintf(stderr, "%s: cat failed: %s\n", arg, cresp.msg);
@@ -661,7 +707,7 @@ static void cmd_cat(const char *arg)
 	}
 
 	/* read file data from thread */
-	read(from_thread[0], mem, len);
+	read_from_thread(mem, len);
 
 	/* write file data to stdout */
 	fwrite(mem, len, 1, stdout);
