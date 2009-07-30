@@ -10,4 +10,4 @@ Description: libchunkdc
 Requires: glib-2.0, libssl, libxml-2.0
 Version: @VERSION@
 Libs: -L${libdir} -lchunkdc
-#Cflags: -I${includedir}/libchunkdc-2.0
+Cflags: -I${includedir}/
