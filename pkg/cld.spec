@@ -1,13 +1,13 @@
 Name:		cld
 Version:	0.2
-Release:	0.8.g487d5fb5%{?dist}
+Release:	0.10.gdb750ce5%{?dist}
 Summary:	Coarse locking daemon
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-# pulled from upstream git, commit 487d5fb50be8275a0e0cd36a882acdf1afe9a922
+# pulled from upstream git, commit db750ce53f6e50dae361e746d712a3785124f7a0
 # to recreate tarball, check out commit, then run "make dist"
 Source0:	cld-%{version}git.tar.gz
 Source2:	cld.init
@@ -88,6 +88,7 @@ fi
 %doc AUTHORS COPYING LICENSE README NEWS doc/*.txt
 %{_sbindir}/cld
 %{_sbindir}/cldbadm
+%{_bindir}/cldcli
 %{_libdir}/*.so.*
 %attr(0755,root,root)	%{_initddir}/cld
 %config(noreplace)	%{_sysconfdir}/sysconfig/cld
@@ -100,6 +101,12 @@ fi
 %{_includedir}/*
 
 %changelog
+* Wed Jul 29 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-0.10.gdb750ce5
+- install cldcli
+
+* Wed Jul 29 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-0.9.gdb750ce5
+- update to commit db750ce53f6e50dae361e746d712a3785124f7a0
+
 * Fri Jul 24 2009 Fedora Release Engineering <rel-eng@lists.fedoraproject.org> - 0.2-0.8.g487d5fb5
 - Rebuilt for https://fedoraproject.org/wiki/Fedora_12_Mass_Rebuild
 
