@@ -31,6 +31,11 @@ struct fs_obj {
 	off_t			sendfile_ofs;
 };
 
+struct be_fs_obj_hdr {
+	char			checksum[128];
+	char			owner[128];
+};
+
 static struct fs_obj *fs_obj_alloc(void)
 {
 	struct fs_obj *obj;

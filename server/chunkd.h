@@ -99,11 +99,6 @@ struct client {
 	char			netbuf_out[CLI_DATA_BUF_SZ];
 };
 
-struct be_fs_obj_hdr {
-	char			checksum[128];
-	char			owner[128];
-};
-
 struct backend_obj {
 	void			*private;
 	char			cookie[MAX_COOKIE_LEN + 1];
