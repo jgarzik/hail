@@ -548,7 +548,7 @@ void msg_open(struct msg_params *mp)
 	struct raw_inode *inode = NULL, *parent = NULL;
 	struct raw_handle *h;
 	int rc, name_len;
-	bool create, excl, do_dir, have_dir;
+	bool create, excl, do_dir;
 	struct pathname_info pinfo;
 	void *parent_data = NULL;
 	size_t parent_len;
@@ -611,10 +611,13 @@ void msg_open(struct msg_params *mp)
 	/* if inode exists, make sure COM_DIRECTORY (or lack thereof)
 	 * matches the inode's state
 	 */
-	have_dir = GUINT32_FROM_LE(inode->flags) & CIFL_DIR;
-	if (!create && (do_dir != have_dir)) {
-		resp_rc = CLE_MODE_INVAL;
-		goto err_out;
+	if (!create) {
+		bool have_dir = GUINT32_FROM_LE(inode->flags) & CIFL_DIR;
+
+		if (do_dir != have_dir) {
+			resp_rc = CLE_MODE_INVAL;
+			goto err_out;
+		}
 	}
 
 	if (create) {
