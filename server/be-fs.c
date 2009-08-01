@@ -517,17 +517,27 @@ GList *fs_list_objs(void)
 
 			free(fn);
 
+			/* one alloc, for fixed + var length struct */
 			alloc_len = sizeof(*ve) +
 				    strlen(de->d_name) + 1 +
 				    strlen(hdr.checksum) + 1 +
-				    32 +
-				    32;
+				    strlen(hdr.owner) + 1;
 
 			ve = malloc(alloc_len);
 			if (!ve) {
 				applog(LOG_ERR, "OOM");
 				break;
 			}
+
+			/* store fixed-length portion of struct */
+			st.st_size -= sizeof(struct be_fs_obj_hdr);
+			ve->size = st.st_size;
+			ve->mtime = st.st_mtime;
+
+			/*
+			 * store variable-length portion of struct:
+			 * name, checksum, owner strings
+			 */
 
 			p = (ve + 1);
 			ve->name = p;
@@ -538,17 +548,10 @@ GList *fs_list_objs(void)
 			strcpy(ve->hash, hdr.checksum);
 
 			p += strlen(ve->hash) + 1;
-			ve->mtimestr = p;
-			sprintf(ve->mtimestr, "%Lu",
-					(unsigned long long) st.st_mtime);
+			ve->owner = p;
+			strcpy(ve->owner, hdr.owner);
 
-			st.st_size -= sizeof(struct be_fs_obj_hdr);
-
-			p += strlen(ve->mtimestr) + 1;
-			ve->sizestr = p;
-			sprintf(ve->sizestr, "%Lu",
-					(unsigned long long) st.st_size);
-
+			/* add entry to result list */
 			res = g_list_append(res, ve);
 		}
 

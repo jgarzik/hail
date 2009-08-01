@@ -676,7 +676,9 @@ static bool cli_resp_xml(struct client *cli, GList *content)
 
 static bool volume_list(struct client *cli)
 {
+#if 0
 	const char *user = cli->creq.user;
+#endif
 	char *s;
 	GList *content, *tmpl;
 	bool rcb;
@@ -696,28 +698,25 @@ static bool volume_list(struct client *cli)
 	tmpl = res;
 	while (tmpl) {
 		char timestr[50];
-		unsigned long long mtime = 0;
 		struct volume_entry *ve;
 
 		ve = tmpl->data;
 		tmpl = tmpl->next;
-
-		sscanf(ve->mtimestr, "%llu", &mtime);
 
 		s = g_markup_printf_escaped(
                          "  <Contents>\r\n"
 			 "    <Name>%s</Name>\r\n"
                          "    <LastModified>%s</LastModified>\r\n"
                          "    <ETag>%s</ETag>\r\n"
-                         "    <Size>%s</Size>\r\n"
+                         "    <Size>%llu</Size>\r\n"
                          "    <Owner>%s</Owner>\r\n"
                          "  </Contents>\r\n",
 
 			 ve->name,
-			 time2str(timestr, mtime),
+			 time2str(timestr, ve->mtime),
 			 ve->hash,
-			 ve->sizestr,
-			 user);
+			 ve->size,
+			 ve->owner);
 
 		content = g_list_append(content, s);
 

@@ -125,10 +125,11 @@ struct geo {
 };
 
 struct volume_entry {
-	char			*name;
-	char			*hash;
-	char			*mtimestr;
-	char			*sizestr;
+	unsigned long long	size;		/* obj size */
+	time_t			mtime;		/* obj last-mod time */
+	char			*name;		/* obj id */
+	char			*hash;		/* obj SHA1 checksum */
+	char			*owner;		/* obj owner username */
 };
 
 struct server_stats {
