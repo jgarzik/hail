@@ -124,6 +124,13 @@ struct geo {
 	char			*rack;
 };
 
+struct volume_entry {
+	char			*name;
+	char			*hash;
+	char			*mtimestr;
+	char			*sizestr;
+};
+
 struct server_stats {
 	unsigned long		poll;		/* number polls */
 	unsigned long		event;		/* events dispatched */

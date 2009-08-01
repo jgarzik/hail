@@ -478,7 +478,9 @@ GList *fs_list_objs(void)
 			ssize_t rrc;
 			struct be_fs_obj_hdr hdr;
 			struct stat st;
-			char s[64];
+			struct volume_entry *ve;
+			void *p;
+			size_t alloc_len;
 
 			if (de->d_name[0] == '.')
 				continue;
@@ -515,15 +517,39 @@ GList *fs_list_objs(void)
 
 			free(fn);
 
-			res = g_list_append(res, strdup(de->d_name));
-			res = g_list_append(res, strdup(hdr.checksum));
+			alloc_len = sizeof(*ve) +
+				    strlen(de->d_name) + 1 +
+				    strlen(hdr.checksum) + 1 +
+				    32 +
+				    32;
 
-			sprintf(s, "%Lu", (unsigned long long) st.st_mtime);
-			res = g_list_append(res, strdup(s));
+			ve = malloc(alloc_len);
+			if (!ve) {
+				applog(LOG_ERR, "OOM");
+				break;
+			}
+
+			p = (ve + 1);
+			ve->name = p;
+			strcpy(ve->name, de->d_name);
+
+			p += strlen(ve->name) + 1;
+			ve->hash = p;
+			strcpy(ve->hash, hdr.checksum);
+
+			p += strlen(ve->hash) + 1;
+			ve->mtimestr = p;
+			sprintf(ve->mtimestr, "%Lu",
+					(unsigned long long) st.st_mtime);
 
 			st.st_size -= sizeof(struct be_fs_obj_hdr);
-			sprintf(s, "%Lu", (unsigned long long) st.st_size);
-			res = g_list_append(res, strdup(s));
+
+			p += strlen(ve->mtimestr) + 1;
+			ve->sizestr = p;
+			sprintf(ve->sizestr, "%Lu",
+					(unsigned long long) st.st_size);
+
+			res = g_list_append(res, ve);
 		}
 
 		closedir(d);

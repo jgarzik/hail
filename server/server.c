@@ -695,23 +695,14 @@ static bool volume_list(struct client *cli)
 
 	tmpl = res;
 	while (tmpl) {
-		char *hash;
-		char *name, timestr[50], *mtimestr, *sizestr;
+		char timestr[50];
 		unsigned long long mtime = 0;
+		struct volume_entry *ve;
 
-		name = tmpl->data;
+		ve = tmpl->data;
 		tmpl = tmpl->next;
 
-		hash = tmpl->data;
-		tmpl = tmpl->next;
-
-		mtimestr = tmpl->data;
-		tmpl = tmpl->next;
-
-		sscanf(mtimestr, "%llu", &mtime);
-
-		sizestr = tmpl->data;
-		tmpl = tmpl->next;
+		sscanf(ve->mtimestr, "%llu", &mtime);
 
 		s = g_markup_printf_escaped(
                          "  <Contents>\r\n"
@@ -722,18 +713,15 @@ static bool volume_list(struct client *cli)
                          "    <Owner>%s</Owner>\r\n"
                          "  </Contents>\r\n",
 
-			 name,
+			 ve->name,
 			 time2str(timestr, mtime),
-			 hash,
-			 sizestr,
+			 ve->hash,
+			 ve->sizestr,
 			 user);
 
 		content = g_list_append(content, s);
 
-		free(name);
-		free(hash);
-		free(sizestr);
-		free(mtimestr);
+		free(ve);
 	}
 
 	g_list_free(res);
