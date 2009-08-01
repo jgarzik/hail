@@ -44,7 +44,7 @@ static bool net_read(struct st_client *stc, void *data, size_t datalen)
 
 		while (datalen) {
 			rc = SSL_read(stc->ssl, data, datalen);
-			if (rc < 0)
+			if (rc <= 0)
 				return false;
 			datalen -= rc;
 			data += rc;
@@ -54,7 +54,7 @@ static bool net_read(struct st_client *stc, void *data, size_t datalen)
 
 		while (datalen) {
 			rc = read(stc->fd, data, datalen);
-			if (rc < 0)
+			if (rc <= 0)
 				return false;
 			datalen -= rc;
 			data += rc;
@@ -240,7 +240,8 @@ static bool stc_get_req(struct st_client *stc, const char *key, uint64_t *plen)
 
 	/* check response code */
 	if (resp.req.resp_code != Success) {
-		fprintf(stderr, "GET resp code: %d\n", resp.req.resp_code);
+		if (stc->verbose)
+			fprintf(stderr, "GET resp code: %d\n", resp.req.resp_code);
 		return false;
 	}
 
@@ -431,7 +432,8 @@ bool stc_put(struct st_client *stc, const char *key,
 
 	/* check response code */
 	if (resp.resp_code != Success) {
-		fprintf(stderr, "PUT resp code: %d\n", resp.resp_code);
+		if (stc->verbose)
+			fprintf(stderr, "PUT resp code: %d\n", resp.resp_code);
 		goto err_out;
 	}
 
@@ -618,7 +620,8 @@ bool stc_del(struct st_client *stc, const char *key)
 
 	/* check response code */
 	if (resp.req.resp_code != Success) {
-		fprintf(stderr, "DEL resp code: %d\n", resp.req.resp_code);
+		if (stc->verbose)
+			fprintf(stderr, "DEL resp code: %d\n", resp.req.resp_code);
 		return false;
 	}
 
@@ -742,7 +745,8 @@ struct st_keylist *stc_keys(struct st_client *stc)
 
 	/* check response code */
 	if (resp.req.resp_code != Success) {
-		fprintf(stderr, "LIST resp code: %d\n", resp.req.resp_code);
+		if (stc->verbose)
+			fprintf(stderr, "LIST resp code: %d\n", resp.req.resp_code);
 		return false;
 	}
 
@@ -840,7 +844,8 @@ bool stc_ping(struct st_client *stc)
 
 	/* check response code */
 	if (resp.req.resp_code != Success) {
-		fprintf(stderr, "NOP resp code: %d\n", resp.req.resp_code);
+		if (stc->verbose)
+			fprintf(stderr, "NOP resp code: %d\n", resp.req.resp_code);
 		return false;
 	}
 
