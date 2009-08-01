@@ -30,9 +30,9 @@ bool object_del(struct client *cli)
 
 	memcpy(resp, &cli->creq, sizeof(cli->creq));
 
-	rcb = fs_obj_delete(basename, &err);
+	rcb = fs_obj_delete(cli->creq.user, basename, &err);
 	if (!rcb)
-		return cli_err(cli, err);
+		return cli_err(cli, err, true);
 
 	rc = cli_writeq(cli, resp, sizeof(*resp), cli_cb_free, resp);
 	if (rc) {
@@ -104,7 +104,7 @@ static bool object_put_end(struct client *cli)
 err_out:
 	free(resp);
 	cli_out_end(cli);
-	return cli_err(cli, err);
+	return cli_err(cli, err, true);
 }
 
 bool cli_evt_data_in(struct client *cli, unsigned int events)
@@ -130,10 +130,10 @@ bool cli_evt_data_in(struct client *cli, unsigned int events)
 			if (rc == SSL_ERROR_WANT_WRITE) {
 				cli->read_want_write = true;
 				if (event_add(&cli->write_ev, NULL) < 0)
-					return cli_err(cli, InternalError);
+					return cli_err(cli, InternalError, false);
 				return false;
 			}
-			return cli_err(cli, InternalError);
+			return cli_err(cli, InternalError, false);
 		}
 		avail = rc;
 	} else {
@@ -152,7 +152,7 @@ bool cli_evt_data_in(struct client *cli, unsigned int events)
 			cli_out_end(cli);
 			applog(LOG_ERR, "object read(2) error: %s",
 					strerror(errno));
-			return cli_err(cli, InternalError);
+			return cli_err(cli, InternalError, false);
 		}
 	}
 
@@ -164,7 +164,7 @@ bool cli_evt_data_in(struct client *cli, unsigned int events)
 		bytes = fs_obj_write(cli->out_bo, p, avail);
 		if (bytes < 0) {
 			cli_out_end(cli);
-			return cli_err(cli, InternalError);
+			return cli_err(cli, InternalError, false);
 		}
 
 		SHA1_Update(&cli->out_hash, cli->req_ptr, bytes);
@@ -188,11 +188,11 @@ bool object_put(struct client *cli)
 	enum errcode err;
 
 	if (!user)
-		return cli_err(cli, AccessDenied);
+		return cli_err(cli, AccessDenied, true);
 
 	cli->out_bo = fs_obj_new(key, &err);
 	if (!cli->out_bo)
-		return cli_err(cli, err);
+		return cli_err(cli, err, true);
 
 	SHA1_Init(&cli->out_hash);
 	cli->out_len = content_len;
@@ -282,10 +282,10 @@ bool object_get(struct client *cli, bool want_body)
 
 	memcpy(resp, &cli->creq, sizeof(cli->creq));
 
-	cli->in_obj = obj = fs_obj_open(basename, &err);
+	cli->in_obj = obj = fs_obj_open(cli->creq.user, basename, &err);
 	if (!obj) {
 		free(resp);
-		return cli_err(cli, err);
+		return cli_err(cli, err, true);
 	}
 
 	cli->in_len = obj->size;
@@ -309,7 +309,7 @@ bool object_get(struct client *cli, bool want_body)
 
 	if (!object_read_bytes(cli)) {
 		cli_in_end(cli);
-		return cli_err(cli, err);
+		return cli_err(cli, err, false);
 	}
 
 start_write:

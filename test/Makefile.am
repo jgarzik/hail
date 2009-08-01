@@ -22,12 +22,13 @@ TESTS =				\
 	it-works		\
 	nop			\
 	basic-object		\
+	auth			\
 	large-object		\
 	lotsa-objects		\
 	stop-daemon		\
 	clean-db
 
-check_PROGRAMS		= basic-object it-works large-object \
+check_PROGRAMS		= auth basic-object it-works large-object \
 			  lotsa-objects nop
 
 TESTLDADD		= ../lib/libchunkdc.la	\
@@ -35,6 +36,7 @@ TESTLDADD		= ../lib/libchunkdc.la	\
 			  @GLIB_LIBS@ @CRYPTO_LIBS@ \
 			  @XML_LIBS@ @SSL_LIBS@
 basic_object_LDADD	= $(TESTLDADD)
+auth_LDADD		= $(TESTLDADD)
 it_works_LDADD		= $(TESTLDADD)
 large_object_LDADD	= $(TESTLDADD)
 lotsa_objects_LDADD	= $(TESTLDADD)

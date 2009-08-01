@@ -187,7 +187,7 @@ err_out:
 	return NULL;
 }
 
-struct backend_obj *fs_obj_open(const char *cookie,
+struct backend_obj *fs_obj_open(const char *user, const char *cookie,
 				enum errcode *err_code)
 {
 	struct fs_obj *obj;
@@ -243,6 +243,12 @@ struct backend_obj *fs_obj_open(const char *cookie,
 			applog(LOG_ERR, "invalid object header for %s",
 				obj->in_fn);
 		*err_code = InternalError;
+		goto err_out_fd;
+	}
+
+	/* authenticated user must own this object */
+	if (strcmp(hdr.owner, user)) {
+		*err_code = AccessDenied;
 		goto err_out_fd;
 	}
 
@@ -412,9 +418,12 @@ bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 	return true;
 }
 
-bool fs_obj_delete(const char *cookie, enum errcode *err_code)
+bool fs_obj_delete(const char *user, const char *cookie, enum errcode *err_code)
 {
 	char *fn = NULL;
+	int fd;
+	ssize_t rrc;
+	struct be_fs_obj_hdr hdr;
 
 	*err_code = InternalError;
 
@@ -425,6 +434,42 @@ bool fs_obj_delete(const char *cookie, enum errcode *err_code)
 	if (!fn)
 		goto err_out;
 
+	/* attempt to open object */
+	fd = open(fn, O_RDONLY);
+	if (fd < 0) {
+		if (errno == ENOENT)
+			*err_code = NoSuchKey;
+		else
+			applog(LOG_ERR, "object data(%s) open failed: %s",
+			       fn, strerror(errno));
+		goto err_out;
+	}
+
+	/* read object header */
+	rrc = read(fd, &hdr, sizeof(hdr));
+	if (rrc != sizeof(hdr)) {
+		if (rrc < 0)
+			applog(LOG_ERR, "read hdr obj(%s) failed: %s",
+				fn, strerror(errno));
+		else
+			applog(LOG_ERR, "invalid object header for %s", fn);
+		goto err_out_fd;
+	}
+
+	/* close object */
+	if (close(fd) < 0) {
+		applog(LOG_ERR, "close hdr obj(%s) failed: %s",
+			fn, strerror(errno));
+		goto err_out;
+	}
+
+	/* verify authenticated user owns this object */
+	if (strcmp(user, hdr.owner)) {
+		*err_code = AccessDenied;
+		goto err_out;
+	}
+
+	/* finally, unlink object */
 	if (unlink(fn) < 0) {
 		if (errno == ENOENT)
 			*err_code = NoSuchKey;
@@ -437,12 +482,14 @@ bool fs_obj_delete(const char *cookie, enum errcode *err_code)
 	free(fn);
 	return true;
 
+err_out_fd:
+	close(fd);
 err_out:
 	free(fn);
 	return false;
 }
 
-GList *fs_list_objs(void)
+GList *fs_list_objs(const char *user)
 {
 	GList *res = NULL;
 	struct dirent *de, *root_de;
@@ -516,6 +563,12 @@ GList *fs_list_objs(void)
 				syslogerr(fn);
 
 			free(fn);
+
+			/* filter out results that do not match
+			 * the authenticated user
+			 */
+			if (strcmp(user, hdr.owner))
+				continue;
 
 			/* one alloc, for fixed + var length struct */
 			alloc_len = sizeof(*ve) +

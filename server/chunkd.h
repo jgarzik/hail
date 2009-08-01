@@ -170,15 +170,16 @@ struct server {
 /* be-fs.c */
 extern struct backend_obj *fs_obj_new(const char *cookie,
 				      enum errcode *err_code);
-extern struct backend_obj *fs_obj_open(const char *cookie,
+extern struct backend_obj *fs_obj_open(const char *user, const char *cookie,
 				       enum errcode *err_code);
 extern ssize_t fs_obj_write(struct backend_obj *bo, const void *ptr, size_t len);
 extern ssize_t fs_obj_read(struct backend_obj *bo, void *ptr, size_t len);
 extern void fs_obj_free(struct backend_obj *bo);
 extern bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 				const char *hashstr, bool sync_data);
-extern bool fs_obj_delete(const char *cookie, enum errcode *err_code);
-extern GList *fs_list_objs(void);
+extern bool fs_obj_delete(const char *user, const char *cookie,
+			  enum errcode *err_code);
+extern GList *fs_list_objs(const char *user);
 extern ssize_t fs_obj_sendfile(struct backend_obj *bo, int out_fd, size_t len);
 
 /* object.c */
@@ -213,7 +214,7 @@ extern SSL_CTX *ssl_ctx;
 extern int debugging;
 extern struct server chunkd_srv;
 extern void applog(int prio, const char *fmt, ...);
-extern bool cli_err(struct client *cli, enum errcode code);
+extern bool cli_err(struct client *cli, enum errcode code, bool recycle_ok);
 extern int cli_writeq(struct client *cli, const void *buf, unsigned int buflen,
 		     cli_write_func cb, void *cb_data);
 extern bool cli_wr_sendfile(struct client *, cli_write_func);

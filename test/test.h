@@ -7,8 +7,13 @@
 #include <stdio.h>
 
 #define TEST_HOST "localhost"
+
 #define TEST_USER "testuser"
 #define TEST_USER_KEY "testuser"
+
+#define TEST_USER2 "testuser2"
+#define TEST_USER2_KEY "testuser2"
+
 #define TEST_PORT 18080
 #define TEST_SSL_PORT 28080
 

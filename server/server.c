@@ -601,7 +601,7 @@ out:
 	return rc;
 }
 
-bool cli_err(struct client *cli, enum errcode code)
+bool cli_err(struct client *cli, enum errcode code, bool recycle_ok)
 {
 	int rc;
 	struct chunksrv_req *resp = NULL;
@@ -620,7 +620,7 @@ bool cli_err(struct client *cli, enum errcode code)
 
 	resp->resp_code = code;
 
-	if (code == Success)
+	if (recycle_ok)
 		cli->state = evt_recycle;
 	else
 		cli->state = evt_dispose;
@@ -676,15 +676,12 @@ static bool cli_resp_xml(struct client *cli, GList *content)
 
 static bool volume_list(struct client *cli)
 {
-#if 0
-	const char *user = cli->creq.user;
-#endif
 	char *s;
 	GList *content, *tmpl;
 	bool rcb;
 	GList *res = NULL;
 
-	res = fs_list_objs();
+	res = fs_list_objs(cli->creq.user);
 
 	s = g_markup_printf_escaped(
 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
@@ -824,7 +821,7 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 	 */
 	switch (req->op) {
 	case CHO_NOP:
-		rcb = cli_err(cli, Success);
+		rcb = cli_err(cli, Success, true);
 		break;
 	case CHO_GET:
 		rcb = object_get(cli, true);
@@ -842,7 +839,7 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 		rcb = volume_list(cli);
 		break;
 	default:
-		rcb = cli_err(cli, InvalidURI);
+		rcb = cli_err(cli, InvalidURI, true);
 		break;
 	}
 
@@ -850,7 +847,7 @@ out:
 	return rcb;
 
 err_out:
-	rcb = cli_err(cli, err);
+	rcb = cli_err(cli, err, false);
 	goto out;
 }
 
