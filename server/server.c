@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <signal.h>
 #include <locale.h>
+#include <stdarg.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
