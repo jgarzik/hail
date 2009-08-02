@@ -524,6 +524,7 @@ static int net_open(void)
 		struct server_poll sp;
 		struct pollfd pfd;
 		int fd, on;
+		char listen_host[65], listen_serv[65];
 
 		if (ipv6_found && res->ai_family == PF_INET)
 			continue;
@@ -564,6 +565,14 @@ static int net_open(void)
 		pfd.events = POLLIN;
 		pfd.revents = 0;
 		g_array_append_val(cld_srv.polls, pfd);
+
+		getnameinfo(res->ai_addr, res->ai_addrlen,
+			    listen_host, sizeof(listen_host),
+			    listen_serv, sizeof(listen_serv),
+			    NI_NUMERICHOST | NI_NUMERICSERV);
+
+		cldlog(LOG_INFO, "Listening on %s port %s",
+		       listen_host, listen_serv);
 	}
 
 	freeaddrinfo(res0);
@@ -725,8 +734,7 @@ int main (int argc, char *argv[])
 	if (rc)
 		goto err_out_pid;
 
-	cldlog(LOG_INFO, "initialized: cport %s, dbg %u",
-	       cld_srv.port,
+	cldlog(LOG_INFO, "initialized: dbg %u",
 	       debugging);
 
 	next_timeout = timers_run();
