@@ -1068,6 +1068,7 @@ static int net_open(const struct listen_cfg *cfg)
 	for (res = res0; res; res = res->ai_next) {
 		struct server_socket *sock;
 		int fd, on;
+		char listen_host[65], listen_serv[65];
 
 		if (ipv6_found && res->ai_family == PF_INET)
 			continue;
@@ -1130,6 +1131,14 @@ static int net_open(const struct listen_cfg *cfg)
 
 		chunkd_srv.sockets =
 			g_list_append(chunkd_srv.sockets, sock);
+
+		getnameinfo(res->ai_addr, res->ai_addrlen,
+			    listen_host, sizeof(listen_host),
+			    listen_serv, sizeof(listen_serv),
+			    NI_NUMERICHOST | NI_NUMERICSERV);
+
+		applog(LOG_INFO, "Listening on %s port %s",
+		       listen_host, listen_serv);
 	}
 
 	freeaddrinfo(res0);
