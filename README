@@ -3,7 +3,6 @@ This is a coarse locking daemon.
 Dependencies:
 
 	DB 4.x
-	libevent
 	argp or argp-standalone
 	GLib 2.x
 	doxygen
@@ -11,4 +10,11 @@ Dependencies:
 
 Home page:	http://hail.wiki.kernel.org/
 
+Source code repository:
+	git://git.kernel.org/pub/scm/daemon/cld/cld.git
+
+Download directory:
+	http://www.kernel.org/pub/software/network/distsrv/cld/
+		or
+	ftp://ftp.kernel.org/pub/software/network/distsrv/cld/
 
