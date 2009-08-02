@@ -10,7 +10,7 @@ Source code repository:
 	git://git.kernel.org/pub/scm/daemon/distsrv/chunkd.git
 
 Download directory:
-	http://www.kernel.org/pub/software/network/distsrv/
+	http://www.kernel.org/pub/software/network/distsrv/chunkd/
 		or
-	ftp://ftp.kernel.org/pub/software/network/distsrv/
+	ftp://ftp.kernel.org/pub/software/network/distsrv/chunkd/
 
