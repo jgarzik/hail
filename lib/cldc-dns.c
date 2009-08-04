@@ -172,7 +172,6 @@ int cldc_getaddr(GList **host_list, const char *thishost, bool verbose,
 	char hostb[hostsz];
 	int i;
 	struct cldc_host hp;
-	int n;
 	const unsigned char *p;
 	int rc;
 	int search_retries = 10;
@@ -221,7 +220,6 @@ do_try_again:
 		return -1;
 	}
 
-	n = 0;
 	for (i = 0; i < ns_msg_count(nsb, ns_s_an); i++) {
 		rc = ns_parserr(&nsb, ns_s_an, i, &rrb);
 		if (rc < 0)
@@ -266,7 +264,6 @@ do_try_again:
 				break;
 
 			hp.known = 1;
-			n++;
 
 			push_host(host_list, &hp);
 			break;
