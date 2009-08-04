@@ -42,11 +42,6 @@ static struct argp_option options[] = {
 static const char doc[] =
 "cldcli - command line interface to coarse locking service";
 
-struct db_remote {
-	char		*host;
-	unsigned short	port;
-};
-
 enum creq_cmd {
 	CREQ_CD,
 	CREQ_CAT,
@@ -116,6 +111,15 @@ static const char *names_cle_err[] = {
 static void errc_msg(struct cresp *cresp, enum cle_err_codes errc)
 {
 	strcpy(cresp->msg, names_cle_err[errc]);
+}
+
+static void app_log(const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
 }
 
 static void do_write(int fd, const void *buf, size_t buflen, const char *msg)
@@ -461,7 +465,7 @@ static struct cldc_ops cld_ops = {
 
 static gpointer cld_thread(gpointer dummy)
 {
-	struct db_remote *dr;
+	struct cldc_host *dr;
 	struct cldc_call_opts copts = { .cb = cb_new_sess };
 	char tcode = TC_FAILED;
 	struct pollfd pfd[2];
@@ -741,11 +745,13 @@ static bool push_host(const char *arg)
 {
 	char *colon;
 	unsigned int port;
-	struct db_remote *dr;
+	struct cldc_host *dr;
 
 	dr = malloc(sizeof(*dr));
 	if (!dr)
 		return false;
+	memset(dr, 0, sizeof(*dr));
+
 	dr->host = strdup(arg);
 	if (!dr->host)
 		goto err_out;
@@ -838,6 +844,22 @@ int main (int argc, char *argv[])
 	if (aprc) {
 		fprintf(stderr, "argp_parse failed: %s\n", strerror(aprc));
 		return 1;
+	}
+
+	if (!host_list) {
+		enum { hostsz = 64 };
+		char hostb[hostsz];
+
+		if (gethostname(hostb, hostsz-1) < 0) {
+			fprintf(stderr, "gethostname error: %s\n",
+				strerror(errno));
+			return 1;
+		}
+		hostb[hostsz-1] = 0;
+		if (cldc_getaddr(&host_list, hostb, debugging, app_log)) {
+			fprintf(stderr, "Unable to find a CLD host\n");
+			return 1;
+		}
 	}
 
 	if ((pipe(from_thread) < 0) || (pipe(to_thread) < 0)) {
