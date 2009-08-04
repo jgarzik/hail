@@ -79,8 +79,8 @@ static GThread *cldthr;
 static char our_user[CLD_MAX_USERNAME + 1] = "cli_user";
 
 /* globals only for use in thread */
-static struct cldc_udp *udp;
-static struct cldc_fh *fh;
+static struct cldc_udp *thr_udp;
+static struct cldc_fh *thr_fh;
 
 static error_t parse_opt (int key, char *arg, struct argp_state *state);
 
@@ -235,7 +235,7 @@ static int cb_ls_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 	/* FIXME: race; should wait until close succeeds/fails before
 	 * returning any data.  'fh' may still be in use, otherwise.
 	 */
-	cldc_close(fh, &copts);
+	cldc_close(thr_fh, &copts);
 
 	return 0;
 }
@@ -251,7 +251,7 @@ static int cb_ls_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 		return 0;
 	}
 
-	if (cldc_get(fh, &copts, false)) {
+	if (cldc_get(thr_fh, &copts, false)) {
 		write_from_thread(&cresp, sizeof(cresp));
 		return 0;
 	}
@@ -279,7 +279,7 @@ static int cb_cat_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 	/* FIXME: race; should wait until close succeeds/fails before
 	 * returning any data.  'fh' may still be in use, otherwise.
 	 */
-	cldc_close(fh, &copts);
+	cldc_close(thr_fh, &copts);
 
 	return 0;
 }
@@ -295,7 +295,7 @@ static int cb_cat_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 		return 0;
 	}
 
-	if (cldc_get(fh, &copts, false)) {
+	if (cldc_get(thr_fh, &copts, false)) {
 		write_from_thread(&cresp, sizeof(cresp));
 		return 0;
 	}
@@ -314,7 +314,7 @@ static int cb_cd_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 		return 0;
 	}
 
-	if (cldc_close(fh, &copts)) {
+	if (cldc_close(thr_fh, &copts)) {
 		write_from_thread(&cresp, sizeof(cresp));
 		return 0;
 	}
@@ -336,7 +336,7 @@ static int cb_mkdir_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 	/* FIXME: race; should wait until close succeeds/fails before
 	 * returning any data.  'fh' may still be in use, otherwise.
 	 */
-	cldc_close(fh, &copts);
+	cldc_close(thr_fh, &copts);
 
 	return 0;
 }
@@ -365,8 +365,8 @@ static void handle_user_command(void)
 	switch (creq.cmd) {
 	case CREQ_CD:
 		copts.cb = cb_cd_1;
-		rc = cldc_open(udp->sess, &copts, creq.u.path,
-			       COM_DIRECTORY, 0, &fh);
+		rc = cldc_open(thr_udp->sess, &copts, creq.u.path,
+			       COM_DIRECTORY, 0, &thr_fh);
 		if (rc) {
 			write_from_thread(&cresp, sizeof(cresp));
 			return;
@@ -374,8 +374,8 @@ static void handle_user_command(void)
 		break;
 	case CREQ_CAT:
 		copts.cb = cb_cat_1;
-		rc = cldc_open(udp->sess, &copts, creq.u.path,
-			       COM_READ, 0, &fh);
+		rc = cldc_open(thr_udp->sess, &copts, creq.u.path,
+			       COM_READ, 0, &thr_fh);
 		if (rc) {
 			write_from_thread(&cresp, sizeof(cresp));
 			return;
@@ -383,8 +383,8 @@ static void handle_user_command(void)
 		break;
 	case CREQ_LS:
 		copts.cb = cb_ls_1;
-		rc = cldc_open(udp->sess, &copts, creq.u.path,
-			       COM_DIRECTORY | COM_READ, 0, &fh);
+		rc = cldc_open(thr_udp->sess, &copts, creq.u.path,
+			       COM_DIRECTORY | COM_READ, 0, &thr_fh);
 		if (rc) {
 			write_from_thread(&cresp, sizeof(cresp));
 			return;
@@ -392,7 +392,7 @@ static void handle_user_command(void)
 		break;
 	case CREQ_RM:
 		copts.cb = cb_ok_done;
-		rc = cldc_del(udp->sess, &copts, creq.u.path);
+		rc = cldc_del(thr_udp->sess, &copts, creq.u.path);
 		if (rc) {
 			write_from_thread(&cresp, sizeof(cresp));
 			return;
@@ -400,8 +400,9 @@ static void handle_user_command(void)
 		break;
 	case CREQ_MKDIR:
 		copts.cb = cb_mkdir_1;
-		rc = cldc_open(udp->sess, &copts, creq.u.path,
-			       COM_DIRECTORY | COM_CREATE | COM_EXCL, 0, &fh);
+		rc = cldc_open(thr_udp->sess, &copts, creq.u.path,
+			       COM_DIRECTORY | COM_CREATE | COM_EXCL, 0,
+			       &thr_fh);
 		if (rc) {
 			write_from_thread(&cresp, sizeof(cresp));
 			return;
@@ -478,20 +479,20 @@ static gpointer cld_thread(gpointer dummy)
 
 	dr = host_list->data;
 
-	if (cldc_udp_new(dr->host, dr->port, &udp)) {
+	if (cldc_udp_new(dr->host, dr->port, &thr_udp)) {
 		fprintf(stderr, "cldthr: UDP create failed\n");
 		write_from_thread(&tcode, 1);
 		return NULL;
 	}
 
-	if (cldc_new_sess(&cld_ops, &copts, udp->addr, udp->addr_len,
-			  "cldcli", "cldcli", udp, &udp->sess)) {
+	if (cldc_new_sess(&cld_ops, &copts, thr_udp->addr, thr_udp->addr_len,
+			  "cldcli", "cldcli", thr_udp, &thr_udp->sess)) {
 		fprintf(stderr, "cldthr: new_sess failed\n");
 		write_from_thread(&tcode, 1);
 		return NULL;
 	}
 
-	pfd[0].fd = udp->fd;
+	pfd[0].fd = thr_udp->fd;
 	pfd[0].events = POLLIN;
 
 	pfd[1].fd = to_thread[0];
@@ -515,7 +516,7 @@ static gpointer cld_thread(gpointer dummy)
 		for (i = 0; i < ARRAY_SIZE(pfd); i++) {
 			if (pfd[i].revents) {
 				if (i == 0)
-					cldc_udp_receive_pkt(udp);
+					cldc_udp_receive_pkt(thr_udp);
 				else
 					handle_user_command();
 			}

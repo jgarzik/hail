@@ -998,7 +998,7 @@ int cldc_close(struct cldc_fh *fh, const struct cldc_call_opts *copts)
 {
 	struct cldc_session *sess;
 	struct cldc_msg *msg;
-	struct cld_msg_close *close;
+	struct cld_msg_close *close_msg;
 
 	if (!fh->valid)
 		return -EINVAL;
@@ -1017,8 +1017,8 @@ int cldc_close(struct cldc_fh *fh, const struct cldc_call_opts *copts)
 	msg->cb = generic_end_cb;
 
 	/* fill in CLOSE-specific fh info */
-	close = (struct cld_msg_close *) msg->data;
-	close->fh = fh->fh_le;
+	close_msg = (struct cld_msg_close *) msg->data;
+	close_msg->fh = fh->fh_le;
 
 	return sess_send(sess, msg);
 }

@@ -585,18 +585,18 @@ err_addr:
 	return rc;
 }
 
-static void segv_signal(int signal)
+static void segv_signal(int signo)
 {
 	cldlog(LOG_ERR, "SIGSEGV");
 	exit(1);
 }
 
-static void term_signal(int signal)
+static void term_signal(int signo)
 {
 	server_running = false;
 }
 
-static void stats_signal(int signal)
+static void stats_signal(int signo)
 {
 	dump_stats = true;
 }
