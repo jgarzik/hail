@@ -836,10 +836,6 @@ int main (int argc, char *argv[])
 
 	g_thread_init(NULL);
 
-	/*
-	 * parse command line
-	 */
-
 	aprc = argp_parse(&argp, argc, argv, 0, NULL, NULL);
 	if (aprc) {
 		fprintf(stderr, "argp_parse failed: %s\n", strerror(aprc));
