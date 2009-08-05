@@ -534,16 +534,16 @@ int cld_begin(const char *thishost, const char *thiscell, uint32_t nid,
 		 */
 		i = 0;
 		for (tmp = host_list; tmp; tmp = tmp->next) {
+			struct cldc_host *hp = tmp->data;
 			if (i < N_CLD) {
-				memcpy(&ses.cldv[i].h, tmp->data,
+				memcpy(&ses.cldv[i].h, hp,
 				       sizeof(struct cldc_host));
 				ses.cldv[i].known = 1;
 				i++;
 			} else {
-				struct cldc_host *hp = tmp->data;
 				free(hp->host);
-				free(hp);
 			}
+			free(hp);
 		}
 
 		g_list_free(host_list);
