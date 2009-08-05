@@ -704,7 +704,7 @@ static void cmd_cat(const char *arg)
 	len = cresp.u.file_len;
 	mem = malloc(len);
 	if (!len) {
-		fprintf(stderr, "oom\n");
+		fprintf(stderr, "OOM\n");
 		return;
 	}
 
