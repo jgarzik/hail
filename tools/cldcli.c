@@ -9,12 +9,9 @@
 #include <argp.h>
 #include <poll.h>
 #include <locale.h>
-#include <syslog.h>
 #include <stdarg.h>
 #include <ctype.h>
 #include <cldc.h>
-
-#define PROGRAM_NAME "cld"
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
@@ -32,8 +29,8 @@ enum thread_codes {
 static struct argp_option options[] = {
 	{ "debug", 'D', "LEVEL", 0,
 	  "Set debug output to LEVEL (0 = off, 2 = max verbose)" },
-	{ "host", 'h', "HOST", 0,
-	  "Connect to remote host.  Used once in normal case (DNS SRV records), or may be specified multiple times." },
+	{ "host", 'h', "HOST:PORT", 0,
+	  "Connect to remote CLD at specified HOST:PORT" },
 	{ "user", 'u', "USER", 0,
 	  "Set username to USER" },
 	{ }
@@ -749,22 +746,32 @@ static bool push_host(const char *arg)
 	struct cldc_host *dr;
 
 	dr = malloc(sizeof(*dr));
-	if (!dr)
-		return false;
+	if (!dr) {
+		fprintf(stderr, "OOM\n");
+		goto err;
+	}
 	memset(dr, 0, sizeof(*dr));
 
 	dr->host = strdup(arg);
-	if (!dr->host)
+	if (!dr->host) {
+		fprintf(stderr, "OOM\n");
 		goto err_out;
+	}
 
 	colon = strrchr(dr->host, ':');
-	if (!colon)
+	if (!colon) {
+		fprintf(stderr, "no port in host specifier `%s'\n", dr->host);
 		goto err_out_host;
+	}
 
-	if (sscanf(colon, ":%u", &port) != 1)
+	if (sscanf(colon, ":%u", &port) != 1) {
+		fprintf(stderr, "port `%s' is invalid\n", colon+1);
 		goto err_out_host;
-	if (port < 1 || port > 65535)
+	}
+	if (port < 1 || port > 65535) {
+		fprintf(stderr, "port `%s' is out of range\n", colon+1);
 		goto err_out_host;
+	}
 
 	dr->port = port;
 
@@ -778,6 +785,7 @@ err_out_host:
 	free(dr->host);
 err_out:
 	free(dr);
+err:
 	return false;
 }
 
@@ -793,10 +801,8 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 		}
 		break;
 	case 'h':
-		if (!push_host(arg)) {
-			fprintf(stderr, "invalid host: '%s'\n", arg);
+		if (!push_host(arg))
 			argp_usage(state);
-		}
 		break;
 	case 'u':
 		if (strlen(arg) >= CLD_MAX_USERNAME) {
