@@ -123,8 +123,7 @@ struct cld_packet {
 	uint8_t		magic[CLD_MAGIC_SZ];	/**< magic number; constant */
 	uint64_t	seqid;			/**< sequence id */
 	uint8_t		sid[CLD_SID_SZ];	/**< client id */
-	uint8_t		n_msg;			/**< num msgs in packet */
-	uint8_t		res[7];
+	uint8_t		res[8];
 	char		user[CLD_MAX_USERNAME];	/**< authenticated user */
 };
 

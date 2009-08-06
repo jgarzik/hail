@@ -101,7 +101,6 @@ static int ack_seqid(struct cldc_session *sess, uint64_t seqid_le)
 	memcpy(pkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
 	pkt->seqid = seqid_le;
 	memcpy(pkt->sid, sess->sid, CLD_SID_SZ);
-	pkt->n_msg = 1;
 	strncpy(pkt->user, sess->user, CLD_MAX_USERNAME - 1);
 
 	resp = (struct cld_msg_hdr *) (pkt + 1);
@@ -640,7 +639,6 @@ static int sess_send(struct cldc_session *sess,
 
 	memcpy(pkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
 	memcpy(pkt->sid, sess->sid, CLD_SID_SZ);
-	pkt->n_msg = 1;
 	strncpy(pkt->user, sess->user, CLD_MAX_USERNAME - 1);
 
 	/* sign message */

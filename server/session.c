@@ -67,7 +67,6 @@ void pkt_init_pkt(struct cld_packet *dest, const struct cld_packet *src)
 	memcpy(dest->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
 	dest->seqid = GUINT64_TO_LE(0xdeadbeef);
 	memcpy(dest->sid, src->sid, CLD_SID_SZ);
-	dest->n_msg = 1;
 	strncpy(dest->user, src->user, CLD_MAX_USERNAME - 1);
 }
 
@@ -77,7 +76,6 @@ void pkt_init_sess(struct cld_packet *dest, struct session *sess)
 	memcpy(dest->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
 	dest->seqid = next_seqid_le(&sess->next_seqid_out);
 	memcpy(dest->sid, sess->sid, CLD_SID_SZ);
-	dest->n_msg = 1;
 	strncpy(dest->user, sess->user, CLD_MAX_USERNAME - 1);
 }
 
