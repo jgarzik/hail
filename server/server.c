@@ -283,17 +283,19 @@ static void udp_rx(struct server_socket *sock,
 	    (memcmp(msg->magic, CLD_MSG_MAGIC, sizeof(msg->magic))))
 		return;
 
-	/* look up client session, verify it matches IP */
-	sess = g_hash_table_lookup(cld_srv.sessions, pkt->sid);
-	if (sess && ((sess->addr_len != cli->addr_len) ||
-	    memcmp(&sess->addr, &cli->addr, sess->addr_len))) {
-		resp_rc = CLE_SESS_INVAL;
+	/* verify pkt data integrity and credentials via HMAC signature */
+	if (!authcheck(pkt, pkt_len)) {
+		resp_rc = CLE_SIG_INVAL;
 		goto err_out;
 	}
 
-	/* verify username/password via HMAC signature */
-	if (!authcheck(pkt, pkt_len)) {
-		resp_rc = CLE_SIG_INVAL;
+	/* look up client session, verify it matches IP and username */
+	sess = g_hash_table_lookup(cld_srv.sessions, pkt->sid);
+	if (sess &&
+	    ((sess->addr_len != cli->addr_len) ||
+	     memcmp(&sess->addr, &cli->addr, sess->addr_len) ||
+	     strncmp(pkt->user, sess->user, CLD_MAX_USERNAME))) {
+		resp_rc = CLE_SESS_INVAL;
 		goto err_out;
 	}
 
