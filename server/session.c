@@ -70,7 +70,7 @@ void pkt_init_pkt(struct cld_packet *dest, const struct cld_packet *src)
 	strncpy(dest->user, src->user, CLD_MAX_USERNAME - 1);
 }
 
-void pkt_init_sess(struct cld_packet *dest, struct session *sess)
+static void pkt_init_sess(struct cld_packet *dest, struct session *sess)
 {
 	memset(dest, 0, sizeof(*dest));
 	memcpy(dest->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
@@ -124,6 +124,11 @@ static void session_free(struct session *sess)
 	timer_del(&sess->retry_timer);
 
 	free(sess);
+}
+
+static void session_trash(struct session *sess)
+{
+	sess->dead = true;
 }
 
 static bool lmatch(const struct raw_lock *lock, uint8_t *sid, uint64_t fh)
@@ -385,7 +390,7 @@ static void session_timeout(struct timer *timer)
 	time_t now = time(NULL);
 
 	sess_expire = sess->last_contact + CLD_SESS_TIMEOUT;
-	if (sess_expire > now) {
+	if (!sess->dead && (sess_expire > now)) {
 		if (!sess->ping_open &&
 		    (sess_expire > (sess->last_contact + (CLD_SESS_TIMEOUT / 2) &&
 		    sess->sock)))
@@ -395,8 +400,9 @@ static void session_timeout(struct timer *timer)
 		return;	/* timer added; do not time out session */
 	}
 
-	cldlog(LOG_INFO, "session timeout, addr %s sid " SIDFMT,
-		sess->ipaddr, SIDARG(sess->sid));
+	cldlog(LOG_INFO, "session %s, addr %s sid " SIDFMT,
+	       sess->dead ? "gc'd" : "timeout",
+	       sess->ipaddr, SIDARG(sess->sid));
 
 	/* open transaction */
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
@@ -780,11 +786,7 @@ err_out:
 
 static void end_sess_done(struct session_outpkt *outpkt)
 {
-	struct session *sess = outpkt->sess;
-
-	outpkt->sess = NULL;
-
-	session_free(sess);
+	session_trash(outpkt->sess);
 }
 
 void msg_end_sess(struct msg_params *mp, const struct client *cli)

@@ -115,7 +115,9 @@ int udp_tx(struct server_socket *sock, struct sockaddr *addr,
 
 	src = sendto(sock->fd, data, data_len, 0, addr, addr_len);
 	if (src < 0 && errno != EAGAIN)
-		syslogerr("sendto");
+		cldlog(LOG_ERR, "udp_tx sendto (fd %d, data_len %u): %s",
+		       sock->fd, (unsigned int) data_len,
+		       strerror(errno));
 
 	if (src < 0)
 		return -errno;
@@ -137,6 +139,7 @@ void resp_err(struct session *sess,
 	struct cld_msg_resp resp;
 
 	resp_copy(&resp, src);
+	__cld_rand64(&resp.hdr.xid);
 	resp.code = GUINT32_TO_LE(errcode);
 
 	if (sess->sock == NULL) {
@@ -294,7 +297,8 @@ static void udp_rx(struct server_socket *sock,
 	if (sess &&
 	    ((sess->addr_len != cli->addr_len) ||
 	     memcmp(&sess->addr, &cli->addr, sess->addr_len) ||
-	     strncmp(pkt->user, sess->user, CLD_MAX_USERNAME))) {
+	     strncmp(pkt->user, sess->user, CLD_MAX_USERNAME) ||
+	     sess->dead)) {
 		resp_rc = CLE_SESS_INVAL;
 		goto err_out;
 	}
