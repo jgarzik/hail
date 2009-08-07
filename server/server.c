@@ -221,13 +221,13 @@ static char *get_hostname(void)
 	return ret;
 }
 
-static void term_signal(int signal)
+static void term_signal(int signo)
 {
 	server_running = false;
 	event_loopbreak();
 }
 
-static void stats_signal(int signal)
+static void stats_signal(int signo)
 {
 	dump_stats = true;
 	event_loopbreak();
@@ -270,13 +270,18 @@ static bool cli_write_free(struct client *cli, struct client_write *tmp,
 	return rcb;
 }
 
-static void cli_free(struct client *cli)
+static void cli_write_free_all(struct client *cli)
 {
 	struct client_write *wr, *tmp;
 
 	list_for_each_entry_safe(wr, tmp, &cli->write_q, node) {
 		cli_write_free(cli, wr, false);
 	}
+}
+
+static void cli_free(struct client *cli)
+{
+	cli_write_free_all(cli);
 
 	cli_out_end(cli);
 	cli_in_end(cli);
@@ -299,7 +304,7 @@ static void cli_free(struct client *cli)
 	free(cli);
 }
 
-static struct client *cli_alloc(bool encrypt)
+static struct client *cli_alloc(bool use_ssl)
 {
 	struct client *cli;
 
@@ -308,7 +313,7 @@ static struct client *cli_alloc(bool encrypt)
 	if (!cli)
 		return NULL;
 
-	if (encrypt) {
+	if (use_ssl) {
 		cli->ssl = SSL_new(ssl_ctx);
 		if (!cli->ssl) {
 			applog(LOG_ERR, "SSL_new failed");
@@ -408,10 +413,8 @@ do_write:
 	if (tmp->sendfile) {
 		rc = fs_obj_sendfile(cli->in_obj, cli->fd,
 				     MIN(cli->in_len, CLI_MAX_SENDFILE_SZ));
-		if (rc < 0) {
-			cli->state = evt_dispose;
-			return;
-		}
+		if (rc < 0)
+			goto err_out;
 
 		cli->in_len -= rc;
 	} else if (cli->ssl) {
@@ -424,8 +427,8 @@ do_write:
 			}
 			if (rc == SSL_ERROR_WANT_WRITE)
 				return;
-			cli->state = evt_dispose;
-			return;
+
+			goto err_out;
 		}
 	} else {
 		struct iovec iov[CLI_MAX_WR_IOV];
@@ -435,8 +438,10 @@ do_write:
 		if (rc < 0) {
 			if (errno == EINTR)
 				goto do_write;
-			if (errno != EAGAIN)
+			if (errno != EAGAIN) {
 				cli->state = evt_dispose;
+				goto err_out;
+			}
 			return;
 		}
 	}
@@ -450,8 +455,14 @@ do_write:
 	if (list_empty(&cli->write_q)) {
 		cli->writing = false;
 		if (event_del(&cli->write_ev) < 0)
-			cli->state = evt_dispose;
+			goto err_out;
 	}
+
+	return;
+
+err_out:
+	cli->state = evt_dispose;
+	cli_write_free_all(cli);
 }
 
 bool cli_write_start(struct client *cli)
