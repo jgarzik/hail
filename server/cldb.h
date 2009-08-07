@@ -156,7 +156,7 @@ extern struct raw_inode *cldb_inode_mem(const char *name, size_t name_len,
 extern size_t raw_ino_size(const struct raw_inode *ino);
 
 extern int cldb_data_put(DB_TXN *txn, cldino_t inum,
-		  void *data, size_t data_len, int flags);
+		  const void *data, size_t data_len, int flags);
 extern int cldb_data_get(DB_TXN *txn, cldino_t inum,
 		  void **data_out, size_t *data_len,
 		  bool notfound_err, bool rmw);

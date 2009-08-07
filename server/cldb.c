@@ -696,7 +696,7 @@ int cldb_data_get(DB_TXN *txn, cldino_t inum,
 }
 
 int cldb_data_put(DB_TXN *txn, cldino_t inum,
-		  void *data, size_t data_len, int flags)
+		  const void *data, size_t data_len, int flags)
 {
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	DB *db_data = cld_srv.cldb.data;
@@ -711,7 +711,7 @@ int cldb_data_put(DB_TXN *txn, cldino_t inum,
 	key.data = &inum_le;
 	key.size = sizeof(inum_le);
 
-	val.data = data;
+	val.data = (void *) data;
 	val.size = data_len;
 
 	rc = db_data->put(db_data, txn, &key, &val, flags);
