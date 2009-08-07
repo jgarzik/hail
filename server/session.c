@@ -791,43 +791,16 @@ static void end_sess_done(struct session_outpkt *outpkt)
 
 void msg_end_sess(struct msg_params *mp, const struct client *cli)
 {
-	int rc;
 	struct session *sess = mp->sess;
 	struct cld_msg_resp resp;
-	enum cle_err_codes resp_rc = CLE_OK;
-	DB_ENV *dbenv = cld_srv.cldb.env;
-	DB_TXN *txn;
 
-	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
-	if (rc) {
-		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
-		resp_rc = CLE_DB_ERR;
-		goto err_out_noabort;
-	}
-
-	rc = session_remove(txn, sess);
-	if (rc) {
-		resp_rc = CLE_DB_ERR;
-		goto err_out;
-	}
-
-	rc = txn->commit(txn, 0);
-	if (rc) {
-		resp_rc = CLE_DB_ERR;
-		goto err_out_noabort;
-	}
+	/* do nothing; let message acknowledgement via
+	 * end_sess_done mark session dead
+	 */
 
 	memset(&resp, 0, sizeof(resp));
 	resp_copy(&resp, mp->msg);
 	sess_sendmsg(sess, &resp, sizeof(resp), end_sess_done, NULL);
-	return;
-
-err_out:
-	rc = txn->abort(txn);
-	if (rc)
-		dbenv->err(dbenv, rc, "msg_get txn abort");
-err_out_noabort:
-	resp_err(sess, mp->msg, resp_rc);
 }
 
 /*
