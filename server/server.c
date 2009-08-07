@@ -108,15 +108,18 @@ void cldlog(int prio, const char *fmt, ...)
 	va_end(ap);
 }
 
-int udp_tx(struct server_socket *sock, struct sockaddr *addr,
-	   socklen_t addr_len, const void *data, size_t data_len)
+int udp_tx(int sock_fd, struct sockaddr *addr, socklen_t addr_len,
+	   const void *data, size_t data_len)
 {
 	ssize_t src;
 
-	src = sendto(sock->fd, data, data_len, 0, addr, addr_len);
+	if (debugging > 1)
+		cldlog(LOG_DEBUG, "udp_tx, fd %d", sock_fd);
+
+	src = sendto(sock_fd, data, data_len, 0, addr, addr_len);
 	if (src < 0 && errno != EAGAIN)
 		cldlog(LOG_ERR, "udp_tx sendto (fd %d, data_len %u): %s",
-		       sock->fd, (unsigned int) data_len,
+		       sock_fd, (unsigned int) data_len,
 		       strerror(errno));
 
 	if (src < 0)
@@ -142,7 +145,7 @@ void resp_err(struct session *sess,
 	__cld_rand64(&resp.hdr.xid);
 	resp.code = GUINT32_TO_LE(errcode);
 
-	if (sess->sock == NULL) {
+	if (sess->sock_fd <= 0) {
 		cldlog(LOG_ERR, "Nul sock in response");
 		return;
 	}
@@ -220,7 +223,6 @@ const char *opstr(enum cld_msg_ops op)
 	case cmo_open:		return "cmo_open";
 	case cmo_get_meta:	return "cmo_get_meta";
 	case cmo_get:		return "cmo_get";
-	case cmo_data_s:	return "cmo_data_s";
 	case cmo_put:		return "cmo_put";
 	case cmo_close:		return "cmo_close";
 	case cmo_del:		return "cmo_del";
@@ -232,7 +234,6 @@ const char *opstr(enum cld_msg_ops op)
 	case cmo_ping:		return "cmo_ping";
 	case cmo_not_master:	return "cmo_not_master";
 	case cmo_event:		return "cmo_event";
-	case cmo_data_c:	return "cmo_data_c";
 	default:		return "(unknown)";
 	}
 }
@@ -253,7 +254,6 @@ static void udp_rx_msg(const struct client *cli, const struct cld_packet *pkt,
 	case cmo_get:		msg_get(mp, false); break;
 	case cmo_get_meta:	msg_get(mp, true); break;
 	case cmo_put:		msg_put(mp); break;
-	case cmo_data_s:	msg_data(mp); break;
 	case cmo_close:		msg_close(mp); break;
 	case cmo_del:		msg_del(mp); break;
 	case cmo_unlock:	msg_unlock(mp); break;
@@ -267,7 +267,41 @@ static void udp_rx_msg(const struct client *cli, const struct cld_packet *pkt,
 	}
 }
 
-static void udp_rx(struct server_socket *sock,
+static void pkt_ack_frag(int sock_fd,
+			 const struct client *cli,
+			 const struct cld_packet *pkt)
+{
+	size_t alloc_len;
+	struct cld_packet *outpkt;
+	struct cld_msg_ack_frag *ack_msg;
+
+	alloc_len = sizeof(*outpkt) + sizeof(*ack_msg) + SHA_DIGEST_LENGTH;
+	outpkt = alloca(alloc_len);
+	ack_msg = (struct cld_msg_ack_frag *) (outpkt + 1);
+	memset(outpkt, 0, alloc_len);
+
+	pkt_init_pkt(outpkt, pkt);
+
+	memcpy(ack_msg->hdr.magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
+	__cld_rand64(&ack_msg->hdr.xid);
+	ack_msg->hdr.op = cmo_ack_frag;
+	ack_msg->seqid = pkt->seqid;
+
+	authsign(outpkt, alloc_len);
+
+	if (debugging)
+		cldlog(LOG_DEBUG, "ack-partial-msg: "
+		       "sid " SIDFMT ", op %s, seqid %llu",
+		       SIDARG(outpkt->sid),
+		       opstr(ack_msg->hdr.op),
+		       (unsigned long long) GUINT64_FROM_LE(outpkt->seqid));
+
+	/* transmit ack-partial-msg response (once, without retries) */
+	udp_tx(sock_fd, (struct sockaddr *) &cli->addr, cli->addr_len,
+	       outpkt, alloc_len);
+}
+
+static void udp_rx(int sock_fd,
 		   const struct client *cli,
 		   const void *raw_pkt, size_t pkt_len)
 {
@@ -279,6 +313,8 @@ static void udp_rx(struct server_socket *sock,
 	struct cld_msg_resp *resp;
 	struct msg_params mp;
 	size_t alloc_len;
+	uint32_t pkt_flags;
+	bool first_frag, have_new_sess, have_ack, have_put;
 
 	/* drop all completely corrupted packets */
 	if ((pkt_len < (sizeof(*pkt) + sizeof(*msg) + SHA_DIGEST_LENGTH)) ||
@@ -292,6 +328,12 @@ static void udp_rx(struct server_socket *sock,
 		goto err_out;
 	}
 
+	pkt_flags = GUINT32_FROM_LE(pkt->flags);
+	first_frag = pkt_flags & CPF_FIRST;
+	have_new_sess = first_frag && (msg->op == cmo_new_sess);
+	have_ack = first_frag && (msg->op == cmo_ack);
+	have_put = first_frag && (msg->op == cmo_put);
+
 	/* look up client session, verify it matches IP and username */
 	sess = g_hash_table_lookup(cld_srv.sessions, pkt->sid);
 	if (sess &&
@@ -303,7 +345,7 @@ static void udp_rx(struct server_socket *sock,
 		goto err_out;
 	}
 
-	mp.sock = sock;
+	mp.sock_fd = sock_fd;
 	mp.cli = cli;
 	mp.sess = sess;
 	mp.pkt = pkt;
@@ -311,37 +353,35 @@ static void udp_rx(struct server_socket *sock,
 	mp.msg_len = pkt_len - sizeof(*pkt);
 
 	if (debugging) {
-		if (msg->op == cmo_data_s) {
-			struct cld_msg_data *dp = (struct cld_msg_data *) msg;
-			cldlog(LOG_DEBUG,
-			       "    msg op %s, seqid %llu, seg %u, len %u",
-			       opstr(msg->op),
-			       (unsigned long long) GUINT64_FROM_LE(pkt->seqid),
-			       GUINT32_FROM_LE(dp->seg),
-			       GUINT32_FROM_LE(dp->seg_len));
-		} else if (msg->op == cmo_put) {
+		if (have_put) {
 			struct cld_msg_put *dp = (struct cld_msg_put *) msg;
-			cldlog(LOG_DEBUG, "    msg op %s, seqid %llu, size %u",
+			cldlog(LOG_DEBUG, "    msg op %s, seqid %llu, xid %llu, size %u",
 			       opstr(msg->op),
 			       (unsigned long long) GUINT64_FROM_LE(pkt->seqid),
+			       (unsigned long long) GUINT64_FROM_LE(msg->xid),
 			       GUINT32_FROM_LE(dp->data_size));
-		} else {
-			cldlog(LOG_DEBUG, "    msg op %s, seqid %llu",
+		} else if (first_frag) {
+			cldlog(LOG_DEBUG, "    msg op %s, seqid %llu, xid %llu",
 			       opstr(msg->op),
+			       (unsigned long long) GUINT64_FROM_LE(pkt->seqid),
+			       (unsigned long long) GUINT64_FROM_LE(msg->xid));
+		} else {
+			cldlog(LOG_DEBUG, "    seqid %llu",
 			       (unsigned long long) GUINT64_FROM_LE(pkt->seqid));
 		}
 	}
 
-	if (msg->op != cmo_new_sess) {
+	/* advance sequence id's and update last-contact timestamp */
+	if (!have_new_sess) {
 		if (!sess) {
 			resp_rc = CLE_SESS_INVAL;
 			goto err_out;
 		}
 
 		sess->last_contact = current_time.tv_sec;
-		sess->sock = sock;	/* FIXME refcount for changed sockets */
+		sess->sock_fd = sock_fd;
 
-		if (msg->op != cmo_ack) {
+		if (!have_ack) {
 			/* eliminate duplicates; do not return any response */
 			if (GUINT64_FROM_LE(pkt->seqid) != sess->next_seqid_in) {
 				if (debugging)
@@ -364,6 +404,32 @@ static void udp_rx(struct server_socket *sock,
 			resp_rc = CLE_SESS_EXISTS;
 			goto err_out;
 		}
+	}
+
+	/* copy message fragment into reassembly buffer */
+	if (sess) {
+		if (pkt_flags & CPF_FIRST)
+			sess->msg_buf_len = 0;
+
+		if ((sess->msg_buf_len + mp.msg_len) > CLD_MAX_MSG_SZ) {
+			resp_rc = CLE_BAD_PKT;
+			goto err_out;
+		}
+
+		memcpy(&sess->msg_buf[sess->msg_buf_len], msg, mp.msg_len);
+		sess->msg_buf_len += mp.msg_len;
+
+		if (!(pkt_flags & CPF_LAST)) {
+			pkt_ack_frag(sock_fd, cli, pkt);
+			return;
+		}
+
+		mp.msg = msg = (struct cld_msg_hdr *) sess->msg_buf;
+		mp.msg_len = sess->msg_buf_len;
+
+		if ((debugging > 1) && !first_frag)
+			cldlog(LOG_DEBUG, "    final message size %u",
+			       sess->msg_buf_len);
 	}
 
 	udp_rx_msg(cli, pkt, msg, &mp);
@@ -391,13 +457,12 @@ err_out:
 		       (unsigned long long) GUINT64_FROM_LE(outpkt->seqid),
 		       resp_rc);
 
-	udp_tx(sock, (struct sockaddr *) &cli->addr, cli->addr_len,
+	udp_tx(sock_fd, (struct sockaddr *) &cli->addr, cli->addr_len,
 	       outpkt, alloc_len);
 }
 
 static bool udp_srv_event(int fd, short events, void *userdata)
 {
-	struct server_socket sock = { fd };
 	struct client cli;
 	char host[64];
 	ssize_t rrc;
@@ -438,7 +503,7 @@ static bool udp_srv_event(int fd, short events, void *userdata)
 		       host, (int) rrc);
 
 	if (cld_srv.cldb.is_master && cld_srv.cldb.up)
-		udp_rx(&sock, &cli, raw_pkt, rrc);
+		udp_rx(fd, &cli, raw_pkt, rrc);
 
 	else {
 		struct cld_packet *outpkt, *pkt = (struct cld_packet *) raw_pkt;
@@ -459,7 +524,7 @@ static bool udp_srv_event(int fd, short events, void *userdata)
 
 		authsign(outpkt, alloc_len);
 
-		udp_tx(&sock, (struct sockaddr *) &cli.addr, cli.addr_len,
+		udp_tx(fd, (struct sockaddr *) &cli.addr, cli.addr_len,
 		       outpkt, alloc_len);
 	}
 

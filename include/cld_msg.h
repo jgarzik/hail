@@ -36,7 +36,10 @@ enum {
 	CLD_MAX_USERNAME	= 32,		/**< includes req. nul */
 	CLD_MAX_SECRET_KEY	= 128,		/**< includes req. nul */
 
-	CLD_MAX_DATA_MSGS	= 1024,		/**< max data msgs in a stream */
+	CLD_MAX_PKT_MSG_SZ	= 1024,
+	CLD_MAX_PKT_MSG		= 128,
+	CLD_MAX_MSG_SZ		= CLD_MAX_PKT_MSG * 1024, /**< maximum total
+					      msg size, including all packets */
 };
 
 /*
@@ -53,7 +56,6 @@ enum cld_msg_ops {
 	cmo_open		= 2,		/**< open file */
 	cmo_get_meta		= 3,		/**< get metadata */
 	cmo_get			= 4,		/**< get metadata + data */
-	cmo_data_s		= 5,		/**< data message to server */
 	cmo_put			= 6,		/**< put data */
 	cmo_close		= 7,		/**< close file */
 	cmo_del			= 8,		/**< delete file */
@@ -67,7 +69,7 @@ enum cld_msg_ops {
 	cmo_ping		= 30,		/**< server to client ping */
 	cmo_not_master		= 31,		/**< I am not the master! */
 	cmo_event		= 32,		/**< server->cli async event */
-	cmo_data_c		= 33,		/**< data message to client */
+	cmo_ack_frag		= 33,		/**< ack partial msg */
 };
 
 /** CLD error codes */
@@ -118,12 +120,19 @@ enum cld_lock_flags {
 	CLF_SHARED		= (1 << 0),	/**< a shared (read) lock */
 };
 
+/** CLD packet flags */
+enum cld_packet_flags {
+	CPF_FIRST		= (1 << 0),	/**< first fragment */
+	CPF_LAST		= (1 << 1),	/**< last fragment */
+};
+
 /** header for each packet */
 struct cld_packet {
 	uint8_t		magic[CLD_MAGIC_SZ];	/**< magic number; constant */
 	uint64_t	seqid;			/**< sequence id */
 	uint8_t		sid[CLD_SID_SZ];	/**< client id */
-	uint8_t		res[8];
+	uint32_t	flags;			/**< CPF_xxx flags */
+	uint8_t		res[4];
 	char		user[CLD_MAX_USERNAME];	/**< authenticated user */
 };
 
@@ -142,6 +151,13 @@ struct cld_msg_resp {
 	uint32_t		code;		/**< error code, CLE_xxx */
 	uint32_t		rsv;		/**< reserved */
 	uint64_t		xid_in;		/**< C->S xid */
+};
+
+/** ACK-FRAG message */
+struct cld_msg_ack_frag {
+	struct cld_msg_hdr	hdr;
+
+	uint64_t		seqid;		/**< sequence id to ack */
 };
 
 /** OPEN message */
@@ -184,18 +200,7 @@ struct cld_msg_get_resp {
 	uint64_t		time_modify;	/**< last modification time */
 	uint32_t		flags;		/**< inode flags; CIFL_xxx */
 
-	uint64_t		strid;		/**< DATA stream id */
-
 	/* inode name */
-};
-
-/** DATA message */
-struct cld_msg_data {
-	struct cld_msg_hdr	hdr;
-
-	uint64_t		strid;		/**< stream id */
-	uint32_t		seg;		/**< segment number */
-	uint32_t		seg_len;	/**< segment length */
 };
 
 /** PUT message */
@@ -203,7 +208,6 @@ struct cld_msg_put {
 	struct cld_msg_hdr	hdr;
 
 	uint64_t		fh;		/**< open file handle */
-	uint64_t		strid;		/**< DATA stream id */
 	uint32_t		data_size;	/**< total size of data */
 };
 

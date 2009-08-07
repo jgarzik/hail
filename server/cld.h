@@ -29,7 +29,6 @@
 
 struct timer;
 struct client;
-struct server_socket;
 struct session_outpkt;
 
 enum {
@@ -57,7 +56,7 @@ struct client {
 struct session {
 	uint8_t			sid[CLD_SID_SZ];
 
-	struct server_socket	*sock;
+	int			sock_fd;
 
 	struct sockaddr_in6	addr;		/* inet address */
 	socklen_t		addr_len;	/* inet address len */
@@ -70,9 +69,6 @@ struct session {
 	uint64_t		next_seqid_in;
 	uint64_t		next_seqid_out;
 
-	GList			*put_q;		/* queued PUT pkts */
-	GList			*data_q;	/* queued data pkts */
-
 	GList			*out_q;		/* outgoing pkts (to client) */
 	struct timer		retry_timer;
 
@@ -80,10 +76,14 @@ struct session {
 
 	bool			ping_open;	/* sent PING, waiting for ack */
 	bool			dead;		/* session has ended */
+
+	/* huge buffer should always come last */
+	unsigned int		msg_buf_len;
+	char			msg_buf[CLD_MAX_MSG_SZ];
 };
 
 struct msg_params {
-	struct server_socket	*sock;
+	int			sock_fd;
 	const struct client	*cli;
 	struct session		*sess;
 
@@ -95,10 +95,6 @@ struct msg_params {
 struct server_stats {
 	unsigned long		poll;		/* number polls */
 	unsigned long		event;		/* events dispatched */
-};
-
-struct server_socket {
-	int			fd;
 };
 
 struct server_poll {
@@ -134,7 +130,6 @@ struct server {
 extern int inode_lock_rescan(DB_TXN *txn, cldino_t inum);
 extern void msg_open(struct msg_params *);
 extern void msg_put(struct msg_params *);
-extern void msg_data(struct msg_params *);
 extern void msg_close(struct msg_params *);
 extern void msg_del(struct msg_params *);
 extern void msg_unlock(struct msg_params *);
@@ -163,7 +158,7 @@ extern const char *opstr(enum cld_msg_ops op);
 extern struct server cld_srv;
 extern int debugging;
 extern struct timeval current_time;
-extern int udp_tx(struct server_socket *, struct sockaddr *, socklen_t,
+extern int udp_tx(int sock_fd, struct sockaddr *, socklen_t,
 	    const void *, size_t);
 extern void resp_copy(struct cld_msg_resp *resp, const struct cld_msg_hdr *src);
 extern void resp_err(struct session *sess,

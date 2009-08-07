@@ -67,6 +67,7 @@ void pkt_init_pkt(struct cld_packet *dest, const struct cld_packet *src)
 	memcpy(dest->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
 	dest->seqid = GUINT64_TO_LE(0xdeadbeef);
 	memcpy(dest->sid, src->sid, CLD_SID_SZ);
+	dest->flags = GUINT32_TO_LE(CPF_FIRST | CPF_LAST);
 	strncpy(dest->user, src->user, CLD_MAX_USERNAME - 1);
 }
 
@@ -76,6 +77,7 @@ static void pkt_init_sess(struct cld_packet *dest, struct session *sess)
 	memcpy(dest->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
 	dest->seqid = next_seqid_le(&sess->next_seqid_out);
 	memcpy(dest->sid, sess->sid, CLD_SID_SZ);
+	dest->flags = 0;
 	strncpy(dest->user, sess->user, CLD_MAX_USERNAME - 1);
 }
 
@@ -128,6 +130,9 @@ static void session_free(struct session *sess)
 
 static void session_trash(struct session *sess)
 {
+	if (debugging)
+		cldlog(LOG_DEBUG, "session " SIDFMT " sent to garbage",
+		       SIDARG(sess->sid));
 	sess->dead = true;
 }
 
@@ -373,6 +378,8 @@ static void session_ping(struct session *sess)
 	struct cld_msg_hdr resp;
 
 	memset(&resp, 0, sizeof(resp));
+	memcpy(resp.magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
+	__cld_rand64(&resp.xid);
 	resp.op = cmo_ping;
 
 	sess->ping_open = true;
@@ -393,7 +400,7 @@ static void session_timeout(struct timer *timer)
 	if (!sess->dead && (sess_expire > now)) {
 		if (!sess->ping_open &&
 		    (sess_expire > (sess->last_contact + (CLD_SESS_TIMEOUT / 2) &&
-		    sess->sock)))
+		    (sess->sock_fd > 0))))
 			session_ping(sess);
 
 		timer_add(&sess->timer, now + ((sess_expire - now) / 2) + 1);
@@ -542,7 +549,7 @@ static int sess_retry_output(struct session *sess)
 			       (unsigned long long)
 					GUINT64_FROM_LE(outpkt->seqid));
 
-		rc = udp_tx(sess->sock, (struct sockaddr *) &sess->addr,
+		rc = udp_tx(sess->sock_fd, (struct sockaddr *) &sess->addr,
 			    sess->addr_len, op->pkt, op->pkt_len);
 		if (rc)
 			break;
@@ -562,14 +569,29 @@ static void session_retry(struct timer *timer)
 	timer_add(&sess->retry_timer, time(NULL) + CLD_RETRY_START);
 }
 
+static void session_outq(struct session *sess, GList *new_pkts)
+{
+	/* if out_q empty, start retry timer */
+	if (!sess->out_q)
+		timer_add(&sess->retry_timer, time(NULL) + CLD_RETRY_START);
+
+	sess->out_q = g_list_concat(sess->out_q, new_pkts);
+}
+
 bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
 		  void (*done_cb)(struct session_outpkt *),
 		  void *done_data)
 {
 	struct cld_packet *outpkt;
-	struct cld_msg_hdr *msg;
-	struct session_outpkt *op;
-	size_t pkt_len;
+	unsigned int n_pkts, i;
+	size_t pkt_len, msg_left = msglen;
+	struct session_outpkt *pkts[CLD_MAX_PKT_MSG], *op;
+	GList *tmp_root = NULL;
+	const void *p;
+	bool first_frag = true;
+
+	n_pkts = (msglen / CLD_MAX_PKT_MSG_SZ);
+	n_pkts += (msglen % CLD_MAX_PKT_MSG_SZ) ? 1 : 0;
 
 	if (debugging) {
 		const struct cld_msg_hdr *hdr = msg_;
@@ -587,16 +609,18 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
 		case cmo_new_sess:
 		case cmo_end_sess:
 		case cmo_open:
-		case cmo_data_s:
 		case cmo_get_meta:
 		case cmo_get:
 			rsp = (struct cld_msg_resp *) msg_;
 			cldlog(LOG_DEBUG, "sendmsg: "
-			       "sid " SIDFMT ", op %s, msglen %u, code %u",
+			       "sid " SIDFMT ", op %s, msglen %u, code %u, "
+			       "xid %llu, xid_in %llu",
 			       SIDARG(sess->sid),
 			       opstr(hdr->op),
 			       (unsigned int) msglen,
-			       GUINT32_FROM_LE(rsp->code));
+			       GUINT32_FROM_LE(rsp->code),
+			       (unsigned long long) GUINT64_FROM_LE(hdr->xid),
+			       (unsigned long long) GUINT64_FROM_LE(rsp->xid_in));
 			break;
 		default:
 			cldlog(LOG_DEBUG, "sendmsg: "
@@ -607,48 +631,79 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
 		}
 	}
 
-	op = op_alloc(sizeof(*outpkt) + msglen + SHA_DIGEST_LENGTH);
-	if (!op)
+	if (n_pkts > CLD_MAX_PKT_MSG)
 		return false;
 
-	op->sess = sess;
-	op->done_cb = done_cb;
-	op->done_data = done_data;
+	/* pass 1: perform allocations */
+	for (i = 0; i < n_pkts; i++) {
+		pkts[i] = op = op_alloc(sizeof(*outpkt) +
+					CLD_MAX_PKT_MSG_SZ +
+					SHA_DIGEST_LENGTH);
+		if (!op)
+			goto err_out;
 
-	outpkt = op->pkt;
-	pkt_len = op->pkt_len;
-
-	msg = (struct cld_msg_hdr *) (outpkt + 1);
-
-	/* init packet header */
-	pkt_init_sess(outpkt, sess);
-
-	/* init message header */
-	memcpy(msg->magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
-	msg->op = ((struct cld_msg_hdr *)msg_)->op;
-
-	/* copy message trailer */
-	memcpy(msg + 1, msg_ + sizeof(*msg), msglen - sizeof(*msg));
-
-	op->pkt = outpkt;
-	op->pkt_len = pkt_len;
-	op->next_retry = current_time.tv_sec + CLD_RETRY_START;
-
-	if (!authsign(outpkt, pkt_len)) {
-		op_unref(op);
-		return false;
+		tmp_root = g_list_append(tmp_root, op);
 	}
 
-	/* if out_q empty, start retry timer */
-	if (!sess->out_q)
-		timer_add(&sess->retry_timer, time(NULL) + CLD_RETRY_START);
+	/* pass 2: fill packets */
+	p = msg_;
+	for (i = 0; i < n_pkts; i++) {
+		struct cld_msg_hdr *outmsg;
+		void *outmsg_mem;
+		size_t copy_len;
 
-	sess->out_q = g_list_append(sess->out_q, op);
+		op = pkts[i];
 
-	udp_tx(sess->sock, (struct sockaddr *) &sess->addr,
-	       sess->addr_len, outpkt, pkt_len);
+		op->sess = sess;
+	
+		outpkt = op->pkt;
+		pkt_len = op->pkt_len;
+
+		outmsg_mem = (outpkt + 1);
+		outmsg = outmsg_mem;
+
+		/* init packet header */
+		pkt_init_sess(outpkt, sess);
+
+		if (first_frag) {
+			first_frag = false;
+			outpkt->flags |= GUINT32_TO_LE(CPF_FIRST);
+		}
+
+		copy_len = MIN(pkt_len - sizeof(*outpkt), msg_left);
+		memcpy(outmsg_mem, p, copy_len);
+
+		p += copy_len;
+		msg_left -= copy_len;
+
+		op->pkt_len =
+		pkt_len = sizeof(*outpkt) + copy_len + SHA_DIGEST_LENGTH;
+
+		if (!msg_left) {
+			op->done_cb = done_cb;
+			op->done_data = done_data;
+
+			outpkt->flags |= GUINT32_TO_LE(CPF_LAST);
+		}
+
+		op->next_retry = current_time.tv_sec + CLD_RETRY_START;
+
+		if (!authsign(outpkt, pkt_len))
+			goto err_out;	/* FIXME: we free all pkts -- wrong! */
+
+		udp_tx(sess->sock_fd, (struct sockaddr *) &sess->addr,
+		       sess->addr_len, outpkt, pkt_len);
+	}
+
+	session_outq(sess, tmp_root);
 
 	return true;
+
+err_out:
+	for (i = 0; i < n_pkts; i++)
+		op_unref(pkts[i]);
+	g_list_free(tmp_root);
+	return false;
 }
 
 void msg_ack(struct msg_params *mp)
@@ -717,7 +772,7 @@ void msg_new_sess(struct msg_params *mp, const struct client *cli)
 	strncpy(sess->user, mp->pkt->user, sizeof(sess->user));
 	sess->user[sizeof(sess->user) - 1] = 0;
 
-	sess->sock = mp->sock;
+	sess->sock_fd = mp->sock_fd;
 	sess->addr_len = cli->addr_len;
 	strncpy(sess->ipaddr, cli->addr_host, sizeof(sess->ipaddr));
 	sess->last_contact = current_time.tv_sec;
@@ -777,7 +832,7 @@ err_out:
 		       opstr(resp->hdr.op),
 		       (unsigned long long) GUINT64_FROM_LE(outpkt->seqid));
 
-	udp_tx(mp->sock, (struct sockaddr *) &mp->cli->addr,
+	udp_tx(mp->sock_fd, (struct sockaddr *) &mp->cli->addr,
 	       mp->cli->addr_len, outpkt, alloc_len);
 
 	if (debugging)

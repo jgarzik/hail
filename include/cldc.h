@@ -20,27 +20,24 @@ struct cldc_call_opts {
 	union {
 		struct {
 			struct cld_msg_get_resp resp;
-			char *buf;
+			const char *buf;
 			unsigned int size;
 			char inode_name[CLD_INODE_NAME_MAX];
 		} get;
 	} u;
 };
 
-/** internal per-data stream information */
-struct cldc_stream {
-	uint64_t	strid_le;	/**< stream id, LE */
-	uint32_t	size;		/**< total bytes in stream */
-	uint32_t	next_seg;	/**< next segment number expected */
-	void		*bufp;		/**< pointer to next input loc */
-	uint32_t	size_left;	/**< bytes remaining */
-	struct cldc_call_opts copts;	/**< call options */
-	char		buf[0];		/**< the raw data stream bytes */
+struct cldc_pkt_info {
+	int		pkt_len;
+	int		retries;
+
+	/* must be at end of struct */
+	struct cld_packet pkt;
+	uint8_t		data[0];
 };
 
 /** an outgoing message, from client to server */
 struct cldc_msg {
-	uint64_t	seqid;
 	uint64_t	xid;
 
 	struct cldc_session *sess;
@@ -54,12 +51,12 @@ struct cldc_msg {
 
 	time_t		expire_time;
 
-	int		retries;
-
 	int		data_len;
+	int		n_pkts;
+
+	struct cldc_pkt_info *pkt_info[CLD_MAX_PKT_MSG];
 
 	/* must be at end of struct */
-	struct cld_packet pkt;
 	uint8_t		data[0];
 };
 
@@ -102,8 +99,6 @@ struct cldc_session {
 	GList		*out_msg;
 	time_t		msg_scan_time;
 
-	GList		*streams;
-
 	time_t		expire_time;
 	bool		expired;
 
@@ -115,6 +110,9 @@ struct cldc_session {
 	char		secret_key[CLD_MAX_SECRET_KEY];
 
 	bool		confirmed;
+
+	unsigned int	msg_buf_len;
+	char		msg_buf[CLD_MAX_MSG_SZ];
 };
 
 /** Information for a single CLD server host */

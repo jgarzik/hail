@@ -240,7 +240,7 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 			continue;
 		}
 
-		if (!sess->sock) {		/* Freshly recovered session */
+		if (!sess->sock_fd) {		/* Freshly recovered session */
 			if (debugging)
 				cldlog(LOG_DEBUG,
 				       "Lost notify sid " SIDFMT " ino %lld",
@@ -368,7 +368,7 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 		 * send lock acquisition notification to new lock holder
 		 */
 
-		if (!sess->sock) {		/* Freshly recovered session */
+		if (!sess->sock_fd) {		/* Freshly recovered session */
 			if (debugging)
 				cldlog(LOG_DEBUG,
 				       "Lost success sid " SIDFMT " ino %lld",
@@ -401,13 +401,10 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 	uint32_t omode;
 	void *data_mem = NULL;
 	size_t data_mem_len = 0;
-	uint64_t rand_strid;
 	int rc;
 	struct session *sess = mp->sess;
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	DB_TXN *txn;
-
-	__cld_rand64(&rand_strid);
 
 	/* make sure input data as large as expected */
 	if (mp->msg_len < sizeof(*msg))
@@ -447,12 +444,21 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 
 	name_len = GUINT32_FROM_LE(inode->ino_len);
 
-	resp_len = sizeof(*resp) + name_len + SHA_DIGEST_LENGTH;
+	resp_len = sizeof(*resp) + name_len +
+		   (metadata_only ? 0 : GUINT32_FROM_LE(inode->size));
 	resp = alloca(resp_len);
 	if (!resp) {
 		resp_rc = CLE_OOM;
 		goto err_out;
 	}
+
+	if (debugging)
+		cldlog(LOG_DEBUG, "GET-DEBUG: sizeof(resp) %u, name_len %u, "
+		       "inode->size %u, resp_len %u",
+		       sizeof(*resp),
+		       name_len,
+		       GUINT32_FROM_LE(inode->size),
+		       resp_len);
 
 	/* return response containing inode metadata */
 	resp_copy(&resp->resp, mp->msg);
@@ -463,17 +469,11 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 	resp->time_create = inode->time_create;
 	resp->time_modify = inode->time_modify;
 	resp->flags = inode->flags;
-	resp->strid = rand_strid;
 	memcpy(resp+1, inode+1, name_len);
 
-	sess_sendmsg(sess, resp, resp_len, NULL, NULL);
-
-	/* send one or more data packets, if necessary */
+	/* send data, if requested */
 	if (!metadata_only) {
-		int i, seg_len;
 		void *p;
-		char dbuf[CLD_MAX_UDP_SEG];
-		struct cld_msg_data *dr = (struct cld_msg_data *) &dbuf;
 
 		rc = cldb_data_get(txn, inum, &data_mem, &data_mem_len,
 				   false, false);
@@ -484,40 +484,17 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 		if (rc == DB_NOTFOUND) {
 			data_mem = NULL;
 			data_mem_len = 0;
-		} else if (rc) {
+		} else if (rc || (data_mem_len != GUINT32_TO_LE(inode->size))) {
 			resp_rc = CLE_DB_ERR;
 			goto err_out;
 		}
 
-		/* copy the GET msg's hdr, then change op to DATA */
-		memset(dr, 0, sizeof(*dr));
-		dr->hdr.op = cmo_data_c;
-
-		i = 0;
-		p = data_mem;
-
-		/* break up data_mem into individual packets */
-		while (data_mem_len > 0) {
-			seg_len = MIN(CLD_MAX_UDP_SEG - sizeof(*dr), data_mem_len);
-
-			dr->strid = rand_strid;
-			dr->seg = GUINT32_TO_LE(i);
-			dr->seg_len = GUINT32_TO_LE(seg_len);
-			memcpy(dbuf + sizeof(*dr), p, seg_len);
-
-			i++;
-			p += seg_len;
-			data_mem_len -= seg_len;
-
-			sess_sendmsg(sess, dr, seg_len + sizeof(*dr), NULL, NULL);
-		}
-
-		/* send terminating packet (seg_len == 0) */
-		dr->strid = rand_strid;
-		dr->seg = GUINT32_TO_LE(i);
-		dr->seg_len = 0;
-		sess_sendmsg(sess, dr, sizeof(*dr), NULL, NULL);
+		p = (resp + 1);
+		p += name_len;
+		memcpy(p, data_mem, data_mem_len);
 	}
+
+	sess_sendmsg(sess, resp, resp_len, NULL, NULL);
 
 	rc = txn->commit(txn, 0);
 	if (rc)
@@ -752,122 +729,33 @@ err_out_noabort:
 	free(raw_sess);
 }
 
-static void try_commit_data(struct msg_params *mp,
-			uint64_t strid, GList *pmsg_ent)
+void msg_put(struct msg_params *mp)
 {
-	struct cld_msg_put *pmsg = pmsg_ent->data;
-	struct cld_msg_data *dmsg;
-	GList *tmp, *tmp1;
-	uint32_t data_size, tmp_size, tmp_seg = 0;
-	int last_seg, nseg, rc, i;
+	const struct cld_msg_put *msg = mp->msg;
+	struct session *sess = mp->sess;
+	uint64_t fh;
 	struct raw_handle *h = NULL;
 	struct raw_inode *inode = NULL;
-	cldino_t inum;
-	uint64_t fh;
 	enum cle_err_codes resp_rc = CLE_OK;
-	void *mem, *p, *q;
-	struct cld_msg_data **darr;
-	struct session *sess = mp->sess;
-	bool have_end_seg = false;
+	const void *mem;
+	int rc;
+	cldino_t inum;
+	uint32_t omode, data_size;
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	DB_TXN *txn;
 
-	data_size = GUINT32_FROM_LE(pmsg->data_size);
-	tmp_size = 0;
-	last_seg = 0;
-	nseg = 0;
+	/* make sure input data as large as message header */
+	if (mp->msg_len < sizeof(*msg))
+		return;
 
-	/*
-	 * Pass 1: count total size of all packets in our stream;
-	 * count number of segments in stream.
-	 */
-	tmp = sess->data_q;
-	while (tmp) {
-		uint32_t tmp_seg_len;
-
-		dmsg = tmp->data;
-		tmp = tmp->next;
-
-		/* non-matching strid[] implies not-our-stream */
-		if (dmsg->strid != strid)
-			continue;
-
-		tmp_seg = GUINT32_FROM_LE(dmsg->seg);
-		if (tmp_seg >= CLD_MAX_DATA_MSGS)
-			break;
-		if (tmp_seg > last_seg)
-			last_seg = tmp_seg;
-
-		tmp_seg_len = GUINT32_FROM_LE(dmsg->seg_len);
-		if (tmp_seg_len == 0)
-			have_end_seg = true;
-		else
-			tmp_size += tmp_seg_len;
-		nseg++;
-		if (nseg > CLD_MAX_DATA_MSGS)
-			break;
-	}
-
-	if (debugging)
-		cldlog(LOG_DEBUG,
-		       "    data scan: end %d nseg %u last %u len %u/%u",
-		       have_end_seg, nseg, last_seg, tmp_size, data_size);
-
-	/* return if data stream not yet 100% received */
-	if (!have_end_seg || tmp_size < data_size)
-		return;		/* nothing to do */
-
-	/* stream parameter bounds checking */
-	if ((tmp_seg >= CLD_MAX_DATA_MSGS) ||
-	    (nseg > CLD_MAX_DATA_MSGS) ||
-	    (tmp_size > data_size)) {
-		resp_rc = CLE_DATA_INVAL;
+	/* make sure additional input data as large as expected */
+	data_size = GUINT32_FROM_LE(msg->data_size);
+	if (mp->msg_len < (data_size + sizeof(*msg))) {
+		resp_rc = CLE_BAD_PKT;
 		goto err_out_noabort;
 	}
 
-	/* create array to store pointers to each data packet */
-	darr = alloca(nseg * sizeof(struct cld_msg_data *));
-	memset(darr, 0, nseg * sizeof(struct cld_msg_data *));
-
-	sess->put_q = g_list_delete_link(sess->put_q, pmsg_ent);
-
-	/*
-	 * Pass 2: store packets in array, sorted by segment number
-	 */
-	tmp = sess->data_q;
-	while (tmp) {
-		dmsg = tmp->data;
-		tmp1 = tmp;
-		tmp = tmp->next;
-
-		/* non-matching strid[] implies not-our-stream */
-		if (dmsg->strid != strid)
-			continue;
-
-		/* remove data packet from data msg queue */
-		sess->data_q = g_list_delete_link(sess->data_q, tmp1);
-
-		tmp_seg = GUINT32_FROM_LE(dmsg->seg);
-
-		/* prevent duplicate segment numbers */
-		if (darr[tmp_seg]) {
-			resp_rc = CLE_DATA_INVAL;
-			goto err_out_noabort;
-		}
-		darr[tmp_seg] = dmsg;
-	}
-
-	/* final check for missing segments; if segments are missing
-	 * at this point, it is a corrupted/malicious data stream,
-	 * because it passed other checks following Pass #1
-	 */
-	for (i = 0; i < nseg; i++)
-		if (!darr[i]) {
-			resp_rc = CLE_DATA_INVAL;
-			goto err_out_noabort;
-		}
-
-	fh = GUINT64_FROM_LE(pmsg->fh);
+	fh = GUINT64_FROM_LE(msg->fh);
 
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
 	if (rc) {
@@ -884,6 +772,13 @@ static void try_commit_data(struct msg_params *mp,
 	}
 
 	inum = cldino_from_le(h->inum);
+	omode = GUINT32_FROM_LE(h->mode);
+
+	if ((!(omode & COM_WRITE)) ||
+	    (omode & COM_DIRECTORY)) {
+		resp_rc = CLE_MODE_INVAL;
+		goto err_out;
+	}
 
 	/* read inode from db */
 	rc = cldb_inode_get(txn, inum, &inode, false, DB_RMW);
@@ -892,26 +787,8 @@ static void try_commit_data(struct msg_params *mp,
 		goto err_out;
 	}
 
-	/* create contig. memory area sized to contain entire data stream */
-	p = mem = malloc(data_size);
-	if (!mem) {
-		resp_rc = CLE_OOM;
-		goto err_out;
-	}
-
-	/* loop through array, copying each data packet into contig. area */
-	for (i = 0; i <= last_seg; i++) {
-		dmsg = darr[i];
-		q = dmsg;
-
-		tmp_size = GUINT32_FROM_LE(dmsg->seg_len);
-		memcpy(p, q + sizeof(*dmsg), tmp_size);
-		p += tmp_size;
-
-		free(dmsg);
-	}
-
 	/* store contig. data area in db */
+	mem = (msg + 1);
 	rc = cldb_data_put(txn, inum, mem, data_size, 0);
 	if (rc) {
 		resp_rc = CLE_DB_ERR;
@@ -935,157 +812,6 @@ static void try_commit_data(struct msg_params *mp,
 	}
 
 	resp_ok(sess, mp->msg);
-	free(pmsg);
-	free(h);
-	free(inode);
-	return;
-
-err_out:
-	rc = txn->abort(txn);
-	if (rc)
-		dbenv->err(dbenv, rc, "commit txn abort");
-err_out_noabort:
-	resp_err(sess, mp->msg, resp_rc);
-	free(pmsg);
-	free(h);
-	free(inode);
-}
-
-void msg_data(struct msg_params *mp)
-{
-	const struct cld_msg_data *msg = mp->msg;
-	struct session *sess = mp->sess;
-	GList *tmp;
-	void *mem = NULL;
-	enum cle_err_codes resp_rc = CLE_OK;
-	uint32_t seg_len;
-
-	/* make sure input data as large as expected */
-	if (mp->msg_len < sizeof(*msg))
-		return;
-
-	seg_len = GUINT32_FROM_LE(msg->seg_len);
-
-	if (mp->msg_len < (sizeof(*msg) + seg_len))
-		return;
-
-	if (debugging)
-		cldlog(LOG_DEBUG, "    data strid %016llx",
-		       (unsigned long long) msg->strid);
-
-	/* search for PUT message with strid == our strid; that is how we
-	 * associate DATA messages with the initial PUT msg
-	 */
-	tmp = sess->put_q;
-	while (tmp) {
-		struct cld_msg_put *pmsg;
-
-		pmsg = tmp->data;
-		if (pmsg->strid == msg->strid)
-			break;
-
-		tmp = tmp->next;
-	}
-
-	if (!tmp) {
-		resp_rc = CLE_DATA_INVAL;
-		goto err_out;
-	}
-
-	/* copy DATA msg */
-	mem = malloc(mp->msg_len);
-	if (!mem) {
-		resp_rc = CLE_OOM;
-		goto err_out;
-	}
-
-	memcpy(mem, mp->msg, mp->msg_len);
-
-	/* store DATA message on DATA msg queue */
-	sess->data_q = g_list_append(sess->data_q, mem);
-
-	resp_ok(sess, mp->msg);
-
-	/* scan DATA queue for completed stream; commit to db, if found */
-	try_commit_data(mp, msg->strid, tmp);
-	return;
-
-err_out:
-	resp_err(sess, mp->msg, resp_rc);
-}
-
-void msg_put(struct msg_params *mp)
-{
-	const struct cld_msg_put *msg = mp->msg;
-	struct session *sess = mp->sess;
-	uint64_t fh;
-	struct raw_handle *h = NULL;
-	struct raw_inode *inode = NULL;
-	enum cle_err_codes resp_rc = CLE_OK;
-	void *mem;
-	int rc;
-	cldino_t inum;
-	uint32_t omode;
-	DB_ENV *dbenv = cld_srv.cldb.env;
-	DB_TXN *txn;
-
-	/* make sure input data as large as expected */
-	if (mp->msg_len < sizeof(*msg))
-		return;
-
-	fh = GUINT64_FROM_LE(msg->fh);
-
-	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
-	if (rc) {
-		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
-		resp_rc = CLE_DB_ERR;
-		goto err_out_noabort;
-	}
-
-	/* read handle from db, for validation */
-	rc = cldb_handle_get(txn, sess->sid, fh, &h, 0);
-	if (rc) {
-		resp_rc = CLE_FH_INVAL;
-		goto err_out;
-	}
-
-	inum = cldino_from_le(h->inum);
-	omode = GUINT32_FROM_LE(h->mode);
-
-	if ((!(omode & COM_WRITE)) ||
-	    (omode & COM_DIRECTORY)) {
-		resp_rc = CLE_MODE_INVAL;
-		goto err_out;
-	}
-
-	/* read inode from db, for validation */
-	rc = cldb_inode_get(txn, inum, &inode, false, 0);
-	if (rc) {
-		resp_rc = CLE_INODE_INVAL;
-		goto err_out;
-	}
-
-	rc = txn->commit(txn, 0);
-	if (rc)
-		dbenv->err(dbenv, rc, "msg_put read-only txn commit");
-
-	/* copy message */
-	mem = malloc(mp->msg_len);
-	if (!mem) {
-		resp_rc = CLE_OOM;
-		goto err_out;
-	}
-
-	memcpy(mem, msg, mp->msg_len);
-
-	/* store PUT message in PUT msg queue */
-	sess->put_q = g_list_append(sess->put_q, mem);
-
-	/*
-	 * In all other cases we ack here, but in put we do it in
-	 * try_to_commit_data, so that we can report the result of commit.
-	 */
-	// resp_ok(sess, mp->msg);
 
 	free(h);
 	free(inode);
@@ -1097,6 +823,7 @@ err_out:
 		dbenv->err(dbenv, rc, "msg_put txn abort");
 err_out_noabort:
 	resp_err(sess, mp->msg, resp_rc);
+
 	free(h);
 	free(inode);
 }

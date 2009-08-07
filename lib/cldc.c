@@ -101,6 +101,7 @@ static int ack_seqid(struct cldc_session *sess, uint64_t seqid_le)
 	memcpy(pkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
 	pkt->seqid = seqid_le;
 	memcpy(pkt->sid, sess->sid, CLD_SID_SZ);
+	pkt->flags = GUINT32_TO_LE(CPF_FIRST | CPF_LAST);
 	strncpy(pkt->user, sess->user, CLD_MAX_USERNAME - 1);
 
 	resp = (struct cld_msg_hdr *) (pkt + 1);
@@ -132,7 +133,7 @@ static int cldc_rx_generic(struct cldc_session *sess,
 	while (tmp) {
 		req = tmp->data;
 
-#if 0 /* too verbose */
+#if 1 /* too verbose */
 		if (sess->verbose)
 			sess->act_log("rx_gen: comparing req->xid (%llu) with resp->xid_in (%llu)\n",
 			        (unsigned long long)
@@ -148,10 +149,13 @@ static int cldc_rx_generic(struct cldc_session *sess,
 	if (!tmp)
 		return -1005;
 
-	if (sess->verbose)
-		sess->act_log("rx_gen: issuing completion and acking\n");
+	if (req->done) {
+		if (sess->verbose)
+			sess->act_log("rx_gen: re-acking\n");
+	} else {
+		if (sess->verbose)
+			sess->act_log("rx_gen: issuing completion, acking\n");
 
-	if (!req->done) {
 		req->done = true;
 
 		if (req->cb) {
@@ -164,73 +168,45 @@ static int cldc_rx_generic(struct cldc_session *sess,
 	return ack_seqid(sess, pkt->seqid);
 }
 
-static int cldc_rx_data_c(struct cldc_session *sess,
-			   const struct cld_packet *pkt,
-			   const void *msgbuf,
-			   size_t buflen)
+static int cldc_rx_ack_frag(struct cldc_session *sess,
+			    const struct cld_packet *pkt,
+			    const void *msgbuf,
+			    size_t buflen)
 {
-	const struct cld_msg_data *data = msgbuf;
-	struct cldc_stream *str = NULL;
-	uint32_t seg, seg_len;
+	const struct cld_msg_ack_frag *ack_msg = msgbuf;
+	struct cldc_msg *req = NULL;
 	GList *tmp;
-	const void *p;
 
-	if (buflen < sizeof(*data))
+	if (buflen < sizeof(*ack_msg))
 		return -1008;
 
-	seg = GUINT32_FROM_LE(data->seg);
-	seg_len = GUINT32_FROM_LE(data->seg_len);
+	if (sess->verbose)
+		sess->act_log("ack-frag: seqid %llu, want to ack",
+			      ack_msg->seqid);
 
-	if (buflen < (sizeof(*data) + seg_len))
-		return -1008;
-
-	/* look for stream w/ our strid */
-	tmp = sess->streams;
+	tmp = sess->out_msg;
 	while (tmp) {
-		str = tmp->data;
-		if (str->strid_le == data->strid)
-			break;
+		int i;
+
+		req = tmp->data;
 		tmp = tmp->next;
-	}
 
-	/* if not found, return */
-	if (!tmp)
-		return -1009;
+		for (i = 0; i < req->n_pkts; i++) {
+			struct cldc_pkt_info *pi;
 
-	/* verify segment number is what we expect */
-	if (seg != str->next_seg) {
-		if (sess->verbose)
-			sess->act_log("rx_data: seg mismatch %u expect %u\n",
-				      seg, str->next_seg);
-		return -1010;
-	}
+			pi = req->pkt_info[i];
+			if (!pi)
+				continue;
+			if (pi->pkt.seqid != ack_msg->seqid)
+				continue;
 
-	if (seg_len > str->size_left) {
-		if (sess->verbose)
-			sess->act_log("rx_data: verflow seg_len %u left %u\n",
-				      seg_len, str->size_left);
-		return -1011;
-	}
+			if (sess->verbose)
+				sess->act_log("ack-frag: seqid %llu, expiring",
+					      ack_msg->seqid);
 
-	p = data;
-	p += sizeof(*data);
-	memcpy(str->bufp, p, seg_len);
-
-	str->bufp += seg_len;
-	str->size_left -= seg_len;
-	str->next_seg++;
-
-	/* if terminator, process completion */
-	if (seg_len == 0 && str->copts.cb) {
-		if (str->size_left)
-			sess->act_log("rx_data: size %u short by %u\n",
-				      str->size, str->size_left);
-		str->copts.u.get.buf = str->buf;
-		str->copts.u.get.size = str->size - str->size_left;
-		str->copts.cb(&str->copts, CLE_OK);
-		sess->streams = g_list_delete_link(sess->streams, tmp);
-		memset(str, 0, sizeof(*str));
-		free(str);
+			req->pkt_info[i] = NULL;
+			free(pi);
+		}
 	}
 
 	return 0;
@@ -274,6 +250,19 @@ static int cldc_rx_not_master(struct cldc_session *sess,
 	return -1055;	/* FIXME */
 }
 
+static void cldc_msg_free(struct cldc_msg *msg)
+{
+	int i;
+
+	if (!msg)
+		return;
+	
+	for (i = 0; i < CLD_MAX_PKT_MSG; i++)
+		free(msg->pkt_info[i]);
+	
+	free(msg);
+}
+
 static void sess_expire_outmsg(struct cldc_session *sess, time_t current_time)
 {
 	GList *tmp, *tmp1;
@@ -287,7 +276,7 @@ static void sess_expire_outmsg(struct cldc_session *sess, time_t current_time)
 
 		msg = tmp1->data;
 		if (current_time > msg->expire_time) {
-			free(msg);
+			cldc_msg_free(msg);
 			sess->out_msg = g_list_delete_link(sess->out_msg, tmp1);
 		}
 	}
@@ -363,7 +352,6 @@ static const char *opstr(enum cld_msg_ops op)
 	case cmo_open:		return "cmo_open";
 	case cmo_get_meta:	return "cmo_get_meta";
 	case cmo_get:		return "cmo_get";
-	case cmo_data_s:	return "cmo_data_s";
 	case cmo_put:		return "cmo_put";
 	case cmo_close:		return "cmo_close";
 	case cmo_del:		return "cmo_del";
@@ -375,17 +363,17 @@ static const char *opstr(enum cld_msg_ops op)
 	case cmo_ping:		return "cmo_ping";
 	case cmo_not_master:	return "cmo_not_master";
 	case cmo_event:		return "cmo_event";
-	case cmo_data_c:	return "cmo_data_c";
 	default:		return "(unknown)";
 	}
 }
 
 static int cldc_receive_msg(struct cldc_session *sess,
 			    const struct cld_packet *pkt,
-			    size_t pkt_len,
-			    const struct cld_msg_hdr *msg,
-			    size_t msglen)
+			    size_t pkt_len)
 {
+	const struct cld_msg_hdr *msg = (struct cld_msg_hdr *) sess->msg_buf;
+	size_t msglen = sess->msg_buf_len;
+
 	switch(msg->op) {
 	case cmo_nop:
 	case cmo_close:
@@ -397,16 +385,15 @@ static int cldc_receive_msg(struct cldc_session *sess,
 	case cmo_new_sess:
 	case cmo_end_sess:
 	case cmo_open:
-	case cmo_data_s:
 	case cmo_get_meta:
 	case cmo_get:
 		return cldc_rx_generic(sess, pkt, msg, msglen);
 	case cmo_not_master:
 		return cldc_rx_not_master(sess, pkt, msg, msglen);
+	case cmo_ack_frag:
+		return cldc_rx_ack_frag(sess, pkt, msg, msglen);
 	case cmo_event:
 		return cldc_rx_event(sess, pkt, msg, msglen);
-	case cmo_data_c:
-		return cldc_rx_data_c(sess, pkt, msg, msglen);
 	case cmo_ping:
 		return ack_seqid(sess, pkt->seqid);
 	case cmo_ack:
@@ -423,19 +410,23 @@ int cldc_receive_pkt(struct cldc_session *sess,
 {
 	const struct cld_packet *pkt = pktbuf;
 	const struct cld_msg_hdr *msg = (struct cld_msg_hdr *) (pkt + 1);
-	size_t msglen = pkt_len - sizeof(*pkt);
+	size_t msglen;
 	struct timeval tv;
 	time_t current_time;
 	uint64_t seqid;
+	uint32_t pkt_flags;
+	bool first_frag, last_frag, have_new_sess, no_seqid;
 
 	gettimeofday(&tv, NULL);
 	current_time = tv.tv_sec;
 
-	if (pkt_len < (sizeof(*pkt) + sizeof(*msg) + SHA_DIGEST_LENGTH)) {
+	if (pkt_len < (sizeof(*pkt) + SHA_DIGEST_LENGTH)) {
 		if (sess->verbose)
 			sess->act_log("receive_pkt: msg too short\n");
 		return -EPROTO;
 	}
+
+	msglen = pkt_len - sizeof(*pkt) - SHA_DIGEST_LENGTH;
 
 	if (sess->verbose) {
 		if (msg->op == cmo_get) {
@@ -447,16 +438,15 @@ int cldc_receive_pkt(struct cldc_session *sess,
 				(unsigned long long) GUINT64_FROM_LE(pkt->seqid),
 				pkt->user,
 				GUINT32_FROM_LE(dp->size));
-		} else if (msg->op == cmo_data_c) {
-			struct cld_msg_data *dp;
-			dp = (struct cld_msg_data *) msg;
-			sess->act_log("receive pkt: len %u, op cmo_data_c"
-				", seqid %llu, user %s, seg %u, len %u\n",
+		} else if (msg->op == cmo_new_sess) {
+			struct cld_msg_resp *dp;
+			dp = (struct cld_msg_resp *) msg;
+			sess->act_log("receive pkt: len %u, op cmo_new_sess"
+				", seqid %llu, user %s, xid_in %llu\n",
 				(unsigned int) pkt_len,
 				(unsigned long long) GUINT64_FROM_LE(pkt->seqid),
 				pkt->user,
-				GUINT32_FROM_LE(dp->seg),
-				GUINT32_FROM_LE(dp->seg_len));
+				(unsigned long long) GUINT64_FROM_LE(dp->xid_in));
 		} else {
 			sess->act_log("receive pkt: len %u, "
 				"op %s, seqid %llu, user %s\n",
@@ -470,11 +460,6 @@ int cldc_receive_pkt(struct cldc_session *sess,
 	if (memcmp(pkt->magic, CLD_PKT_MAGIC, sizeof(pkt->magic))) {
 		if (sess->verbose)
 			sess->act_log("receive_pkt: bad pkt magic\n");
-		return -EPROTO;
-	}
-	if (memcmp(msg->magic, CLD_MSG_MAGIC, sizeof(msg->magic))) {
-		if (sess->verbose)
-			sess->act_log("receive_pkt: bad msg magic\n");
 		return -EPROTO;
 	}
 
@@ -497,9 +482,34 @@ int cldc_receive_pkt(struct cldc_session *sess,
 	if (current_time >= sess->msg_scan_time)
 		sess_expire_outmsg(sess, current_time);
 
+	pkt_flags = GUINT32_FROM_LE(pkt->flags);
+	first_frag = pkt_flags & CPF_FIRST;
+	last_frag = pkt_flags & CPF_LAST;
+	have_new_sess = first_frag && (msg->op == cmo_new_sess);
+	no_seqid = first_frag && ((msg->op == cmo_not_master) ||
+				  (msg->op == cmo_ack_frag));
+
+	if (first_frag)
+		sess->msg_buf_len = 0;
+
+	if ((sess->msg_buf_len + msglen) > CLD_MAX_MSG_SZ) {
+		if (sess->verbose)
+			sess->act_log("receive_pkt: bad pkt length\n");
+		return -EPROTO;
+	}
+
+	memcpy(sess->msg_buf + sess->msg_buf_len, msg, msglen);
+	sess->msg_buf_len += msglen;
+
+	if (memcmp(msg->magic, CLD_MSG_MAGIC, sizeof(msg->magic))) {
+		if (sess->verbose)
+			sess->act_log("receive_pkt: bad msg magic\n");
+		return -EPROTO;
+	}
+
 	/* verify (or set, for new-sess) sequence id */
 	seqid = GUINT64_FROM_LE(pkt->seqid);
-	if (msg->op == cmo_new_sess) {
+	if (have_new_sess) {
 		sess->next_seqid_in = seqid + 1;
 		sess->next_seqid_in_tr =
 			sess->next_seqid_in - CLDC_MSG_REMEMBER;
@@ -508,7 +518,7 @@ int cldc_receive_pkt(struct cldc_session *sess,
 			sess->act_log("receive_pkt: "
 					 "setting next_seqid_in to %llu\n",
 					 (unsigned long long) seqid);
-	} else if (msg->op != cmo_not_master) {
+	} else if (!no_seqid) {
 		if (seqid != sess->next_seqid_in) {
 			if (seqid_in_range(seqid,
 					   sess->next_seqid_in_tr,
@@ -526,7 +536,10 @@ int cldc_receive_pkt(struct cldc_session *sess,
 
 	sess->expire_time = current_time + CLDC_SESS_EXPIRE;
 
-	return cldc_receive_msg(sess, pkt, pkt_len, msg, msglen);
+	if (!last_frag)
+		return 0;
+
+	return cldc_receive_msg(sess, pkt, pkt_len);
 }
 
 static void sess_next_seqid(struct cldc_session *sess, uint64_t *seqid)
@@ -543,25 +556,54 @@ static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 	struct cldc_msg *msg;
 	struct cld_msg_hdr *hdr;
 	struct timeval tv;
+	int i, data_left;
+	void *p;
 
 	gettimeofday(&tv, NULL);
 
-	msg = calloc(1, sizeof(*msg) + msg_len + SHA_DIGEST_LENGTH);
+	msg = calloc(1, sizeof(*msg) + msg_len);
 	if (!msg)
 		return NULL;
 
-	msg->sess = sess;
-	msg->expire_time = tv.tv_sec + CLDC_MSG_EXPIRE;
-
-	sess_next_seqid(sess, &msg->seqid);
-
 	__cld_rand64(&msg->xid);
 
-	msg->data_len = msg_len + SHA_DIGEST_LENGTH;
+	msg->sess = sess;
+
 	if (copts)
 		memcpy(&msg->copts, copts, sizeof(msg->copts));
 
-	msg->pkt.seqid = msg->seqid;
+	msg->expire_time = tv.tv_sec + CLDC_MSG_EXPIRE;
+
+	msg->data_len = msg_len;
+
+	msg->n_pkts = msg_len / CLD_MAX_PKT_MSG_SZ;
+	msg->n_pkts += ((msg_len % CLD_MAX_PKT_MSG_SZ) ? 1 : 0);
+
+	p = msg->data;
+	data_left = msg_len;
+	for (i = 0; i < msg->n_pkts; i++) {
+		struct cldc_pkt_info *pi;
+		int pkt_len;
+
+		pkt_len = MIN(data_left, CLD_MAX_PKT_MSG_SZ);
+
+		pi = calloc(1, sizeof(*pi) + pkt_len + SHA_DIGEST_LENGTH);
+		if (!pi)
+			goto err_out;
+
+		pi->pkt_len = pkt_len;
+
+		memcpy(pi->pkt.magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
+		memcpy(pi->pkt.sid, sess->sid, CLD_SID_SZ);
+		strncpy(pi->pkt.user, sess->user, CLD_MAX_USERNAME - 1);
+
+		if (i == 0)
+			pi->pkt.flags |= GUINT32_TO_LE(CPF_FIRST);
+		if (i == (msg->n_pkts - 1))
+			pi->pkt.flags |= GUINT32_TO_LE(CPF_LAST);
+
+		msg->pkt_info[i] = pi;
+	}
 
 	hdr = (struct cld_msg_hdr *) &msg->data[0];
 	memcpy(&hdr->magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
@@ -569,6 +611,10 @@ static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 	hdr->xid = msg->xid;
 
 	return msg;
+
+err_out:
+	cldc_msg_free(msg);
+	return NULL;
 }
 
 static void sess_msg_drop(struct cldc_session *sess)
@@ -583,7 +629,7 @@ static void sess_msg_drop(struct cldc_session *sess)
 		if (!msg->done && msg->cb)
 			msg->cb(msg, NULL, 0, false);
 
-		free(msg);
+		cldc_msg_free(msg);
 	}
 
 	g_list_free(sess->out_msg);
@@ -614,17 +660,31 @@ static int sess_timer(struct cldc_session *sess, void *priv)
 	}
 
 	while (tmp) {
+		int i;
+
 		msg = tmp->data;
 		tmp = tmp->next;
 
 		if (msg->done)
 			continue;
 
-		msg->retries++;
-		sess->ops->pkt_send(sess->private,
-			       sess->addr, sess->addr_len,
-			       &msg->pkt,
-			       sizeof(msg->pkt) + msg->data_len);
+		for (i = 0; i < msg->n_pkts; i++) {
+			struct cldc_pkt_info *pi;
+			int total_pkt_len;
+
+			pi = msg->pkt_info[i];
+			if (!pi)
+				continue;
+
+			total_pkt_len = sizeof(struct cld_packet) +
+					pi->pkt_len + SHA_DIGEST_LENGTH;
+
+			pi->retries++;
+
+			sess->ops->pkt_send(sess->private,
+				       sess->addr, sess->addr_len,
+				       &pi->pkt, total_pkt_len);
+		}
 	}
 
 	sess->ops->timer_ctl(sess->private, true, sess_timer, sess,
@@ -635,46 +695,38 @@ static int sess_timer(struct cldc_session *sess, void *priv)
 static int sess_send(struct cldc_session *sess,
 		     struct cldc_msg *msg)
 {
-	struct cld_packet *pkt = &msg->pkt;
+	int i, data_left;
+	void *p;
 
-	memcpy(pkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
-	memcpy(pkt->sid, sess->sid, CLD_SID_SZ);
-	strncpy(pkt->user, sess->user, CLD_MAX_USERNAME - 1);
+	p = msg->data;
+	data_left = msg->data_len;
+	for (i = 0; i < msg->n_pkts; i++) {
+		struct cldc_pkt_info *pi;
+		int total_pkt_len;
 
-	/* sign message */
-	if (!authsign(sess, pkt, sizeof(*pkt) + msg->data_len))
-		return -1;
+		pi = msg->pkt_info[i];
+		memcpy(pi->data, p, pi->pkt_len);
+
+		total_pkt_len = sizeof(struct cld_packet) +
+				pi->pkt_len + SHA_DIGEST_LENGTH;
+
+		sess_next_seqid(sess, &pi->pkt.seqid);
+
+		p += pi->pkt_len;
+		data_left -= pi->pkt_len;
+
+		if (!authsign(sess, &pi->pkt, total_pkt_len))
+			return -1;
+
+		/* attempt first send */
+		if (sess->ops->pkt_send(sess->private,
+			       sess->addr, sess->addr_len,
+			       &pi->pkt, total_pkt_len) < 0)
+			return -1;
+	}
 
 	/* add to list of outgoing packets, waiting to be ack'd */
-	sess->out_msg = g_list_append(sess->out_msg, msg);
-
-	/* attempt first send */
-	if (sess->ops->pkt_send(sess->private,
-		       sess->addr, sess->addr_len,
-		       pkt, sizeof(*pkt) + msg->data_len) < 0)
-		return -1;
-
-	return 0;
-}
-
-static int sess_stream_open(struct cldc_session *sess,
-			     uint64_t strid_le,
-			     uint32_t size,
-			     const struct cldc_call_opts *copts)
-{
-	struct cldc_stream *str;
-
-	str = calloc(1, sizeof(*str) + size);
-	if (!str)
-		return -ENOMEM;
-
-	str->strid_le = strid_le;
-	str->size = size;
-	str->size_left = size;
-	str->bufp = &str->buf[0];
-	memcpy(&str->copts, copts, sizeof(*copts));
-
-	sess->streams = g_list_append(sess->streams, str);
+	sess->out_msg = g_list_prepend(sess->out_msg, msg);
 
 	return 0;
 }
@@ -691,17 +743,10 @@ static void sess_free(struct cldc_session *sess)
 
 	tmp = sess->out_msg;
 	while (tmp) {
-		free(tmp->data);
+		cldc_msg_free(tmp->data);
 		tmp = tmp->next;
 	}
 	g_list_free(sess->out_msg);
-
-	tmp = sess->streams;
-	while (tmp) {
-		free(tmp->data);
-		tmp = tmp->next;
-	}
-	g_list_free(sess->streams);
 
 	memset(sess, 0, sizeof(*sess));
 	free(sess);
@@ -1082,10 +1127,7 @@ int cldc_put(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 	struct cldc_session *sess;
 	struct cldc_msg *msg;
 	struct cld_msg_put *put;
-	struct cldc_msg *datamsg[CLDC_MAX_DATA_PKTS];
-	int n_pkts, i, copy_len;
-	const void *p;
-	size_t data_len_left = data_len;
+	int n_pkts;
 
 	if (!data || !data_len || data_len > CLDC_MAX_DATA_SZ)
 		return -EINVAL;
@@ -1101,58 +1143,22 @@ int cldc_put(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 	sess = fh->sess;
 
 	/* create PUT message */
-	msg = cldc_new_msg(sess, copts, cmo_put, sizeof(struct cld_msg_put));
+	msg = cldc_new_msg(sess, copts, cmo_put,
+			   sizeof(struct cld_msg_put) + data_len);
 	if (!msg)
 		return -ENOMEM;
 
 	put = (struct cld_msg_put *) msg->data;
 	put->fh = fh->fh_le;
-	__cld_rand64(&put->strid);
 	put->data_size = GUINT32_TO_LE(data_len);
 
-	memset(datamsg, 0, sizeof(datamsg));
+	memcpy((put + 1), data, data_len);
 
-	p = data;
-	for (i = 0; i < n_pkts; i++) {
-		struct cld_msg_data *dm;
-		void *q;
-
-		/* create DATA message for this segment */
-		datamsg[i] = cldc_new_msg(sess, copts, cmo_data_s,
-					  CLDC_MAX_DATA_PKT_SZ);
-		if (!datamsg[i])
-			goto err_out;
-
-		if (i == (n_pkts - 1))
-			datamsg[i]->cb = generic_end_cb;
-
-		dm = (struct cld_msg_data *) datamsg[i]->data;
-		q = dm;
-		q += sizeof(struct cld_msg_data);
-
-		copy_len = MIN(CLDC_MAX_DATA_PKT_SZ, data_len_left);
-		memcpy(q, p, copy_len);
-
-		p += copy_len;
-		data_len_left -= copy_len;
-
-		dm->strid = put->strid;
-		dm->seg = GUINT32_TO_LE(i);
-		dm->seg_len = GUINT32_TO_LE(copy_len);
-	}
+	msg->cb = generic_end_cb;
 
 	sess_send(sess, msg);
-	for (i = 0; i < n_pkts; i++)
-		sess_send(sess, datamsg[i]);
 
 	return 0;
-
-err_out:
-	for (i = 0; i < n_pkts; i++)
-		if (datamsg[i])
-			free(datamsg[i]);
-	free(msg);
-	return -ENOMEM;
 }
 
 #undef XC32
@@ -1175,8 +1181,11 @@ static ssize_t get_end_cb(struct cldc_msg *msg, const void *resp_p,
 		resp_rc = GUINT32_FROM_LE(resp->resp.code);
 
 	if (resp_rc == CLE_OK) {
+		bool get_body;
+
 		o = &msg->copts.u.get.resp;
 
+		get_body = (resp->resp.hdr.op == cmo_get);
 		msg->copts.op = cmo_get;
 
 		/* copy-and-swap */
@@ -1189,26 +1198,26 @@ static ssize_t get_end_cb(struct cldc_msg *msg, const void *resp_p,
 		XC32(flags);
 
 		/* copy inode name */
-		if (o->ino_len <= sizeof(CLD_INODE_NAME_MAX)) {
+		if (o->ino_len <= CLD_INODE_NAME_MAX) {
+			size_t diffsz;
 			const void *p;
-			p = resp;
-			p += sizeof(struct cld_msg_get_resp);
+
+			p = (resp + 1);
 			memcpy(&msg->copts.u.get.inode_name, p, o->ino_len);
+
+			p += o->ino_len;
+			diffsz = p - resp_p;
+
+			/* point to internal buffer holding GET data */
+			msg->copts.u.get.buf = msg->sess->msg_buf + diffsz;
+			msg->copts.u.get.size = msg->sess->msg_buf_len - diffsz;
 		} else {
 			o->ino_len = 0;		/* Probably full of garbage */
 		}
 	}
 
-	/* if error or get-meta, return immediately with response */
-	if ((resp_rc != CLE_OK) || (resp->resp.hdr.op == cmo_get_meta)) {
-		if (msg->copts.cb)
-			return msg->copts.cb(&msg->copts, resp_rc);
-		return 0;
-	}
-
-	sess_stream_open(msg->sess, resp->strid, o->size,
-			 &msg->copts);
-
+	if (msg->copts.cb)
+		return msg->copts.cb(&msg->copts, resp_rc);
 	return 0;
 }
 #undef XC
