@@ -1,5 +1,7 @@
 
+#include <sys/types.h>
 #include <unistd.h>
+#include <time.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -98,6 +100,7 @@ static int init(void)
 
 int main (int argc, char *argv[])
 {
+	srand(time(NULL) ^ getpid());
 	event_init();
 	if (init())
 		return 1;

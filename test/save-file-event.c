@@ -3,12 +3,12 @@
  * Create a file in CLD.
  * This version uses libevent.
  */
+#include <sys/types.h>
+#include <unistd.h>
+#include <time.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#if 0
-#include <unistd.h>
-#endif
 #include <event.h>
 #include <cldc.h>
 
@@ -235,6 +235,8 @@ static int init(char *name)
 
 int main(int argc, char *argv[])
 {
+	srand(time(NULL) ^ getpid());
+
 #if 0
 	if (argc != 2) {
 		fprintf(stderr, "Usage: save-file-event {filename}\n");
