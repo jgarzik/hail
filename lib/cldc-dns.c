@@ -148,7 +148,7 @@ static void push_host(GList **host_list, struct cldc_host *hp_in)
 	if (!hp)
 		/* FIXME: OOM squawk */
 		return;
-	
+
 	memcpy(hp, hp_in, sizeof(*hp));
 
 	*host_list = g_list_append(*host_list, hp);
@@ -236,7 +236,7 @@ do_try_again:
 			if (rrlen < 8) {	/* 2+2+2 and 2 for host */
 				if (verbose) {
 					act_log(
-					       "cldc_getaddr: SRV len %d", 
+					       "cldc_getaddr: SRV len %d",
 					       rrlen);
 				}
 				break;

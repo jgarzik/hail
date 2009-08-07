@@ -211,7 +211,7 @@ static int cb_ls_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 
 		if (first) {
 			first = false;
-			
+
 			if (cldc_dirent_first(&dc) < 0)
 				break;
 		} else {
@@ -539,7 +539,7 @@ static bool make_abs_path(char *dest, size_t dest_len, const char *src)
 		       !strcmp(clicwd, "/") ? "" : clicwd, src);
 	if (len >= dest_len)
 		return false;
-	
+
 	return true;
 }
 

@@ -256,10 +256,10 @@ static void cldc_msg_free(struct cldc_msg *msg)
 
 	if (!msg)
 		return;
-	
+
 	for (i = 0; i < CLD_MAX_PKT_MSG; i++)
 		free(msg->pkt_info[i]);
-	
+
 	free(msg);
 }
 
@@ -1352,7 +1352,7 @@ char *cldc_dirent_name(struct cld_dirent_cur *dc)
 	s = malloc(str_len + 1);
 	if (!s)
 		return NULL;
-	
+
 	memcpy(s, dc->p + 2, str_len);
 	s[str_len] = 0;
 

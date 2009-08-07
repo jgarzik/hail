@@ -655,7 +655,7 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
 		op = pkts[i];
 
 		op->sess = sess;
-	
+
 		outpkt = op->pkt;
 		pkt_len = op->pkt_len;
 
