@@ -16,7 +16,7 @@ static bool object_get_more(struct client *cli, struct client_write *wr,
 
 bool object_del(struct client *cli)
 {
-	const char *basename = cli->creq.key;
+	const char *obj_name = cli->creq.key;
 	int rc;
 	enum errcode err = InternalError;
 	bool rcb;
@@ -30,7 +30,7 @@ bool object_del(struct client *cli)
 
 	memcpy(resp, &cli->creq, sizeof(cli->creq));
 
-	rcb = fs_obj_delete(cli->creq.user, basename, &err);
+	rcb = fs_obj_delete(cli->creq.user, obj_name, &err);
 	if (!rcb)
 		return cli_err(cli, err, true);
 
@@ -268,7 +268,7 @@ err_out_buf:
 
 bool object_get(struct client *cli, bool want_body)
 {
-	const char *basename = cli->creq.key;
+	const char *obj_name = cli->creq.key;
 	int rc;
 	enum errcode err = InternalError;
 	struct backend_obj *obj;
@@ -282,7 +282,7 @@ bool object_get(struct client *cli, bool want_body)
 
 	memcpy(resp, &cli->creq, sizeof(cli->creq));
 
-	cli->in_obj = obj = fs_obj_open(cli->creq.user, basename, &err);
+	cli->in_obj = obj = fs_obj_open(cli->creq.user, obj_name, &err);
 	if (!obj) {
 		free(resp);
 		return cli_err(cli, err, true);

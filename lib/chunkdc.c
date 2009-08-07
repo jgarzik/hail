@@ -115,7 +115,7 @@ void stc_free(struct st_client *stc)
 
 struct st_client *stc_new(const char *service_host, int port,
 			  const char *user, const char *secret_key,
-			  bool encrypt)
+			  bool use_ssl)
 {
 	struct st_client *stc;
 	struct addrinfo hints, *res = NULL, *rp;
@@ -168,7 +168,7 @@ struct st_client *stc_new(const char *service_host, int port,
 	if (!stc->host || !stc->user || !stc->key)
 		goto err_out;
 
-	if (encrypt) {
+	if (use_ssl) {
 		stc->ssl_ctx = SSL_CTX_new(TLSv1_client_method());
 		if (!stc->ssl_ctx)
 			goto err_out;

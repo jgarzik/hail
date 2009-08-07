@@ -164,9 +164,9 @@ void shastr(const unsigned char *digest, char *outstr)
 	outstr[SHA_DIGEST_LENGTH * 2] = 0;
 }
 
-char *time2str(char *strbuf, time_t time)
+char *time2str(char *strbuf, time_t src_time)
 {
-	struct tm *tm = gmtime(&time);
+	struct tm *tm = gmtime(&src_time);
 	strftime(strbuf, 64, "%a, %d %b %Y %H:%M:%S %z", tm);
 	return strbuf;
 }
