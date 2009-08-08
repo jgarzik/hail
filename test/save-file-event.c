@@ -235,8 +235,6 @@ static int init(char *name)
 
 int main(int argc, char *argv[])
 {
-	srand(time(NULL) ^ getpid());
-
 #if 0
 	if (argc != 2) {
 		fprintf(stderr, "Usage: save-file-event {filename}\n");
@@ -244,6 +242,7 @@ int main(int argc, char *argv[])
 	}
 #endif
 
+	cldc_init();
 	event_init();
 #if 0
 	if (init(argv[1]))

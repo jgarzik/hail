@@ -240,7 +240,7 @@ static int init(void)
 
 int main (int argc, char *argv[])
 {
-	srand(time(NULL) ^ getpid());
+	cldc_init();
 	event_init();
 	if (init())
 		return 1;

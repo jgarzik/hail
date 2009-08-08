@@ -839,9 +839,9 @@ int main (int argc, char *argv[])
 	/* isspace() and strcasecmp() consistency requires this */
 	setlocale(LC_ALL, "C");
 
-	srand(time(NULL) ^ getpid());
-
 	g_thread_init(NULL);
+
+	cldc_init();
 
 	aprc = argp_parse(&argp, argc, argv, 0, NULL, NULL);
 	if (aprc) {
