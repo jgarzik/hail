@@ -712,7 +712,7 @@ static void cmd_cat(const char *arg)
 	read_from_thread(mem, len);
 
 	/* write file data to stdout */
-	fwrite(mem, len, 1, stdout);
+	(void) fwrite(mem, len, 1, stdout);
 	fprintf(stdout, "\n");
 
 	free(mem);
