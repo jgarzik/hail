@@ -156,11 +156,11 @@ struct cld_dirent_cur {
  * @param buflen Length of received packet
  * @return Zero for success, non-zero on error
  */
-
 extern int cldc_receive_pkt(struct cldc_session *sess,
 		     const void *net_addr, size_t net_addrlen,
 		     const void *buf, size_t buflen);
 
+extern void cldc_init(void);
 extern int cldc_new_sess(const struct cldc_ops *ops,
 		  const struct cldc_call_opts *copts,
 		  const void *addr, size_t addr_len,

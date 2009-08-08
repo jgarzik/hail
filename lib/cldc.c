@@ -1359,3 +1359,13 @@ char *cldc_dirent_name(struct cld_dirent_cur *dc)
 	return s;
 }
 
+/*
+ * For extra safety, call cldc_init after g_thread_init, if present.
+ * Currently we just call srand(), but since we use GLib, we may need
+ * to add some Glib stuff here and that must come after g_thread_init.
+ */
+void cldc_init()
+{
+	srand(time(NULL) ^ getpid());	// for __cld_rand64 et.al.
+}
+
