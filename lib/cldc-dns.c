@@ -263,8 +263,6 @@ do_try_again:
 					  rc, hostb, verbose, act_log))
 				break;
 
-			hp.known = 1;
-
 			push_host(host_list, &hp);
 			break;
 		case ns_t_cname:	/* impossible, but */

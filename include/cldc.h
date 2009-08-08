@@ -117,7 +117,6 @@ struct cldc_session {
 
 /** Information for a single CLD server host */
 struct cldc_host {
-	int		known;
 	unsigned int	prio;
 	unsigned int	weight;
 	char		*host;
