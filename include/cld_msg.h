@@ -188,10 +188,6 @@ struct cld_msg_get {
 struct cld_msg_get_resp {
 	struct cld_msg_resp	resp;
 
-	/* should mirror struct raw_inode, except that inum's type
-	 * should always be uint64_t, regardless of server's
-	 * cldino_t definition
-	 */
 	uint64_t		inum;		/**< unique inode number */
 	uint32_t		ino_len;	/**< inode name len */
 	uint32_t		size;		/**< data size */
