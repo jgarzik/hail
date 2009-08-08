@@ -127,8 +127,7 @@ int main(int argc, char *argv[])
 
 	setlocale(LC_ALL, "C");
 
-	srand(time(NULL) ^ getpid());
-
+	stc_init();
 	SSL_library_init();
 	SSL_load_error_strings();
 

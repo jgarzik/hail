@@ -35,6 +35,7 @@ struct st_client {
 extern void stc_free(struct st_client *stc);
 extern void stc_free_keylist(struct st_keylist *keylist);
 extern void stc_free_object(struct st_object *obj);
+extern void stc_init(void);
 
 extern struct st_client *stc_new(const char *service_host, int port,
 				 const char *user, const char *secret_key,

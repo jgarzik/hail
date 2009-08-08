@@ -852,3 +852,13 @@ bool stc_ping(struct st_client *stc)
 	return true;
 }
 
+/*
+ * For extra safety, call stc_init after g_thread_init, if present.
+ * Currently we just call srand(), but since we use GLib, we may need
+ * to add some Glib stuff here and that must come after g_thread_init.
+ */
+void stc_init(void)
+{
+	srand(time(NULL) ^ getpid());	// for __cld_rand64 et.al.
+}
+
