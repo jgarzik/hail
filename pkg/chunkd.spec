@@ -1,13 +1,13 @@
 Name:		chunkd
 Version:	0.4
-Release:	0.7.g6b1e9b66%{?dist}
+Release:	0.8.g95538bcf%{?dist}
 Summary:	Data storage daemon for cloud computing
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-# pulled from upstream git, commit 6b1e9b6641df0353a81c7b1352f5f652c5a7f9d8
+# pulled from upstream git, commit 95538bcfd91486d8ade1e230820bf33312a7c298
 # to recreate tarball, check out commit, then run "make dist"
 Source0:	chunkd-%{version}git.tar.gz
 Source2:	chunkd.init
@@ -98,6 +98,9 @@ fi
 %{_includedir}/*
 
 %changelog
+* Fri Aug  7 2009 Jeff Garzik <jgarzik@redhat.com> - 0.4-0.8.g95538bcf
+- update source to commit 95538bcfd91486d8ade1e230820bf33312a7c298
+
 * Wed Jul 29 2009 Jeff Garzik <jgarzik@redhat.com> - 0.4-0.7.g6b1e9b66
 - update source to commit 6b1e9b6641df0353a81c7b1352f5f652c5a7f9d8
 
