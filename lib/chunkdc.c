@@ -414,7 +414,7 @@ bool stc_put(struct st_client *stc, const char *key,
 
 	while (content_len) {
 		size_t rrc;
-		int xfer_len;
+		size_t xfer_len;
 
 		xfer_len = MIN(content_len, sizeof(netbuf));
 		rrc = read_cb(netbuf, xfer_len, 1, user_data);
@@ -572,9 +572,9 @@ static size_t read_inline_cb(void *ptr, size_t size, size_t nmemb,
 			     void *user_data)
 {
 	struct stc_put_info *spi = user_data;
-	int len = size * nmemb;
+	size_t len;
 
-	len = MIN(len, spi->len);
+	len = MIN(size * nmemb, spi->len);
 	if (len) {
 		memcpy(ptr, spi->data, len);
 		spi->data += len;
