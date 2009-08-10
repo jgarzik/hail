@@ -29,6 +29,7 @@
 #include <elist.h>
 #include <chunksrv.h>
 #include <cldc.h>
+#include <chunk-private.h>
 #include "chunkd.h"
 
 #define PROGRAM_NAME PACKAGE
@@ -662,7 +663,7 @@ static bool cli_resp_xml(struct client *cli, GList *content)
 
 	memcpy(resp, &cli->creq, sizeof(cli->creq));
 
-	resp->data_len = GUINT64_TO_LE(content_len);
+	resp->data_len = cpu_to_le64(content_len);
 
 	cli->state = evt_recycle;
 
@@ -827,7 +828,7 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 		       req->key,
 		       req->user,
 		       req->nonce,
-		       (long long) GUINT64_FROM_LE(req->data_len));
+		       (long long) le64_to_cpu(req->data_len));
 
 	/*
 	 * operations on objects

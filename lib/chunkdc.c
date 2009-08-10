@@ -15,6 +15,7 @@
 #include <glib.h>
 #include <chunkc.h>
 #include <netdb.h>
+#include <chunk-private.h>
 #include <chunk_msg.h>
 #include <chunksrv.h>
 #include <errno.h>
@@ -249,7 +250,7 @@ static bool stc_get_req(struct st_client *stc, const char *key, uint64_t *plen)
 	if (!net_read(stc, &resp.mtime, sizeof(resp) - sizeof(resp.req)))
 		return false;
 
-	*plen = GUINT64_FROM_LE(resp.req.data_len);
+	*plen = le64_to_cpu(resp.req.data_len);
 	return true;
 }
 
@@ -400,7 +401,7 @@ bool stc_put(struct st_client *stc, const char *key,
 	memcpy(req.magic, CHUNKD_MAGIC, CHD_MAGIC_SZ);
 	req.op = CHO_PUT;
 	req.nonce = rand();
-	req.data_len = GUINT64_TO_LE(content_len);
+	req.data_len = cpu_to_le64(content_len);
 	strcpy(req.user, stc->user);
 	strcpy(req.key, key);
 
@@ -470,7 +471,7 @@ bool stc_put_start(struct st_client *stc, const char *key, uint64_t cont_len,
 	memcpy(req.magic, CHUNKD_MAGIC, CHD_MAGIC_SZ);
 	req.op = CHO_PUT;
 	req.nonce = rand();
-	req.data_len = GUINT64_TO_LE(cont_len);
+	req.data_len = cpu_to_le64(cont_len);
 	strcpy(req.user, stc->user);
 	strcpy(req.key, key);
 
@@ -754,7 +755,7 @@ struct st_keylist *stc_keys(struct st_client *stc)
 	if (!all_data)
 		return NULL;
 
-	content_len = GUINT64_FROM_LE(resp.req.data_len);
+	content_len = le64_to_cpu(resp.req.data_len);
 
 	/* read response data */
 	while (content_len) {

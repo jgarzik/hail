@@ -9,6 +9,7 @@
 #include <syslog.h>
 #include <glib.h>
 #include <openssl/sha.h>
+#include <chunk-private.h>
 #include "chunkd.h"
 
 static bool object_get_more(struct client *cli, struct client_write *wr,
@@ -184,7 +185,7 @@ bool object_put(struct client *cli)
 {
 	const char *user = cli->creq.user;
 	const char *key = cli->creq.key;
-	uint64_t content_len = GUINT64_FROM_LE(cli->creq.data_len);
+	uint64_t content_len = le64_to_cpu(cli->creq.data_len);
 	enum errcode err;
 
 	if (!user)
@@ -290,10 +291,10 @@ bool object_get(struct client *cli, bool want_body)
 
 	cli->in_len = obj->size;
 
-	resp->req.data_len = GUINT64_TO_LE(obj->size);
+	resp->req.data_len = cpu_to_le64(obj->size);
 	memcpy(resp->req.checksum, obj->hashstr, sizeof(obj->hashstr));
 	resp->req.checksum[sizeof(obj->hashstr)] = 0;
-	resp->mtime = GUINT64_TO_LE(obj->mtime);
+	resp->mtime = cpu_to_le64(obj->mtime);
 
 	rc = cli_writeq(cli, resp, sizeof(*resp), cli_cb_free, resp);
 	if (rc) {
