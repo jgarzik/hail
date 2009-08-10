@@ -22,6 +22,7 @@
 
 #include <stdbool.h>
 #include <db.h>
+#include <cld-private.h>
 #include <cld_msg.h>
 
 typedef uint64_t cldino_t;
@@ -174,12 +175,12 @@ extern int cldb_lock_add(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 
 static inline cldino_t cldino_to_le(cldino_t inum)
 {
-	return GUINT64_TO_LE(inum);
+	return cpu_to_le64(inum);
 }
 
 static inline cldino_t cldino_from_le(cldino_t inum)
 {
-	return GUINT64_FROM_LE(inum);
+	return le64_to_cpu(inum);
 }
 
 #endif /* __CLDB_H__ */

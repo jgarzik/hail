@@ -28,6 +28,7 @@
 #include <errno.h>
 #include <syslog.h>
 #include <openssl/sha.h>
+#include <cld-private.h>
 #include "cld.h"
 
 struct session_outpkt;
@@ -55,7 +56,7 @@ uint64_t next_seqid_le(uint64_t *seq)
 	uint64_t tmp, rc;
 
 	tmp = *seq;
-	rc = GUINT64_TO_LE(tmp);
+	rc = cpu_to_le64(tmp);
 	*seq = tmp + 1;
 
 	return rc;
@@ -65,9 +66,9 @@ void pkt_init_pkt(struct cld_packet *dest, const struct cld_packet *src)
 {
 	memset(dest, 0, sizeof(*dest));
 	memcpy(dest->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
-	dest->seqid = GUINT64_TO_LE(0xdeadbeef);
+	dest->seqid = cpu_to_le64(0xdeadbeef);
 	memcpy(dest->sid, src->sid, CLD_SID_SZ);
-	dest->flags = GUINT32_TO_LE(CPF_FIRST | CPF_LAST);
+	dest->flags = cpu_to_le32(CPF_FIRST | CPF_LAST);
 	strncpy(dest->user, src->user, CLD_MAX_USERNAME - 1);
 }
 
@@ -140,7 +141,7 @@ static bool lmatch(const struct raw_lock *lock, uint8_t *sid, uint64_t fh)
 {
 	if (memcmp(lock->sid, sid, sizeof(lock->sid)))
 		return false;
-	if (fh && (GUINT64_FROM_LE(lock->fh) != fh))
+	if (fh && (le64_to_cpu(lock->fh) != fh))
 		return false;
 
 	return true;
@@ -190,7 +191,7 @@ int session_remove_locks(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 
 		/* if not our sid, check for pending lock acquisitions */
 		if (!lmatch(&l, sid, fh)) {
-			if (GUINT32_FROM_LE(l.flags) & CLFL_PENDING)
+			if (le32_to_cpu(l.flags) & CLFL_PENDING)
 				*waiter = true;
 		}
 
@@ -281,7 +282,7 @@ static int session_remove(DB_TXN *txn, struct session *sess)
 		if (memcmp(h.sid, sess->sid, CLD_SID_SZ))
 			break;
 
-		if (GUINT32_FROM_LE(h.mode) & COM_LOCK) {
+		if (le32_to_cpu(h.mode) & COM_LOCK) {
 			cldino_t inum;
 
 			inum = cldino_from_le(h.inum);
@@ -437,15 +438,15 @@ static void session_encode(struct raw_session *raw, const struct session *sess)
 {
 	memcpy(raw, sess, CLD_SID_SZ);
 
-	raw->addr_len = GUINT16_TO_LE(sess->addr_len);
+	raw->addr_len = cpu_to_le16(sess->addr_len);
 	memcpy(&raw->addr, &sess->addr, sess->addr_len);
 
 	memcpy(raw->user, sess->user, CLD_MAX_USERNAME);
 
-	raw->last_contact = GUINT64_TO_LE(sess->last_contact);
-	raw->next_fh = GUINT64_TO_LE(sess->next_fh);
-	raw->next_seqid_in = GUINT64_TO_LE(sess->next_seqid_in);
-	raw->next_seqid_out = GUINT64_TO_LE(sess->next_seqid_out);
+	raw->last_contact = cpu_to_le64(sess->last_contact);
+	raw->next_fh = cpu_to_le64(sess->next_fh);
+	raw->next_seqid_in = cpu_to_le64(sess->next_seqid_in);
+	raw->next_seqid_out = cpu_to_le64(sess->next_seqid_out);
 }
 
 static void session_decode(struct session *sess, const struct raw_session *raw)
@@ -456,18 +457,18 @@ static void session_decode(struct session *sess, const struct raw_session *raw)
 
 	memcpy(sess->sid, raw->sid, sizeof(sess->sid));
 
-	sess->addr_len = GUINT16_FROM_LE(raw->addr_len);
+	sess->addr_len = le16_to_cpu(raw->addr_len);
 	memcpy(&sess->addr, &raw->addr, sess->addr_len);
 
 	getnameinfo((struct sockaddr *) &sess->addr, sess->addr_len,
 		    sess->ipaddr, CLD_IPADDR_SZ, NULL, 0, NI_NUMERICHOST);
 	sess->ipaddr[CLD_IPADDR_SZ - 1] = 0;
 
-	sess->last_contact = GUINT64_FROM_LE(raw->last_contact);
-	sess->next_fh = GUINT64_FROM_LE(raw->next_fh);
+	sess->last_contact = le64_to_cpu(raw->last_contact);
+	sess->next_fh = le64_to_cpu(raw->next_fh);
 
-	sess->next_seqid_out = GUINT64_FROM_LE(raw->next_seqid_out);
-	sess->next_seqid_in = GUINT64_FROM_LE(raw->next_seqid_in);
+	sess->next_seqid_out = le64_to_cpu(raw->next_seqid_out);
+	sess->next_seqid_in = le64_to_cpu(raw->next_seqid_in);
 
 	memcpy(sess->user, raw->user, CLD_MAX_USERNAME);
 }
@@ -547,7 +548,7 @@ static int sess_retry_output(struct session *sess)
 			       SIDARG(outpkt->sid),
 			       opstr(outmsg->op),
 			       (unsigned long long)
-					GUINT64_FROM_LE(outpkt->seqid));
+					le64_to_cpu(outpkt->seqid));
 
 		rc = udp_tx(sess->sock_fd, (struct sockaddr *) &sess->addr,
 			    sess->addr_len, op->pkt, op->pkt_len);
@@ -618,9 +619,9 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
 			       SIDARG(sess->sid),
 			       opstr(hdr->op),
 			       (unsigned int) msglen,
-			       GUINT32_FROM_LE(rsp->code),
-			       (unsigned long long) GUINT64_FROM_LE(hdr->xid),
-			       (unsigned long long) GUINT64_FROM_LE(rsp->xid_in));
+			       le32_to_cpu(rsp->code),
+			       (unsigned long long) le64_to_cpu(hdr->xid),
+			       (unsigned long long) le64_to_cpu(rsp->xid_in));
 			break;
 		default:
 			cldlog(LOG_DEBUG, "sendmsg: "
@@ -667,7 +668,7 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
 
 		if (first_frag) {
 			first_frag = false;
-			outpkt->flags |= GUINT32_TO_LE(CPF_FIRST);
+			outpkt->flags |= cpu_to_le32(CPF_FIRST);
 		}
 
 		copy_len = MIN(pkt_len - sizeof(*outpkt), msg_left);
@@ -683,7 +684,7 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
 			op->done_cb = done_cb;
 			op->done_data = done_data;
 
-			outpkt->flags |= GUINT32_TO_LE(CPF_LAST);
+			outpkt->flags |= cpu_to_le32(CPF_LAST);
 		}
 
 		op->next_retry = current_time.tv_sec + CLD_RETRY_START;
@@ -733,7 +734,7 @@ void msg_ack(struct msg_params *mp)
 
 		if (debugging)
 			cldlog(LOG_DEBUG, "    expiring seqid %llu",
-		           (unsigned long long) GUINT64_FROM_LE(outpkt->seqid));
+		           (unsigned long long) le64_to_cpu(outpkt->seqid));
 
 		/* remove and delete the ack'd msg; call ack'd callback */
 		sess->out_q = g_list_delete_link(sess->out_q, tmp1);
@@ -776,7 +777,7 @@ void msg_new_sess(struct msg_params *mp, const struct client *cli)
 	sess->addr_len = cli->addr_len;
 	strncpy(sess->ipaddr, cli->addr_host, sizeof(sess->ipaddr));
 	sess->last_contact = current_time.tv_sec;
-	sess->next_seqid_in = GUINT64_FROM_LE(mp->pkt->seqid) + 1;
+	sess->next_seqid_in = le64_to_cpu(mp->pkt->seqid) + 1;
 
 	session_encode(&raw_sess, sess);
 
@@ -821,7 +822,7 @@ err_out:
 
 	resp = (struct cld_msg_resp *) (outpkt + 1);
 	resp_copy(resp, mp->msg);
-	resp->code = GUINT32_TO_LE(resp_rc);
+	resp->code = cpu_to_le32(resp_rc);
 
 	authsign(outpkt, alloc_len);
 
@@ -830,7 +831,7 @@ err_out:
 		       "new_sess err: sid " SIDFMT ", op %s, seqid %llu",
 		       SIDARG(outpkt->sid),
 		       opstr(resp->hdr.op),
-		       (unsigned long long) GUINT64_FROM_LE(outpkt->seqid));
+		       (unsigned long long) le64_to_cpu(outpkt->seqid));
 
 	udp_tx(mp->sock_fd, (struct sockaddr *) &mp->cli->addr,
 	       mp->cli->addr_len, outpkt, alloc_len);
@@ -936,9 +937,9 @@ static int sess_load_db(GHashTable *ss, DB_TXN *txn)
 			       " loaded sid " SIDFMT " next seqid %llu/%llu",
 			       SIDARG(sess->sid),
 			       (unsigned long long)
-					GUINT64_FROM_LE(sess->next_seqid_out),
+					le64_to_cpu(sess->next_seqid_out),
 			       (unsigned long long)
-					GUINT64_FROM_LE(sess->next_seqid_in));
+					le64_to_cpu(sess->next_seqid_in));
 
 		g_hash_table_insert(ss, sess->sid, sess);
 

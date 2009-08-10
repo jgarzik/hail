@@ -23,6 +23,7 @@
 #include <string.h>
 #include <syslog.h>
 #include <glib.h>
+#include <cld-private.h>
 #include "cld.h"
 
 static int cldb_up(struct cldb *cldb, unsigned int flags);
@@ -53,7 +54,7 @@ static int inode_name_key(DB *secondary, const DBT *pkey, const DBT *pdata,
 	size_t ino_len = pdata->size - sizeof(*inode);
 	const void *p;
 
-	if (ino_len != GUINT32_FROM_LE(inode->ino_len))
+	if (ino_len != le32_to_cpu(inode->ino_len))
 		return -1;
 
 	memset(key_out, 0, sizeof(*key_out));
@@ -87,10 +88,10 @@ static int lock_compare(DB *db, const DBT *a_dbt, const DBT *b_dbt)
 	const struct raw_lock *b = b_dbt->data;
 	cldino_t ai = cldino_from_le(a->inum);
 	cldino_t bi = cldino_from_le(b->inum);
-	uint64_t at = GUINT64_FROM_LE(a->ctime);
-	uint64_t bt = GUINT64_FROM_LE(b->ctime);
-	uint64_t afh = GUINT64_FROM_LE(a->fh);
-	uint64_t bfh = GUINT64_FROM_LE(b->fh);
+	uint64_t at = le64_to_cpu(a->ctime);
+	uint64_t bt = le64_to_cpu(b->ctime);
+	uint64_t afh = le64_to_cpu(a->fh);
+	uint64_t bfh = le64_to_cpu(b->fh);
 	int64_t v;
 
 	/* compare inode numbers */
@@ -577,7 +578,7 @@ size_t raw_ino_size(const struct raw_inode *ino)
 	size_t sz = sizeof(struct raw_inode);
 	uint32_t tmp;
 
-	tmp = GUINT32_FROM_LE(ino->ino_len);
+	tmp = le32_to_cpu(ino->ino_len);
 	sz += tmp;
 
 	return sz;
@@ -651,10 +652,10 @@ struct raw_inode *cldb_inode_mem(const char *name, size_t name_len,
 
 	ino = mem;
 	ino->inum = cldino_to_le(new_inum);
-	ino->ino_len = GUINT32_TO_LE(name_len);
+	ino->ino_len = cpu_to_le32(name_len);
 	ino->time_create =
-	ino->time_modify = GUINT64_TO_LE(current_time.tv_sec);
-	ino->flags = GUINT32_TO_LE(flags);
+	ino->time_modify = cpu_to_le64(current_time.tv_sec);
+	ino->flags = cpu_to_le32(flags);
 
 	memcpy(mem + sizeof(*ino), name, name_len);
 
@@ -737,10 +738,10 @@ struct raw_handle *cldb_handle_new(struct session *sess, cldino_t inum,
 	sess->next_fh++;
 
 	memcpy(h->sid, sess->sid, sizeof(h->sid));
-	h->fh = GUINT64_TO_LE(fh);
+	h->fh = cpu_to_le64(fh);
 	h->inum = cldino_to_le(inum);
-	h->mode = GUINT32_TO_LE(mode);
-	h->events = GUINT32_TO_LE(events);
+	h->mode = cpu_to_le32(mode);
+	h->events = cpu_to_le32(events);
 
 	return h;
 }
@@ -758,7 +759,7 @@ int cldb_handle_get(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 		*h_out = NULL;
 
 	memcpy(hkey.sid, sid, CLD_SID_SZ);
-	hkey.fh = GUINT64_TO_LE(fh);
+	hkey.fh = cpu_to_le64(fh);
 
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
@@ -816,7 +817,7 @@ int cldb_handle_del(DB_TXN *txn, uint8_t *sid, uint64_t fh)
 	struct raw_handle_key hkey;
 
 	memcpy(hkey.sid, sid, CLD_SID_SZ);
-	hkey.fh = GUINT64_TO_LE(fh);
+	hkey.fh = cpu_to_le64(fh);
 
 	memset(&key, 0, sizeof(key));
 
@@ -875,7 +876,7 @@ int cldb_lock_del(DB_TXN *txn, uint8_t *sid, uint64_t fh, cldino_t inum)
 
 		/* if we have a matching (sid,fh), delete rec and end loop */
 		if (!memcmp(lock.sid, sid, CLD_SID_SZ) &&
-		    (fh == GUINT64_FROM_LE(lock.fh))) {
+		    (fh == le64_to_cpu(lock.fh))) {
 			rc = cur->del(cur, 0);
 			if (rc) {
 				db_locks->err(db_locks, rc, "cursor del");
@@ -934,7 +935,7 @@ static int cldb_lock_find(DB_TXN *txn, cldino_t inum, bool want_shared)
 
 		gflags = DB_NEXT_DUP;
 
-		lflags = GUINT32_FROM_LE(lock.flags);
+		lflags = le32_to_cpu(lock.flags);
 
 		/* pending locks do not conflict */
 		if (lflags & CLFL_PENDING)
@@ -987,9 +988,9 @@ int cldb_lock_add(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 
 	lock.inum = cldino_to_le(inum);
 	memcpy(lock.sid, sid, sizeof(lock.sid));
-	lock.fh = GUINT64_TO_LE(fh);
-	lock.ctime = GUINT64_TO_LE(current_time.tv_sec);
-	lock.flags = GUINT32_TO_LE(lock_flags);
+	lock.fh = cpu_to_le64(fh);
+	lock.ctime = cpu_to_le64(current_time.tv_sec);
+	lock.flags = cpu_to_le32(lock_flags);
 
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));

@@ -34,6 +34,7 @@
 #include <signal.h>
 #include <openssl/sha.h>
 #include <openssl/hmac.h>
+#include <cld-private.h>
 #include "cld.h"
 
 #define PROGRAM_NAME "cld"
@@ -143,7 +144,7 @@ void resp_err(struct session *sess,
 
 	resp_copy(&resp, src);
 	__cld_rand64(&resp.hdr.xid);
-	resp.code = GUINT32_TO_LE(errcode);
+	resp.code = cpu_to_le32(errcode);
 
 	if (sess->sock_fd <= 0) {
 		cldlog(LOG_ERR, "Nul sock in response");
@@ -294,7 +295,7 @@ static void pkt_ack_frag(int sock_fd,
 		       "sid " SIDFMT ", op %s, seqid %llu",
 		       SIDARG(outpkt->sid),
 		       opstr(ack_msg->hdr.op),
-		       (unsigned long long) GUINT64_FROM_LE(outpkt->seqid));
+		       (unsigned long long) le64_to_cpu(outpkt->seqid));
 
 	/* transmit ack-partial-msg response (once, without retries) */
 	udp_tx(sock_fd, (struct sockaddr *) &cli->addr, cli->addr_len,
@@ -328,7 +329,7 @@ static void udp_rx(int sock_fd,
 		goto err_out;
 	}
 
-	pkt_flags = GUINT32_FROM_LE(pkt->flags);
+	pkt_flags = le32_to_cpu(pkt->flags);
 	first_frag = pkt_flags & CPF_FIRST;
 	have_new_sess = first_frag && (msg->op == cmo_new_sess);
 	have_ack = first_frag && (msg->op == cmo_ack);
@@ -357,17 +358,17 @@ static void udp_rx(int sock_fd,
 			struct cld_msg_put *dp = (struct cld_msg_put *) msg;
 			cldlog(LOG_DEBUG, "    msg op %s, seqid %llu, xid %llu, size %u",
 			       opstr(msg->op),
-			       (unsigned long long) GUINT64_FROM_LE(pkt->seqid),
-			       (unsigned long long) GUINT64_FROM_LE(msg->xid),
-			       GUINT32_FROM_LE(dp->data_size));
+			       (unsigned long long) le64_to_cpu(pkt->seqid),
+			       (unsigned long long) le64_to_cpu(msg->xid),
+			       le32_to_cpu(dp->data_size));
 		} else if (first_frag) {
 			cldlog(LOG_DEBUG, "    msg op %s, seqid %llu, xid %llu",
 			       opstr(msg->op),
-			       (unsigned long long) GUINT64_FROM_LE(pkt->seqid),
-			       (unsigned long long) GUINT64_FROM_LE(msg->xid));
+			       (unsigned long long) le64_to_cpu(pkt->seqid),
+			       (unsigned long long) le64_to_cpu(msg->xid));
 		} else {
 			cldlog(LOG_DEBUG, "    seqid %llu",
-			       (unsigned long long) GUINT64_FROM_LE(pkt->seqid));
+			       (unsigned long long) le64_to_cpu(pkt->seqid));
 		}
 	}
 
@@ -383,7 +384,7 @@ static void udp_rx(int sock_fd,
 
 		if (!have_ack) {
 			/* eliminate duplicates; do not return any response */
-			if (GUINT64_FROM_LE(pkt->seqid) != sess->next_seqid_in) {
+			if (le64_to_cpu(pkt->seqid) != sess->next_seqid_in) {
 				if (debugging)
 					cldlog(LOG_DEBUG, "dropping dup");
 				return;
@@ -395,7 +396,7 @@ static void udp_rx(int sock_fd,
 	} else {
 		if (sess) {
 			/* eliminate duplicates; do not return any response */
-			if (GUINT64_FROM_LE(pkt->seqid) != sess->next_seqid_in) {
+			if (le64_to_cpu(pkt->seqid) != sess->next_seqid_in) {
 				if (debugging)
 					cldlog(LOG_DEBUG, "dropping dup");
 				return;
@@ -445,7 +446,7 @@ err_out:
 	pkt_init_pkt(outpkt, pkt);
 
 	resp_copy(resp, msg);
-	resp->code = GUINT32_TO_LE(resp_rc);
+	resp->code = cpu_to_le32(resp_rc);
 
 	authsign(outpkt, alloc_len);
 
@@ -454,7 +455,7 @@ err_out:
 		       "sid " SIDFMT ", op %s, seqid %llu, code %d",
 		       SIDARG(outpkt->sid),
 		       opstr(resp->hdr.op),
-		       (unsigned long long) GUINT64_FROM_LE(outpkt->seqid),
+		       (unsigned long long) le64_to_cpu(outpkt->seqid),
 		       resp_rc);
 
 	udp_tx(sock_fd, (struct sockaddr *) &cli->addr, cli->addr_len,
@@ -916,8 +917,8 @@ static void ensure_root()
 		}
 
 		inode->time_create =
-		inode->time_modify = GUINT64_TO_LE(current_time.tv_sec);
-		inode->version = GUINT32_TO_LE(1);
+		inode->time_modify = cpu_to_le64(current_time.tv_sec);
+		inode->version = cpu_to_le32(1);
 
 		rc = cldb_inode_put(txn, inode, 0);
 		if (rc) {

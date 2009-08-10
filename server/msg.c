@@ -25,6 +25,7 @@
 #include <string.h>
 #include <syslog.h>
 #include <openssl/sha.h>
+#include <cld-private.h>
 #include "cld.h"
 
 enum {
@@ -102,7 +103,7 @@ static int dirent_find(const void *data, size_t data_len,
 			return -2;
 
 		tmp16		= p;
-		str_len		= GUINT16_FROM_LE(*tmp16);
+		str_len		= le16_to_cpu(*tmp16);
 		rec_len		= str_len + 2;
 		pad		= CLD_ALIGN8(rec_len);
 		total_len	= rec_len + pad;
@@ -175,7 +176,7 @@ static bool dirdata_append(void **data, size_t *data_len,
 	/* store 16-bit string length, little endian */
 	p = mem + orig_len;
 	raw_len = p;
-	*raw_len = GUINT16_TO_LE(name_len);
+	*raw_len = cpu_to_le16(name_len);
 	p += sizeof(uint16_t);
 
 	/* store name, zero pad area (if any) */
@@ -231,7 +232,7 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 
 		gflags = DB_NEXT_DUP;
 
-		if (!deleted && !(GUINT32_FROM_LE(h.events) & CE_UPDATED))
+		if (!deleted && !(le32_to_cpu(h.events) & CE_UPDATED))
 			continue;
 
 		sess = g_hash_table_lookup(cld_srv.sessions, h.sid);
@@ -249,7 +250,7 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 		}
 
 		me.fh = h.fh;
-		me.events = GUINT32_TO_LE(deleted ? CE_DELETED : CE_UPDATED);
+		me.events = cpu_to_le32(deleted ? CE_DELETED : CE_UPDATED);
 
 		if (!sess_sendmsg(sess, &me, sizeof(me), NULL, NULL))
 			break;
@@ -266,10 +267,10 @@ static int inode_touch(DB_TXN *txn, struct raw_inode *ino)
 {
 	int rc;
 
-	ino->time_modify = GUINT64_TO_LE(current_time.tv_sec);
+	ino->time_modify = cpu_to_le64(current_time.tv_sec);
 	if (!ino->time_create)
 		ino->time_create = ino->time_modify;
-	ino->version = GUINT32_TO_LE(GUINT32_FROM_LE(ino->version) + 1);
+	ino->version = cpu_to_le32(le32_to_cpu(ino->version) + 1);
 
 	/* write parent inode */
 	rc = cldb_inode_put(txn, ino, 0);
@@ -334,7 +335,7 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 
 		gflags = DB_NEXT_DUP | DB_RMW;
 
-		lflags = GUINT32_FROM_LE(lock.flags);
+		lflags = le32_to_cpu(lock.flags);
 
 		/* pending locks should be first in the list; if
 		 * no more pending locks are present, end scan
@@ -377,7 +378,7 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 		}
 
 		me.fh = lock.fh;
-		me.events = GUINT32_TO_LE(CE_LOCKED);
+		me.events = cpu_to_le32(CE_LOCKED);
 
 		if (!sess_sendmsg(sess, &me, sizeof(me), NULL, NULL))
 			break;
@@ -411,7 +412,7 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 		return;
 
 	/* get filehandle from input msg */
-	fh = GUINT64_FROM_LE(msg->fh);
+	fh = le64_to_cpu(msg->fh);
 
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
 	if (rc) {
@@ -428,7 +429,7 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 	}
 
 	inum = cldino_from_le(h->inum);
-	omode = GUINT32_FROM_LE(h->mode);
+	omode = le32_to_cpu(h->mode);
 
 	if (!(omode & COM_READ)) {
 		resp_rc = CLE_MODE_INVAL;
@@ -442,10 +443,10 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 		goto err_out;
 	}
 
-	name_len = GUINT32_FROM_LE(inode->ino_len);
+	name_len = le32_to_cpu(inode->ino_len);
 
 	resp_len = sizeof(*resp) + name_len +
-		   (metadata_only ? 0 : GUINT32_FROM_LE(inode->size));
+		   (metadata_only ? 0 : le32_to_cpu(inode->size));
 	resp = alloca(resp_len);
 	if (!resp) {
 		resp_rc = CLE_OOM;
@@ -457,12 +458,12 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 		       "inode->size %u, resp_len %u",
 		       sizeof(*resp),
 		       name_len,
-		       GUINT32_FROM_LE(inode->size),
+		       le32_to_cpu(inode->size),
 		       resp_len);
 
 	/* return response containing inode metadata */
 	resp_copy(&resp->resp, mp->msg);
-	resp->inum = GUINT64_TO_LE(inum);
+	resp->inum = cpu_to_le64(inum);
 	resp->ino_len = inode->ino_len;
 	resp->size = inode->size;
 	resp->version = inode->version;
@@ -484,7 +485,7 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 		if (rc == DB_NOTFOUND) {
 			data_mem = NULL;
 			data_mem_len = 0;
-		} else if (rc || (data_mem_len != GUINT32_TO_LE(inode->size))) {
+		} else if (rc || (data_mem_len != cpu_to_le32(inode->size))) {
 			resp_rc = CLE_DB_ERR;
 			goto err_out;
 		}
@@ -540,9 +541,9 @@ void msg_open(struct msg_params *mp)
 	if (mp->msg_len < sizeof(*msg))
 		return;
 
-	msg_mode = GUINT32_FROM_LE(msg->mode);
-	msg_events = GUINT32_FROM_LE(msg->events);
-	name_len = GUINT16_FROM_LE(msg->name_len);
+	msg_mode = le32_to_cpu(msg->mode);
+	msg_events = le32_to_cpu(msg->events);
+	name_len = le16_to_cpu(msg->name_len);
 
 	if (mp->msg_len < (sizeof(*msg) + name_len))
 		return;
@@ -589,7 +590,7 @@ void msg_open(struct msg_params *mp)
 	 * matches the inode's state
 	 */
 	if (!create) {
-		bool have_dir = GUINT32_FROM_LE(inode->flags) & CIFL_DIR;
+		bool have_dir = le32_to_cpu(inode->flags) & CIFL_DIR;
 
 		if (do_dir != have_dir) {
 			resp_rc = CLE_MODE_INVAL;
@@ -607,8 +608,8 @@ void msg_open(struct msg_params *mp)
 		}
 
 		if (do_dir)
-			inode->flags = GUINT32_TO_LE(
-				GUINT32_FROM_LE(inode->flags) | CIFL_DIR);
+			inode->flags = cpu_to_le32(
+				le32_to_cpu(inode->flags) | CIFL_DIR);
 
 		/* read parent, to which we will add new child inode */
 		rc = cldb_inode_get_byname(txn, pinfo.dir, pinfo.dir_len,
@@ -644,7 +645,7 @@ void msg_open(struct msg_params *mp)
 			goto err_out;
 		}
 
-		parent->size = GUINT32_TO_LE(parent_len);
+		parent->size = cpu_to_le32(parent_len);
 
 		rc = inode_touch(txn, parent);
 		if (rc) {
@@ -663,7 +664,7 @@ void msg_open(struct msg_params *mp)
 		goto err_out;
 	}
 
-	fh = GUINT64_FROM_LE(h->fh);
+	fh = le64_to_cpu(h->fh);
 
 	/* write newly created file handle */
 	rc = cldb_handle_put(txn, h, 0);
@@ -711,8 +712,8 @@ void msg_open(struct msg_params *mp)
 	free(raw_sess);
 
 	resp_copy(&resp.resp, mp->msg);
-	resp.resp.code = GUINT32_TO_LE(CLE_OK);
-	resp.fh = GUINT64_TO_LE(fh);
+	resp.resp.code = cpu_to_le32(CLE_OK);
+	resp.fh = cpu_to_le64(fh);
 	sess_sendmsg(mp->sess, &resp, sizeof(resp), NULL, NULL);
 
 	return;
@@ -749,13 +750,13 @@ void msg_put(struct msg_params *mp)
 		return;
 
 	/* make sure additional input data as large as expected */
-	data_size = GUINT32_FROM_LE(msg->data_size);
+	data_size = le32_to_cpu(msg->data_size);
 	if (mp->msg_len < (data_size + sizeof(*msg))) {
 		resp_rc = CLE_BAD_PKT;
 		goto err_out_noabort;
 	}
 
-	fh = GUINT64_FROM_LE(msg->fh);
+	fh = le64_to_cpu(msg->fh);
 
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
 	if (rc) {
@@ -772,7 +773,7 @@ void msg_put(struct msg_params *mp)
 	}
 
 	inum = cldino_from_le(h->inum);
-	omode = GUINT32_FROM_LE(h->mode);
+	omode = le32_to_cpu(h->mode);
 
 	if ((!(omode & COM_WRITE)) ||
 	    (omode & COM_DIRECTORY)) {
@@ -795,7 +796,7 @@ void msg_put(struct msg_params *mp)
 		goto err_out;
 	}
 
-	inode->size = GUINT32_TO_LE(data_size);
+	inode->size = cpu_to_le32(data_size);
 
 	/* update inode */
 	rc = inode_touch(txn, inode);
@@ -845,7 +846,7 @@ void msg_close(struct msg_params *mp)
 	if (mp->msg_len < sizeof(*msg))
 		return;
 
-	fh = GUINT64_FROM_LE(msg->fh);
+	fh = le64_to_cpu(msg->fh);
 
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
 	if (rc) {
@@ -864,7 +865,7 @@ void msg_close(struct msg_params *mp)
 		goto err_out;
 	}
 
-	if (GUINT32_FROM_LE(h->mode) & COM_LOCK)
+	if (le32_to_cpu(h->mode) & COM_LOCK)
 		lock_inum = cldino_from_le(h->inum);
 
 	/* delete handle from db */
@@ -932,7 +933,7 @@ void msg_del(struct msg_params *mp)
 	if (mp->msg_len < sizeof(*msg))
 		return;
 
-	name_len = GUINT16_FROM_LE(msg->name_len);
+	name_len = le16_to_cpu(msg->name_len);
 
 	if (mp->msg_len < (sizeof(*msg) + name_len))
 		return;
@@ -980,7 +981,7 @@ void msg_del(struct msg_params *mp)
 	}
 
 	/* prevent deletion of non-empty dirs */
-	if (GUINT32_FROM_LE(ino->flags) & CIFL_DIR) {
+	if (le32_to_cpu(ino->flags) & CIFL_DIR) {
 		DBT val;
 
 		memset(&key, 0, sizeof(key));
@@ -1063,7 +1064,7 @@ void msg_del(struct msg_params *mp)
 		goto err_out;
 	}
 
-	parent->size = GUINT32_TO_LE(parent_len);
+	parent->size = cpu_to_le32(parent_len);
 
 	/* update parent dir inode */
 	rc = inode_touch(txn, parent);
@@ -1113,7 +1114,7 @@ void msg_unlock(struct msg_params *mp)
 	if (mp->msg_len < sizeof(*msg))
 		return;
 
-	fh = GUINT64_FROM_LE(msg->fh);
+	fh = le64_to_cpu(msg->fh);
 
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
 	if (rc) {
@@ -1130,7 +1131,7 @@ void msg_unlock(struct msg_params *mp)
 	}
 
 	inum = cldino_from_le(h->inum);
-	omode = GUINT32_FROM_LE(h->mode);
+	omode = le32_to_cpu(h->mode);
 
 	if (!(omode & COM_LOCK)) {
 		resp_rc = CLE_MODE_INVAL;
@@ -1182,8 +1183,8 @@ void msg_lock(struct msg_params *mp, bool wait)
 	if (mp->msg_len < sizeof(*msg))
 		return;
 
-	fh = GUINT64_FROM_LE(msg->fh);
-	lock_flags = GUINT32_FROM_LE(msg->flags);
+	fh = le64_to_cpu(msg->fh);
+	lock_flags = le32_to_cpu(msg->flags);
 
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
 	if (rc) {
@@ -1200,7 +1201,7 @@ void msg_lock(struct msg_params *mp, bool wait)
 	}
 
 	inum = cldino_from_le(h->inum);
-	omode = GUINT32_FROM_LE(h->mode);
+	omode = le32_to_cpu(h->mode);
 
 	if (!(omode & COM_LOCK)) {
 		resp_rc = CLE_MODE_INVAL;

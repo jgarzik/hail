@@ -33,6 +33,7 @@
 #include <openssl/sha.h>
 #include <openssl/hmac.h>
 #include <glib.h>
+#include <cld-private.h>
 #include <cldc.h>
 
 enum {
@@ -101,7 +102,7 @@ static int ack_seqid(struct cldc_session *sess, uint64_t seqid_le)
 	memcpy(pkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
 	pkt->seqid = seqid_le;
 	memcpy(pkt->sid, sess->sid, CLD_SID_SZ);
-	pkt->flags = GUINT32_TO_LE(CPF_FIRST | CPF_LAST);
+	pkt->flags = cpu_to_le32(CPF_FIRST | CPF_LAST);
 	strncpy(pkt->user, sess->user, CLD_MAX_USERNAME - 1);
 
 	resp = (struct cld_msg_hdr *) (pkt + 1);
@@ -137,9 +138,9 @@ static int cldc_rx_generic(struct cldc_session *sess,
 		if (sess->verbose)
 			sess->act_log("rx_gen: comparing req->xid (%llu) with resp->xid_in (%llu)\n",
 			        (unsigned long long)
-					GUINT64_FROM_LE(req->xid),
+					le64_to_cpu(req->xid),
 			        (unsigned long long)
-					GUINT64_FROM_LE(resp->xid_in));
+					le64_to_cpu(resp->xid_in));
 #endif
 
 		if (req->xid == resp->xid_in)
@@ -236,7 +237,7 @@ static int cldc_rx_event(struct cldc_session *sess,
 		return -1011;
 
 	sess->ops->event(sess->private, sess, fh,
-			 GUINT32_FROM_LE(ev->events));
+			 le32_to_cpu(ev->events));
 
 	return 0;
 }
@@ -435,24 +436,24 @@ int cldc_receive_pkt(struct cldc_session *sess,
 			sess->act_log("receive pkt: len %u, op cmo_get"
 				", seqid %llu, user %s, size %u\n",
 				(unsigned int) pkt_len,
-				(unsigned long long) GUINT64_FROM_LE(pkt->seqid),
+				(unsigned long long) le64_to_cpu(pkt->seqid),
 				pkt->user,
-				GUINT32_FROM_LE(dp->size));
+				le32_to_cpu(dp->size));
 		} else if (msg->op == cmo_new_sess) {
 			struct cld_msg_resp *dp;
 			dp = (struct cld_msg_resp *) msg;
 			sess->act_log("receive pkt: len %u, op cmo_new_sess"
 				", seqid %llu, user %s, xid_in %llu\n",
 				(unsigned int) pkt_len,
-				(unsigned long long) GUINT64_FROM_LE(pkt->seqid),
+				(unsigned long long) le64_to_cpu(pkt->seqid),
 				pkt->user,
-				(unsigned long long) GUINT64_FROM_LE(dp->xid_in));
+				(unsigned long long) le64_to_cpu(dp->xid_in));
 		} else {
 			sess->act_log("receive pkt: len %u, "
 				"op %s, seqid %llu, user %s\n",
 				(unsigned int) pkt_len,
 				opstr(msg->op),
-				(unsigned long long) GUINT64_FROM_LE(pkt->seqid),
+				(unsigned long long) le64_to_cpu(pkt->seqid),
 				pkt->user);
 		}
 	}
@@ -482,7 +483,7 @@ int cldc_receive_pkt(struct cldc_session *sess,
 	if (current_time >= sess->msg_scan_time)
 		sess_expire_outmsg(sess, current_time);
 
-	pkt_flags = GUINT32_FROM_LE(pkt->flags);
+	pkt_flags = le32_to_cpu(pkt->flags);
 	first_frag = pkt_flags & CPF_FIRST;
 	last_frag = pkt_flags & CPF_LAST;
 	have_new_sess = first_frag && (msg->op == cmo_new_sess);
@@ -508,7 +509,7 @@ int cldc_receive_pkt(struct cldc_session *sess,
 	}
 
 	/* verify (or set, for new-sess) sequence id */
-	seqid = GUINT64_FROM_LE(pkt->seqid);
+	seqid = le64_to_cpu(pkt->seqid);
 	if (have_new_sess) {
 		sess->next_seqid_in = seqid + 1;
 		sess->next_seqid_in_tr =
@@ -544,7 +545,7 @@ int cldc_receive_pkt(struct cldc_session *sess,
 
 static void sess_next_seqid(struct cldc_session *sess, uint64_t *seqid)
 {
-	uint64_t rc = GUINT64_TO_LE(sess->next_seqid_out++);
+	uint64_t rc = cpu_to_le64(sess->next_seqid_out++);
 	*seqid = rc;
 }
 
@@ -598,9 +599,9 @@ static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 		strncpy(pi->pkt.user, sess->user, CLD_MAX_USERNAME - 1);
 
 		if (i == 0)
-			pi->pkt.flags |= GUINT32_TO_LE(CPF_FIRST);
+			pi->pkt.flags |= cpu_to_le32(CPF_FIRST);
 		if (i == (msg->n_pkts - 1))
-			pi->pkt.flags |= GUINT32_TO_LE(CPF_LAST);
+			pi->pkt.flags |= cpu_to_le32(CPF_LAST);
 
 		msg->pkt_info[i] = pi;
 	}
@@ -761,7 +762,7 @@ static ssize_t end_sess_cb(struct cldc_msg *msg, const void *resp_p,
 	if (!ok)
 		resp_rc = CLE_TIMEOUT;
 	else
-		resp_rc = GUINT32_FROM_LE(resp->code);
+		resp_rc = le32_to_cpu(resp->code);
 
 	if (msg->copts.cb)
 		return msg->copts.cb(&msg->copts, resp_rc);
@@ -798,7 +799,7 @@ static ssize_t new_sess_cb(struct cldc_msg *msg, const void *resp_p,
 	if (!ok)
 		resp_rc = CLE_TIMEOUT;
 	else
-		resp_rc = GUINT32_FROM_LE(resp->code);
+		resp_rc = le32_to_cpu(resp->code);
 
 	if (resp_rc == CLE_OK)
 		sess->confirmed = true;
@@ -893,7 +894,7 @@ static ssize_t generic_end_cb(struct cldc_msg *msg, const void *resp_p,
 	if (!ok)
 		resp_rc = CLE_TIMEOUT;
 	else
-		resp_rc = GUINT32_FROM_LE(resp->code);
+		resp_rc = le32_to_cpu(resp->code);
 
 	if (msg->copts.cb)
 		return msg->copts.cb(&msg->copts, resp_rc);
@@ -947,7 +948,7 @@ int cldc_del(struct cldc_session *sess, const struct cldc_call_opts *copts,
 
 	/* fill in DEL-specific name_len, name info */
 	del = (struct cld_msg_del *) msg->data;
-	del->name_len = GUINT16_TO_LE(plen);
+	del->name_len = cpu_to_le16(plen);
 	p = del;
 	p += sizeof(struct cld_msg_del);
 	memcpy(p, pathname, plen);
@@ -968,7 +969,7 @@ static ssize_t open_end_cb(struct cldc_msg *msg, const void *resp_p,
 	if (!ok)
 		resp_rc = CLE_TIMEOUT;
 	else
-		resp_rc = GUINT32_FROM_LE(resp->resp.code);
+		resp_rc = le32_to_cpu(resp->resp.code);
 
 	if (resp_rc == CLE_OK) {
 		fh->fh_le = resp->fh;
@@ -1025,9 +1026,9 @@ int cldc_open(struct cldc_session *sess,
 
 	/* fill in OPEN-specific info */
 	open = (struct cld_msg_open *) msg->data;
-	open->mode = GUINT32_TO_LE(open_mode);
-	open->events = GUINT32_TO_LE(events);
-	open->name_len = GUINT16_TO_LE(plen);
+	open->mode = cpu_to_le32(open_mode);
+	open->events = cpu_to_le32(events);
+	open->name_len = cpu_to_le16(plen);
 	p = open;
 	p += sizeof(struct cld_msg_open);
 	memcpy(p, pathname, plen);
@@ -1090,7 +1091,7 @@ int cldc_lock(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 	/* fill in LOCK-specific info */
 	lock = (struct cld_msg_lock *) msg->data;
 	lock->fh = fh->fh_le;
-	lock->flags = GUINT32_TO_LE(lock_flags);
+	lock->flags = cpu_to_le32(lock_flags);
 
 	return sess_send(sess, msg);
 }
@@ -1150,7 +1151,7 @@ int cldc_put(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 
 	put = (struct cld_msg_put *) msg->data;
 	put->fh = fh->fh_le;
-	put->data_size = GUINT32_TO_LE(data_len);
+	put->data_size = cpu_to_le32(data_len);
 
 	memcpy((put + 1), data, data_len);
 
@@ -1164,9 +1165,9 @@ int cldc_put(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 #undef XC32
 #undef XC64
 #define XC32(name) \
-	o->name = GUINT32_FROM_LE(resp->name)
+	o->name = le32_to_cpu(resp->name)
 #define XC64(name) \
-	o->name = GUINT64_FROM_LE(resp->name)
+	o->name = le64_to_cpu(resp->name)
 
 static ssize_t get_end_cb(struct cldc_msg *msg, const void *resp_p,
 			  size_t resp_len, bool ok)
@@ -1178,7 +1179,7 @@ static ssize_t get_end_cb(struct cldc_msg *msg, const void *resp_p,
 	if (!ok)
 		resp_rc = CLE_TIMEOUT;
 	else
-		resp_rc = GUINT32_FROM_LE(resp->resp.code);
+		resp_rc = le32_to_cpu(resp->resp.code);
 
 	if (resp_rc == CLE_OK) {
 		bool get_body;
@@ -1262,7 +1263,7 @@ int cldc_dirent_count(const void *data, size_t data_len)
 			return -2;
 
 		tmp16		= p;
-		str_len		= GUINT16_FROM_LE(*tmp16);
+		str_len		= le16_to_cpu(*tmp16);
 		rec_len		= str_len + 2;
 		pad		= CLD_ALIGN8(rec_len);
 		total_len	= rec_len + pad;
@@ -1288,7 +1289,7 @@ static int dirent_length(const void *buf, size_t buflen, size_t *str_len_out)
 		return -1;
 
 	tmp16		= buf;
-	str_len		= GUINT16_FROM_LE(*tmp16);
+	str_len		= le16_to_cpu(*tmp16);
 	rec_len		= str_len + 2;
 	pad		= CLD_ALIGN8(rec_len);
 	total_len	= rec_len + pad;
@@ -1346,7 +1347,7 @@ void cldc_dirent_cur_fini(struct cld_dirent_cur *dc)
 char *cldc_dirent_name(struct cld_dirent_cur *dc)
 {
 	const uint16_t *tmp16 = dc->p;
-	size_t str_len = GUINT16_FROM_LE(*tmp16);
+	size_t str_len = le16_to_cpu(*tmp16);
 	char *s;
 
 	s = malloc(str_len + 1);

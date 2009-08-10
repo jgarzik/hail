@@ -1,12 +1,13 @@
 
 #include <stdlib.h>
 #include <glib.h>
+#include <cld-private.h>
 #include "cld_msg.h"
 
 unsigned long long cld_sid2llu(const uint8_t *sid)
 {
 	const uint64_t *v_le = (const uint64_t *) sid;
-	uint64_t v = GUINT64_FROM_LE(*v_le);
+	uint64_t v = le64_to_cpu(*v_le);
 	return v;
 }
 
