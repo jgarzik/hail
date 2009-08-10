@@ -290,7 +290,7 @@ bool object_get(struct client *cli, bool want_body)
 
 	cli->in_len = obj->size;
 
-	resp->req.data_len = GUINT32_TO_LE(obj->size);
+	resp->req.data_len = GUINT64_TO_LE(obj->size);
 	memcpy(resp->req.checksum, obj->hashstr, sizeof(obj->hashstr));
 	resp->req.checksum[sizeof(obj->hashstr)] = 0;
 	resp->mtime = GUINT64_TO_LE(obj->mtime);
