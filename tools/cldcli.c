@@ -45,18 +45,26 @@ enum creq_cmd {
 	CREQ_LS,
 	CREQ_RM,
 	CREQ_MKDIR,
+	CREQ_CP_FC,		/* cpin: FS-to-CLD copy */
+	CREQ_CP_CF,		/* cpout: CLD-to-FS copy */
+};
+
+struct cp_fc_info {
+	void		*mem;
+	size_t		mem_len;
 };
 
 struct creq {
-	enum creq_cmd	cmd;
-	char path[CLD_PATH_MAX + 1];
+	enum creq_cmd		cmd;
+	char			path[CLD_PATH_MAX + 1];
+	struct cp_fc_info	cfi;
 };
 
 struct cresp {
 	enum thread_codes	tcode;
 	char			msg[64];
 	union {
-		unsigned int	file_len;
+		size_t		file_len;
 		unsigned int	n_records;
 	} u;
 };
@@ -298,6 +306,70 @@ static int cb_cat_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 	return 0;
 }
 
+static int cb_cp_cf_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
+{
+	struct cresp cresp = { .tcode = TC_FAILED, };
+	struct cldc_call_opts copts = { NULL, };
+
+	if (errc != CLE_OK) {
+		errc_msg(&cresp, errc);
+		write_from_thread(&cresp, sizeof(cresp));
+		return 0;
+	}
+
+	cresp.tcode = TC_OK;
+	cresp.u.file_len = copts_in->u.get.size;
+
+	write_from_thread(&cresp, sizeof(cresp));
+	write_from_thread(copts_in->u.get.buf, copts_in->u.get.size);
+
+	/* FIXME: race; should wait until close succeeds/fails before
+	 * returning any data.  'fh' may still be in use, otherwise.
+	 */
+	cldc_close(thr_fh, &copts);
+
+	return 0;
+}
+
+static int cb_cp_cf_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
+{
+	struct cresp cresp = { .tcode = TC_FAILED, };
+	struct cldc_call_opts copts = { .cb = cb_cp_cf_2, };
+
+	if (errc != CLE_OK) {
+		errc_msg(&cresp, errc);
+		write_from_thread(&cresp, sizeof(cresp));
+		return 0;
+	}
+
+	if (cldc_get(thr_fh, &copts, false)) {
+		write_from_thread(&cresp, sizeof(cresp));
+		return 0;
+	}
+
+	return 0;
+}
+
+static int cb_cp_fc_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
+{
+	struct cresp cresp = { .tcode = TC_FAILED, };
+	struct cldc_call_opts copts = { .cb = cb_ok_done, };
+	struct cp_fc_info *cfi = copts_in->private;
+
+	if (errc != CLE_OK) {
+		errc_msg(&cresp, errc);
+		write_from_thread(&cresp, sizeof(cresp));
+		return 0;
+	}
+
+	if (cldc_put(thr_fh, &copts, cfi->mem, cfi->mem_len)) {
+		write_from_thread(&cresp, sizeof(cresp));
+		return 0;
+	}
+
+	return 0;
+}
+
 static int cb_cd_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 {
 	struct cresp cresp = { .tcode = TC_FAILED, };
@@ -352,6 +424,8 @@ static void handle_user_command(void)
 		case CREQ_LS:
 		case CREQ_RM:
 		case CREQ_MKDIR:
+		case CREQ_CP_FC:
+		case CREQ_CP_CF:
 			fprintf(stderr, "DEBUG: thr rx'd path '%s'\n",
 				creq.path);
 			break;
@@ -371,6 +445,25 @@ static void handle_user_command(void)
 		copts.cb = cb_cat_1;
 		rc = cldc_open(thr_udp->sess, &copts, creq.path,
 			       COM_READ, 0, &thr_fh);
+		if (rc) {
+			write_from_thread(&cresp, sizeof(cresp));
+			return;
+		}
+		break;
+	case CREQ_CP_CF:
+		copts.cb = cb_cp_cf_1;
+		rc = cldc_open(thr_udp->sess, &copts, creq.path,
+			       COM_READ, 0, &thr_fh);
+		if (rc) {
+			write_from_thread(&cresp, sizeof(cresp));
+			return;
+		}
+		break;
+	case CREQ_CP_FC:
+		copts.cb = cb_cp_fc_1;
+		copts.private = &creq.cfi;
+		rc = cldc_open(thr_udp->sess, &copts, creq.path,
+			       COM_WRITE, 0, &thr_fh);
 		if (rc) {
 			write_from_thread(&cresp, sizeof(cresp));
 			return;
@@ -716,6 +809,91 @@ static void cmd_cat(const char *arg)
 	free(mem);
 }
 
+static void cmd_cp_io(const char *cmd, const char *arg, bool read_cld_file)
+{
+	struct creq creq;
+	struct cresp cresp;
+	gchar **sv = NULL, *cld_path, *fs_path;
+	void *mem = NULL;
+	size_t flen = 0;
+
+	if (!*arg) {
+		fprintf(stderr, "%s: argument required\n", cmd);
+		return;
+	}
+
+	sv = g_strsplit_set(arg, " \t\f\r\n", 2);
+	if (!sv || !sv[0] || !sv[1]) {
+		fprintf(stderr, "%s: two arguments required\n", cmd);
+		goto out;
+	}
+
+	if (read_cld_file) {
+		creq.cmd = CREQ_CP_CF;
+		cld_path = sv[0];
+		fs_path = sv[1];
+	} else {
+		gchar *fs_content = NULL;
+		gsize fs_len = 0;
+
+		creq.cmd = CREQ_CP_FC;
+		cld_path = sv[1];
+		fs_path = sv[0];
+
+		if (!g_file_get_contents(fs_path, &fs_content,
+					 &fs_len, NULL)) {
+			fprintf(stderr, "Failed to read data from FS path %s\n",
+				fs_path);
+			goto out;
+		}
+
+		mem = fs_content;
+		flen = fs_len;
+	}
+
+	if (!make_abs_path(creq.path, sizeof(creq.path), cld_path)) {
+		fprintf(stderr, "%s: path too long\n", arg);
+		goto out;
+	}
+
+	creq.cfi.mem = mem;
+	creq.cfi.mem_len = flen;
+
+	/* send message to thread */
+	write_to_thread(&creq, sizeof(creq));
+
+	/* wait for and receive response from thread */
+	read_from_thread(&cresp, sizeof(cresp));
+
+	if (cresp.tcode != TC_OK) {
+		fprintf(stderr, "%s(%s -> %s) failed: %s\n",
+			cmd, sv[0], sv[1], cresp.msg);
+		goto out;
+	}
+
+	if (read_cld_file) {
+		flen = cresp.u.file_len;
+		mem = malloc(flen);
+		if (!mem) {
+			fprintf(stderr, "OOM\n");
+			exit(1);
+		}
+
+		read_from_thread(mem, flen);
+
+		if (!g_file_set_contents(fs_path, mem, flen, NULL)) {
+			fprintf(stderr, "Successfully read CLD data from %s,\n"
+				"but failed to write data to FS path %s\n",
+				cld_path,
+				fs_path);
+		}
+	}
+
+out:
+	g_strfreev(sv);
+	free(mem);
+}
+
 static void cmd_help(void)
 {
 	fprintf(stderr,
@@ -729,6 +907,10 @@ static void cmd_help(void)
 "rm FILE	Delete FILE\n"
 "mkdir DIR	Create new directory DIR\n"
 "cat FILE	Output contents of FILE\n"
+"cpin FS-FILE CLD-FILE\n"
+"		Copy contents of FS-FILE into CLD as CLD-FILE\n"
+"cpout CLD-FILE FS-FILE\n"
+"		Copy contents of CLD-FILE out of CLD into FS-FILE\n"
 "quit		Exit cldcli\n"
 "exit		Exit cldcli\n"
 "<end of file>	Exit cldcli\n"
@@ -930,6 +1112,10 @@ int main (int argc, char *argv[])
 			cmd_mkdir(tok2);
 		else if (!strcmp(tok1, "cat"))
 			cmd_cat(tok2);
+		else if (!strcmp(tok1, "cpin"))
+			cmd_cp_io(tok1, tok2, false);
+		else if (!strcmp(tok1, "cpout"))
+			cmd_cp_io(tok1, tok2, true);
 		else if (!strcmp(tok1, "help"))
 			cmd_help();
 		else if (!strcmp(tok1, "quit") || !strcmp(tok1, "exit"))
