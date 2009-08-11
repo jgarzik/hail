@@ -507,6 +507,8 @@ int cld_begin(const char *thishost, const char *thiscell, uint32_t nid,
 
 	cld_ops.printf = log;
 
+	cldc_init();
+
 	/*
 	 * As long as we permit pre-seeding lists of CLD hosts,
 	 * we cannot wipe our session anymore. Note though, as long

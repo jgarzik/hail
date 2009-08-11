@@ -1193,7 +1193,6 @@ int main (int argc, char *argv[])
 
 	g_thread_init(NULL);
 	SSL_library_init();
-	cldc_init();
 
 	/* init SSL */
 	SSL_load_error_strings();
