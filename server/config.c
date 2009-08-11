@@ -449,10 +449,17 @@ void read_config(void)
 	}
 
 	if (chunkd_srv.nid == 0) {	/* We have no NID, it's fatal */
+#if 0 /* Not having NID is made non-fatal, because of CLD-less applications */
 		if (!ctx.badnid) {	/* NID is missing (not invalid) */
 			applog(LOG_ERR, "No NID configured");
 		}
 		exit(1);
+#else
+		if (ctx.badnid)
+			exit(1);
+		if (debugging)
+			applog(LOG_DEBUG, "No NID configured");
+#endif
 	}
 
 	free(ctx.geo_area);

@@ -507,6 +507,8 @@ int cld_begin(const char *thishost, const char *thiscell, uint32_t nid,
 
 	cld_ops.printf = log;
 
+	if (!nid)
+		return 0;
 	cldc_init();
 
 	/*
@@ -573,6 +575,9 @@ err_cell:
 void cld_end(void)
 {
 	int i;
+
+	if (!ses.nid)
+		return;
 
 	if (ses.lib) {
 		event_del(&ses.ev);
