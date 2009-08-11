@@ -463,7 +463,7 @@ static void handle_user_command(void)
 		copts.cb = cb_cp_fc_1;
 		copts.private = &creq.cfi;
 		rc = cldc_open(thr_udp->sess, &copts, creq.path,
-			       COM_WRITE, 0, &thr_fh);
+			       COM_CREATE | COM_WRITE, 0, &thr_fh);
 		if (rc) {
 			write_from_thread(&cresp, sizeof(cresp));
 			return;
