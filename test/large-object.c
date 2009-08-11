@@ -77,7 +77,7 @@ static void test(bool encrypt)
 	struct st_client *stc;
 	bool rcb;
 	char key[64] = "deadbeef";
-	size_t len = 0;
+	uint64_t len = 0;
 	char data[BUFSZ];
 	char rbuf[BUFSZ];
 	struct timeval ta, tb;
