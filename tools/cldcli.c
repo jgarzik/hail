@@ -49,9 +49,7 @@ enum creq_cmd {
 
 struct creq {
 	enum creq_cmd	cmd;
-	union {
-		char path[CLD_PATH_MAX + 1];
-	} u;
+	char path[CLD_PATH_MAX + 1];
 };
 
 struct cresp {
@@ -355,14 +353,14 @@ static void handle_user_command(void)
 		case CREQ_RM:
 		case CREQ_MKDIR:
 			fprintf(stderr, "DEBUG: thr rx'd path '%s'\n",
-				creq.u.path);
+				creq.path);
 			break;
 		}
 
 	switch (creq.cmd) {
 	case CREQ_CD:
 		copts.cb = cb_cd_1;
-		rc = cldc_open(thr_udp->sess, &copts, creq.u.path,
+		rc = cldc_open(thr_udp->sess, &copts, creq.path,
 			       COM_DIRECTORY, 0, &thr_fh);
 		if (rc) {
 			write_from_thread(&cresp, sizeof(cresp));
@@ -371,7 +369,7 @@ static void handle_user_command(void)
 		break;
 	case CREQ_CAT:
 		copts.cb = cb_cat_1;
-		rc = cldc_open(thr_udp->sess, &copts, creq.u.path,
+		rc = cldc_open(thr_udp->sess, &copts, creq.path,
 			       COM_READ, 0, &thr_fh);
 		if (rc) {
 			write_from_thread(&cresp, sizeof(cresp));
@@ -380,7 +378,7 @@ static void handle_user_command(void)
 		break;
 	case CREQ_LS:
 		copts.cb = cb_ls_1;
-		rc = cldc_open(thr_udp->sess, &copts, creq.u.path,
+		rc = cldc_open(thr_udp->sess, &copts, creq.path,
 			       COM_DIRECTORY | COM_READ, 0, &thr_fh);
 		if (rc) {
 			write_from_thread(&cresp, sizeof(cresp));
@@ -389,7 +387,7 @@ static void handle_user_command(void)
 		break;
 	case CREQ_RM:
 		copts.cb = cb_ok_done;
-		rc = cldc_del(thr_udp->sess, &copts, creq.u.path);
+		rc = cldc_del(thr_udp->sess, &copts, creq.path);
 		if (rc) {
 			write_from_thread(&cresp, sizeof(cresp));
 			return;
@@ -397,7 +395,7 @@ static void handle_user_command(void)
 		break;
 	case CREQ_MKDIR:
 		copts.cb = cb_mkdir_1;
-		rc = cldc_open(thr_udp->sess, &copts, creq.u.path,
+		rc = cldc_open(thr_udp->sess, &copts, creq.path,
 			       COM_DIRECTORY | COM_CREATE | COM_EXCL, 0,
 			       &thr_fh);
 		if (rc) {
@@ -553,7 +551,7 @@ static void cmd_mkdir(const char *arg)
 		return;
 	}
 
-	if (!make_abs_path(creq.u.path, sizeof(creq.u.path), arg)) {
+	if (!make_abs_path(creq.path, sizeof(creq.path), arg)) {
 		fprintf(stderr, "%s: path too long\n", arg);
 		return;
 	}
@@ -582,7 +580,7 @@ static void cmd_rm(const char *arg)
 		return;
 	}
 
-	if (!make_abs_path(creq.u.path, sizeof(creq.u.path), arg)) {
+	if (!make_abs_path(creq.path, sizeof(creq.path), arg)) {
 		fprintf(stderr, "%s: path too long\n", arg);
 		return;
 	}
@@ -609,7 +607,7 @@ static void cmd_cd(const char *arg)
 	if (!*arg)
 		arg = "/";
 
-	if (!make_abs_path(creq.u.path, sizeof(creq.u.path), arg)) {
+	if (!make_abs_path(creq.path, sizeof(creq.path), arg)) {
 		fprintf(stderr, "%s: path too long\n", arg);
 		return;
 	}
@@ -644,7 +642,7 @@ static void cmd_ls(const char *arg)
 	if (!*arg)
 		arg = clicwd;
 
-	if (!make_abs_path(creq.u.path, sizeof(creq.u.path), arg)) {
+	if (!make_abs_path(creq.path, sizeof(creq.path), arg)) {
 		fprintf(stderr, "%s: path too long\n", arg);
 		return;
 	}
@@ -683,7 +681,7 @@ static void cmd_cat(const char *arg)
 		return;
 	}
 
-	if (!make_abs_path(creq.u.path, sizeof(creq.u.path), arg)) {
+	if (!make_abs_path(creq.path, sizeof(creq.path), arg)) {
 		fprintf(stderr, "%s: path too long\n", arg);
 		return;
 	}
