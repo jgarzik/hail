@@ -634,64 +634,6 @@ static bool make_abs_path(char *dest, size_t dest_len, const char *src)
 	return true;
 }
 
-static void cmd_mkdir(const char *arg)
-{
-	struct creq creq;
-	struct cresp cresp;
-
-	if (!*arg) {
-		fprintf(stderr, "mkdir: argument required\n");
-		return;
-	}
-
-	if (!make_abs_path(creq.path, sizeof(creq.path), arg)) {
-		fprintf(stderr, "%s: path too long\n", arg);
-		return;
-	}
-
-	creq.cmd = CREQ_MKDIR;
-
-	/* send message to thread */
-	write_to_thread(&creq, sizeof(creq));
-
-	/* wait for and receive response from thread */
-	read_from_thread(&cresp, sizeof(cresp));
-
-	if (cresp.tcode != TC_OK) {
-		fprintf(stderr, "%s: mkdir failed: %s\n", arg, cresp.msg);
-		return;
-	}
-}
-
-static void cmd_rm(const char *arg)
-{
-	struct creq creq;
-	struct cresp cresp;
-
-	if (!*arg) {
-		fprintf(stderr, "rm: argument required\n");
-		return;
-	}
-
-	if (!make_abs_path(creq.path, sizeof(creq.path), arg)) {
-		fprintf(stderr, "%s: path too long\n", arg);
-		return;
-	}
-
-	creq.cmd = CREQ_RM;
-
-	/* send message to thread */
-	write_to_thread(&creq, sizeof(creq));
-
-	/* wait for and receive response from thread */
-	read_from_thread(&cresp, sizeof(cresp));
-
-	if (cresp.tcode != TC_OK) {
-		fprintf(stderr, "%s: remove failed: %s\n", arg, cresp.msg);
-		return;
-	}
-}
-
 static void cmd_cd(const char *arg)
 {
 	struct creq creq;
@@ -892,6 +834,35 @@ static void cmd_cp_io(const char *cmd, const char *arg, bool read_cld_file)
 out:
 	g_strfreev(sv);
 	free(mem);
+}
+
+static void basic_cmd(const char *cmd, const char *arg, enum creq_cmd cmd_no)
+{
+	struct creq creq;
+	struct cresp cresp;
+
+	if (!*arg) {
+		fprintf(stderr, "%s: argument required\n", cmd);
+		return;
+	}
+
+	if (!make_abs_path(creq.path, sizeof(creq.path), arg)) {
+		fprintf(stderr, "%s: path too long\n", arg);
+		return;
+	}
+
+	creq.cmd = cmd_no;
+
+	/* send message to thread */
+	write_to_thread(&creq, sizeof(creq));
+
+	/* wait for and receive response from thread */
+	read_from_thread(&cresp, sizeof(cresp));
+
+	if (cresp.tcode != TC_OK) {
+		fprintf(stderr, "%s(%s) failed: %s\n", cmd, arg, cresp.msg);
+		return;
+	}
 }
 
 static void cmd_help(void)
@@ -1107,9 +1078,9 @@ int main (int argc, char *argv[])
 		else if (!strcmp(tok1, "ls"))
 			cmd_ls(tok2);
 		else if (!strcmp(tok1, "rm"))
-			cmd_rm(tok2);
+			basic_cmd(tok1, tok2, CREQ_RM);
 		else if (!strcmp(tok1, "mkdir"))
-			cmd_mkdir(tok2);
+			basic_cmd(tok1, tok2, CREQ_MKDIR);
 		else if (!strcmp(tok1, "cat"))
 			cmd_cat(tok2);
 		else if (!strcmp(tok1, "cpin"))
