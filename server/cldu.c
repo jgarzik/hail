@@ -493,7 +493,7 @@ static int cldu_make_ffile(char **ret, struct cld_session *sp)
 		host = cfg->node;
 		if (host == NULL || host[0] == 0)
 			host = sp->ourhost;
-	
+
 		rc = asprintf(&str,
 			" <Socket>\r\n"
 			"  <Type>%s</Type>\r\n"
