@@ -41,6 +41,7 @@ struct cld_session {
 	char *ffname;		/* /chunk-CELL/NID */
 	struct cldc_fh *ffh;	/* /chunk-cell/NID, keep open for lock */
 	uint32_t nid;
+	const char *ourhost;	/* N.B. points to some global data. */
 	struct geo *ploc;	/* N.B. points to some global data. */
 
 	void (*state_cb)(enum st_cld);
@@ -53,6 +54,7 @@ static int cldu_close_c_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 static int cldu_open_f_cb(struct cldc_call_opts *carg, enum cle_err_codes errc);
 static int cldu_lock_cb(struct cldc_call_opts *carg, enum cle_err_codes errc);
 static int cldu_put_cb(struct cldc_call_opts *carg, enum cle_err_codes errc);
+static int cldu_make_ffile(char **ret, struct cld_session *sp);
 
 #define SVC "chunk"
 static char svc[] = SVC;
@@ -79,8 +81,9 @@ static int cldu_nextactive(struct cld_session *sp)
 	return sp->actx;
 }
 
-static int cldu_setcell(struct cld_session *sp,
-			const char *thiscell, uint32_t thisnid, struct geo *locp)
+static int cldu_setcell(struct cld_session *sp, const char *thiscell,
+			uint32_t thisnid, const char *thishost,
+			struct geo *locp)
 {
 	size_t cnlen;
 	size_t mlen;
@@ -112,6 +115,7 @@ static int cldu_setcell(struct cld_session *sp,
 	sp->ffname = mem;
 
 	sp->nid = thisnid;
+	sp->ourhost = thishost;
 	sp->ploc = locp;
 
 	return 0;
@@ -328,9 +332,6 @@ static int cldu_open_c_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 		return 0;
 	}
 
-	if (debugging)
-		applog(LOG_DEBUG, "CLD directory \"%s\" created", sp->cfname);
-
 	/*
 	 * We don't use directory handle to open files in it, so close it.
 	 */
@@ -414,9 +415,7 @@ static int cldu_open_f_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 static int cldu_lock_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 {
 	struct cld_session *sp = carg->private;
-	char *bufv[12];
-	int i, n;
-	char *buf;
+	char *buf = NULL; /* stupid gcc 4.4.1 throws a warning */
 	int len;
 	struct cldc_call_opts copts;
 	int rc;
@@ -426,44 +425,9 @@ static int cldu_lock_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 		return 0;
 	}
 
-	/*
-	 * Write the file with our parameters.
-	 * We skip <NID> for now, it's in the filename anyhow.
-	 */
-	n = 0;
-	bufv[n++] = "<Geo>\r\n";
-	bufv[n++] = "<Area>";
-	bufv[n++] = (sp->ploc->area) ? sp->ploc->area : "-";
-	bufv[n++] = "</Area>\r\n";
-	bufv[n++] = "<Building>";
-	bufv[n++] = (sp->ploc->zone) ? sp->ploc->zone : "-";
-	bufv[n++] = "</Building>\r\n";
-	bufv[n++] = "<Rack>";
-	bufv[n++] = (sp->ploc->rack) ? sp->ploc->rack : "-";
-	bufv[n++] = "</Rack>\r\n";
-	bufv[n++] = "</Geo>\r\n";
-	// bufv[n] = NULL;
-
-	len = 0;
-	for (i = 0; i < n; i++)
-		len += strlen(bufv[i]);
-	len++;		// nul
-
-	buf = malloc(len);
-	if (!buf) {
-		applog(LOG_ERR, "No core for NID file");
+	if (cldu_make_ffile(&buf, sp))
 		return 0;
-	}
-
-	len = 0;
-	for (i = 0; i < n; i++) {
-		strcpy(buf + len, bufv[i]);
-		len += strlen(bufv[i]);
-	}
-	buf[len] = 0;
-
-	if (debugging)
-		applog(LOG_DEBUG, "Writing CLD file (%s): %s", sp->ffname, buf);
+	len = strlen(buf);
 
 	memset(&copts, 0, sizeof(copts));
 	copts.cb = cldu_put_cb;
@@ -490,7 +454,104 @@ static int cldu_put_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 		return 0;
 	}
 
+	if (debugging)
+		applog(LOG_DEBUG, "CLD file \"%s\" written", sp->ffname);
+
 	return 0;
+}
+
+/*
+ * Create the file with our parameters in memory, return as ret.
+ */
+static int cldu_make_ffile(char **ret, struct cld_session *sp)
+{
+	GList *str_list = NULL;
+	char *buf;
+	char *str;
+	size_t len;
+	GList *tmp;
+	int rc;
+
+	rc = asprintf(&str,
+		"<Chunk>\r\n"
+		" <NID>%u</NID>\r\n",
+		sp->nid);
+	if (rc == -1) {
+		applog(LOG_ERR, "OOM in asprintf\n");
+		goto error;
+	}
+	str_list = g_list_append(str_list, str);
+
+	/*
+	 * XXX FIXME sockets has to be a parameter, not global
+	 */
+	for (tmp = chunkd_srv.sockets; tmp; tmp = tmp->next) {
+		struct server_socket *sock = tmp->data;
+		const struct listen_cfg *cfg = sock->cfg;
+		const char *host;
+
+		host = cfg->node;
+		if (host == NULL || host[0] == 0)
+			host = sp->ourhost;
+	
+		rc = asprintf(&str,
+			" <Socket>\r\n"
+			"  <Type>%s</Type>\r\n"
+			"  <Host>%s</Host>\r\n"
+			"  <Port>%s</Port>\r\n"
+			" </Socket>\r\n",
+			cfg->encrypt ? "chunk-ssl" : "chunk",
+			host,
+			cfg->port);
+		if (rc == -1) {
+			applog(LOG_ERR, "OOM in asprintf\n");
+			goto error;
+		}
+		str_list = g_list_append(str_list, str);
+	}
+
+	rc = asprintf(&str,
+		" <Geo>\r\n"
+		"  <Area>%s</Area>\r\n"
+		"  <Building>%s</Building>\r\n"
+		"  <Rack>%s</Rack>\r\n"
+		" </Geo>\r\n"
+		"</Chunk>\r\n",
+		sp->ploc->area ? sp->ploc->area : "-",
+		sp->ploc->zone ? sp->ploc->zone : "-",
+		sp->ploc->rack ? sp->ploc->rack : "-");
+	if (rc == -1) {
+		applog(LOG_ERR, "OOM in asprintf\n");
+		goto error;
+	}
+	str_list = g_list_append(str_list, str);
+
+	len = 0;
+	for (tmp = str_list; tmp; tmp = tmp->next)
+		len += strlen(tmp->data);
+	len++;		// nul
+
+	buf = malloc(len);
+	if (!buf) {
+		applog(LOG_ERR, "OOM for ffile");
+		rc = -1;
+		goto error;
+	}
+
+	len = 0;
+	for (tmp = str_list; tmp; tmp = tmp->next) {
+		strcpy(buf + len, tmp->data);
+		len += strlen(tmp->data);
+	}
+	buf[len] = 0;
+
+	*ret = buf;
+	rc = 0;
+error:
+	for (tmp = str_list; tmp; tmp = tmp->next)
+		free(tmp->data);
+	g_list_free(str_list);
+	return rc;
 }
 
 /*
@@ -499,6 +560,10 @@ static struct cld_session ses;
 
 /*
  * This initiates our sole session with a CLD instance.
+ *
+ * Mostly due to our laziness and lack of need, thishost and locp are saved
+ * by reference, so their lifetime must exceed the lifetime of the session
+ * (the time between cld_begin and cld_end).
  */
 int cld_begin(const char *thishost, const char *thiscell, uint32_t nid,
 	      struct geo *locp, void (*cb)(enum st_cld),
@@ -519,7 +584,7 @@ int cld_begin(const char *thishost, const char *thiscell, uint32_t nid,
 	// memset(&ses, 0, sizeof(struct cld_session));
 	ses.state_cb = cb;
 
-	if (cldu_setcell(&ses, thiscell, nid, locp)) {
+	if (cldu_setcell(&ses, thiscell, nid, thishost, locp)) {
 		/* Already logged error */
 		goto err_cell;
 	}

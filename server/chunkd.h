@@ -141,7 +141,7 @@ struct server_stats {
 
 struct server_socket {
 	int			fd;
-	bool			encrypt;
+	const struct listen_cfg	*cfg;
 	struct event		ev;
 };
 
@@ -153,7 +153,7 @@ struct server {
 	int			pid_fd;
 
 	GList			*listeners;
-	GList			*sockets;
+	GList			*sockets;	/* points into listeners */
 
 	struct list_head	wr_trash;
 	unsigned int		trash_sz;

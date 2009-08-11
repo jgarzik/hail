@@ -1,7 +1,8 @@
 How to get chunkd running in typical configurations:
 
-*) Make sure a CLD is running somewhere on the network, and has an SRV record,
-   which typically looks like this:
+*) Unless you run Chunk standalone (which is very rare), make sure a CLD is
+   running somewhere on the network, and has an SRV record, which typically
+   looks like this:
 
 [root@table1 ~]# host -t srv _cld._udp
 _cld._udp.phx2.ex.com has SRV record 10 50 8081 pacman.phx2.ex.com.
@@ -64,7 +65,8 @@ _cld._udp.phx2.ex.com has SRV record 10 50 8081 maika.phx2.ex.com.
    It's best to use only ASCII letters, numbers, dash ('-'), underscore ('_'),
    and period ('.') in cell names.
 
-*) configure Node ID (NID), if desired. The NID follows the data, so
+*) For a typical Chunk configuration (not running it standalone),
+   configure Node ID (NID). The NID follows the data, so
    the best practice for NIDs is to have site-wide node bring-up scripts
    create a unique identifier from a per-cell counter, instead of using
    the MAC or IP, or such. One common trick is to use the creation time,

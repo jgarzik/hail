@@ -957,7 +957,7 @@ static void tcp_srv_event(int fd, short events, void *userdata)
 	char host[64];
 	int rc, on = 1;
 
-	cli = cli_alloc(sock->encrypt);
+	cli = cli_alloc(sock->cfg->encrypt);
 	if (!cli) {
 		applog(LOG_ERR, "out of memory");
 		return;
@@ -981,7 +981,7 @@ static void tcp_srv_event(int fd, short events, void *userdata)
 		applog(LOG_WARNING, "TCP_NODELAY failed: %s",
 		       strerror(errno));
 
-	if (sock->encrypt) {
+	if (sock->cfg->encrypt) {
 		if (!SSL_set_fd(cli->ssl, cli->fd))
 			goto err_out_fd;
 
@@ -1131,7 +1131,7 @@ static int net_open(const struct listen_cfg *cfg)
 		}
 
 		sock->fd = fd;
-		sock->encrypt = cfg->encrypt;
+		sock->cfg = cfg;
 
 		event_set(&sock->ev, fd, EV_READ | EV_PERSIST,
 			  tcp_srv_event, sock);
