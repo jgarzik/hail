@@ -266,7 +266,7 @@ bool stc_get(struct st_client *stc, const char *key,
 
 	/* read response data */
 	while (content_len) {
-		int xfer_len;
+		size_t xfer_len;
 
 		xfer_len = MIN(content_len, sizeof(netbuf));
 		if (!net_read(stc, netbuf, xfer_len))
@@ -572,9 +572,10 @@ static size_t read_inline_cb(void *ptr, size_t size, size_t nmemb,
 			     void *user_data)
 {
 	struct stc_put_info *spi = user_data;
+	size_t n_bytes = size * nmemb;
 	size_t len;
 
-	len = MIN(size * nmemb, spi->len);
+	len = MIN(n_bytes, spi->len);
 	if (len) {
 		memcpy(ptr, spi->data, len);
 		spi->data += len;
@@ -759,7 +760,7 @@ struct st_keylist *stc_keys(struct st_client *stc)
 
 	/* read response data */
 	while (content_len) {
-		int xfer_len;
+		size_t xfer_len;
 
 		xfer_len = MIN(content_len, sizeof(netbuf));
 		if (!net_read(stc, netbuf, xfer_len))
