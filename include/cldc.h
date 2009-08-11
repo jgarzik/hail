@@ -79,6 +79,7 @@ struct cldc_ops {
 	void		(*event)(void *private, struct cldc_session *,
 				 struct cldc_fh *, uint32_t);
 	void		(*printf)(const char *fmt, ...);
+	void		(*errlog)(int prio, const char *fmt, ...);
 };
 
 /** a single CLD client session */
@@ -88,7 +89,8 @@ struct cldc_session {
 	bool		verbose;
 
 	const struct cldc_ops *ops;
-	void		(*act_log)(const char *fmt, ...);
+	void		(*act_log)(struct cldc_session *,
+				   int prio, const char *fmt, ...);
 	void		*private;
 
 	uint8_t		addr[64];		/* server address */
