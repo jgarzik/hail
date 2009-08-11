@@ -1172,9 +1172,11 @@ int main (int argc, char *argv[])
 	setlocale(LC_ALL, "C");
 
 	/*
-	 * parse command line
+	 * Unfortunately, our initialization order is rather rigid.
+	 *
+	 * First, parse command line. This way errors in parameters can
+	 * be written to stderr, where they belong.
 	 */
-
 	aprc = argp_parse(&argp, argc, argv, 0, NULL, NULL);
 	if (aprc) {
 		fprintf(stderr, "argp_parse failed: %s\n", strerror(aprc));
@@ -1182,12 +1184,12 @@ int main (int argc, char *argv[])
 	}
 
 	/*
-	 * open syslog, background outselves, write PID file ASAP
+	 * Next, open syslog. From now on, nothing goes to stderr, and
+	 * we minimize (or hopefuly eliminate) opening libraries that
+	 * do not have a switcheable diagnostic output.
 	 */
-
 	if (use_syslog)
 		openlog(PROGRAM_NAME, LOG_PID, LOG_LOCAL3);
-
 	if (debugging)
 		applog(LOG_INFO, "Verbose debug output enabled");
 
@@ -1207,11 +1209,17 @@ int main (int argc, char *argv[])
 			 SSL_MODE_ENABLE_PARTIAL_WRITE);
 
 	/*
-	 * read master configuration
+	 * Next, read master configuration. This should be done as
+	 * early as possible, so that tunables are available.
 	 */
 	read_config();
 	chunkd_srv.ourhost = get_hostname();
 
+	/*
+	 * For example, backgrounding and PID file should be done early
+	 * (before we do anything that can conflict with other instance),
+	 * but not before read_config().
+	 */
 	if (!(chunkd_srv.flags & SFL_FOREGROUND) && (daemon(1, !use_syslog) < 0)) {
 		syslogerr("daemon");
 		goto err_out;
@@ -1225,7 +1233,6 @@ int main (int argc, char *argv[])
 	/*
 	 * properly capture TERM and other signals
 	 */
-
 	signal(SIGHUP, SIG_IGN);
 	signal(SIGPIPE, SIG_IGN);
 	signal(SIGINT, term_signal);
