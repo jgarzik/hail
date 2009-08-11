@@ -47,6 +47,10 @@ enum creq_cmd {
 	CREQ_MKDIR,
 	CREQ_CP_FC,		/* cpin: FS-to-CLD copy */
 	CREQ_CP_CF,		/* cpout: CLD-to-FS copy */
+	CREQ_LOCK,
+	CREQ_TRYLOCK,
+	CREQ_UNLOCK,
+	CREQ_LIST_LOCKS,
 };
 
 struct cp_fc_info {
@@ -66,11 +70,19 @@ struct cresp {
 	union {
 		size_t		file_len;
 		unsigned int	n_records;
+		GList		*list;
 	} u;
 };
 
 struct ls_rec {
 	char			name[CLD_INODE_NAME_MAX + 1];
+};
+
+struct cldcli_lock_info {
+	enum creq_cmd		cmd;
+	struct cldc_fh		*fh;
+	uint64_t		id;
+	char			path[CLD_PATH_MAX + 1];
 };
 
 static unsigned long thread_running = 1;
@@ -84,6 +96,8 @@ static char our_user[CLD_MAX_USERNAME + 1] = "cli_user";
 /* globals only for use in thread */
 static struct cldc_udp *thr_udp;
 static struct cldc_fh *thr_fh;
+static GList *thr_lock_list;
+static uint64_t thr_lock_id = 2;
 
 static error_t parse_opt (int key, char *arg, struct argp_state *state);
 
@@ -408,6 +422,66 @@ static int cb_mkdir_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 	return 0;
 }
 
+static int cb_lock_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
+{
+	struct cldcli_lock_info *li = copts_in->private;
+
+	if ((errc == CLE_OK) ||
+	    ((li->cmd == CREQ_LOCK) && (errc == CLE_LOCK_PENDING)))
+		thr_lock_list = g_list_append(thr_lock_list, li);
+	else
+		free(li);
+
+	return cb_ok_done(copts_in, errc);
+}
+
+static int cb_lock_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
+{
+	struct cresp cresp = { .tcode = TC_FAILED, };
+	struct cldc_call_opts copts = { .cb = cb_lock_2, };
+	struct cldcli_lock_info *li = copts_in->private;
+	bool wait_for_lock = (li->cmd == CREQ_LOCK);
+
+	if (errc != CLE_OK) {
+		errc_msg(&cresp, errc);
+		write_from_thread(&cresp, sizeof(cresp));
+		return 0;
+	}
+
+	copts.private = li;
+
+	if (cldc_lock(li->fh, &copts, 0, wait_for_lock)) {
+		write_from_thread(&cresp, sizeof(cresp));
+		free(li);
+		return 0;
+	}
+
+	return 0;
+}
+
+static int cb_unlock_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
+{
+	struct cresp cresp = { .tcode = TC_FAILED, };
+	struct cldc_call_opts copts = { NULL, };
+	struct cldcli_lock_info *li = copts_in->private;
+
+	if (errc != CLE_OK) {
+		errc_msg(&cresp, errc);
+		write_from_thread(&cresp, sizeof(cresp));
+		goto out;
+	}
+
+	cresp.tcode = TC_OK;
+
+	write_from_thread(&cresp, sizeof(cresp));
+
+out:
+	cldc_close(li->fh, &copts);
+
+	free(li);
+	return 0;
+}
+
 static void handle_user_command(void)
 {
 	struct creq creq;
@@ -426,8 +500,14 @@ static void handle_user_command(void)
 		case CREQ_MKDIR:
 		case CREQ_CP_FC:
 		case CREQ_CP_CF:
+		case CREQ_LOCK:
+		case CREQ_TRYLOCK:
+		case CREQ_UNLOCK:
 			fprintf(stderr, "DEBUG: thr rx'd path '%s'\n",
 				creq.path);
+			break;
+		case CREQ_LIST_LOCKS:
+			fprintf(stderr, "DEBUG: thr rx'd no path\n");
 			break;
 		}
 
@@ -496,6 +576,88 @@ static void handle_user_command(void)
 			return;
 		}
 		break;
+	case CREQ_TRYLOCK:
+	case CREQ_LOCK: {
+		struct cldcli_lock_info *li;
+
+		li = calloc(1, sizeof(*li));
+		if (!li) {
+			write_from_thread(&cresp, sizeof(cresp));
+			return;
+		}
+
+		li->cmd = creq.cmd;
+		li->id = thr_lock_id++;
+		strncpy(li->path, creq.path, sizeof(li->path));
+
+		copts.cb = cb_lock_1;
+		copts.private = li;
+		rc = cldc_open(thr_udp->sess, &copts, creq.path,
+			       COM_LOCK, 0, &li->fh);
+		if (rc) {
+			write_from_thread(&cresp, sizeof(cresp));
+			free(li);
+			return;
+		}
+
+		break;
+		}
+
+	case CREQ_UNLOCK: {
+		GList *tmp;
+		struct cldcli_lock_info *li = NULL;
+
+		tmp = thr_lock_list;
+		while (tmp) {
+			li = tmp->data;
+
+			if (!strncmp(li->path, creq.path, sizeof(li->path)))
+				break;
+
+			tmp = tmp->next;
+		}
+		if (!tmp) {
+			write_from_thread(&cresp, sizeof(cresp));
+			return;
+		}
+
+		thr_lock_list = g_list_delete_link(thr_lock_list, tmp);
+
+		copts.cb = cb_unlock_1;
+		copts.private = li;
+		rc = cldc_unlock(li->fh, &copts);
+		if (rc) {
+			write_from_thread(&cresp, sizeof(cresp));
+			free(li);
+			return;
+		}
+
+		break;
+		}
+
+	case CREQ_LIST_LOCKS: {
+		GList *tmp, *content = NULL;
+
+		tmp = thr_lock_list;
+		while (tmp) {
+			char *s;
+			struct cldcli_lock_info *li;
+
+			li = tmp->data;
+			tmp = tmp->next;
+
+			s = g_strdup_printf("%llu %s\n",
+				 (unsigned long long) li->id,
+				 li->path);
+
+			content = g_list_append(content, s);
+		}
+
+		cresp.tcode = TC_OK;
+		cresp.u.list = content;
+		write_from_thread(&cresp, sizeof(cresp));
+		break;
+		}
 	}
 }
 
@@ -751,6 +913,40 @@ static void cmd_cat(const char *arg)
 	free(mem);
 }
 
+static void cmd_list_locks(void)
+{
+	struct creq creq;
+	struct cresp cresp;
+	GList *tmp, *content;
+
+	creq.cmd = CREQ_LIST_LOCKS;
+
+	/* send message to thread */
+	write_to_thread(&creq, sizeof(creq));
+
+	/* wait for and receive response from thread */
+	read_from_thread(&cresp, sizeof(cresp));
+
+	if (cresp.tcode != TC_OK) {
+		fprintf(stderr, "list-locks failed: %s\n", cresp.msg);
+		return;
+	}
+
+	content = tmp = cresp.u.list;
+	while (tmp) {
+		char *s;
+
+		s = tmp->data;
+		tmp = tmp->next;
+
+		printf("%s", s);
+
+		free(s);
+	}
+
+	g_list_free(content);
+}
+
 static void cmd_cp_io(const char *cmd, const char *arg, bool read_cld_file)
 {
 	struct creq creq;
@@ -878,10 +1074,14 @@ static void cmd_help(void)
 "		Copy contents of FS-FILE into CLD as CLD-FILE\n"
 "cpout CLD-FILE FS-FILE\n"
 "		Copy contents of CLD-FILE out of CLD into FS-FILE\n"
+"list locks	List locks currently held by this session\n"
+"lock FILE	Obtain exclusive lock on FILE, waiting in b/g if necessary\n"
 "ls		List files in current dir\n"
 "ls DIR		List files in DIR\n"
 "mkdir DIR	Create new directory DIR\n"
 "rm FILE	Delete FILE\n"
+"trylock FILE	Attempt to obtain exclusive lock on FILE\n"
+"unlock FILE	Remove exclusive lock from FILE\n"
 "\n"
 "quit		Exit cldcli\n"
 "exit		Exit cldcli\n"
@@ -1088,6 +1288,15 @@ int main (int argc, char *argv[])
 			cmd_cp_io(tok1, tok2, false);
 		else if (!strcmp(tok1, "cpout"))
 			cmd_cp_io(tok1, tok2, true);
+		else if (!strcmp(tok1, "lock"))
+			basic_cmd(tok1, tok2, CREQ_LOCK);
+		else if (!strcmp(tok1, "trylock"))
+			basic_cmd(tok1, tok2, CREQ_TRYLOCK);
+		else if (!strcmp(tok1, "unlock"))
+			basic_cmd(tok1, tok2, CREQ_UNLOCK);
+		else if ((!strcmp(tok1, "list")) && tok2 &&
+			 (!strcmp(tok2, "locks")))
+			cmd_list_locks();
 		else if (!strcmp(tok1, "help"))
 			cmd_help();
 		else if (!strcmp(tok1, "quit") || !strcmp(tok1, "exit"))
