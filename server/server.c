@@ -123,27 +123,6 @@ static struct {
 	  "Cookie check failed" },
 };
 
-/* FIXME static */ void app_log(const char *fmt, ...)
-{
-	va_list ap;
-
-	va_start(ap, fmt);
-	if (use_syslog) {
-		vsyslog(LOG_DEBUG, fmt, ap);
-	} else {
-		char *f;
-		int len;
-		int pid;
-
-		pid = getpid() & 0xFFFFFFFF;
-		len = sizeof(PROGRAM_NAME "[0123456789]: ") + strlen(fmt) + 2;
-		f = alloca(len);
-		sprintf(f, PROGRAM_NAME "[%u]: %s\n", pid, fmt);
-		vfprintf(stderr, f, ap);	/* atomic write to stderr */
-	}
-	va_end(ap);
-}
-
 void applog(int prio, const char *fmt, ...)
 {
 	va_list ap;
@@ -1245,7 +1224,7 @@ int main (int argc, char *argv[])
 	chunkd_srv.trash_sz = 0;
 
 	if (cld_begin(chunkd_srv.ourhost, chunkd_srv.cell, chunkd_srv.nid,
-		      &chunkd_srv.loc, NULL, app_log)) {
+		      &chunkd_srv.loc, NULL)) {
 		rc = 1;
 		goto err_out_session;
 	}

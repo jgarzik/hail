@@ -205,6 +205,7 @@ static struct cldc_ops cld_ops = {
 	.timer_ctl =	cldu_p_timer_ctl,
 	.pkt_send =	cldu_p_pkt_send,
 	.event =	cldu_p_event,
+	.errlog =	applog,
 };
 
 /*
@@ -566,11 +567,8 @@ static struct cld_session ses;
  * (the time between cld_begin and cld_end).
  */
 int cld_begin(const char *thishost, const char *thiscell, uint32_t nid,
-	      struct geo *locp, void (*cb)(enum st_cld),
-	      void log(const char *fmt, ...))
+	      struct geo *locp, void (*cb)(enum st_cld))
 {
-
-	cld_ops.printf = log;
 
 	if (!nid)
 		return 0;
@@ -593,7 +591,7 @@ int cld_begin(const char *thishost, const char *thiscell, uint32_t nid,
 		GList *tmp, *host_list = NULL;
 		int i;
 
-		if (cldc_getaddr(&host_list, thishost, debugging, log)) {
+		if (cldc_getaddr(&host_list, thishost, debugging, applog)) {
 			/* Already logged error */
 			goto err_addr;
 		}
@@ -663,8 +661,7 @@ void cld_end(void)
 	free(ses.ffname);
 }
 
-void cldu_add_host(const char *hostname, unsigned int port,
-		   void log(const char *fmt, ...))
+void cldu_add_host(const char *hostname, unsigned int port)
 {
 	static struct cld_session *sp = &ses;
 	struct cld_host *hp;
@@ -679,7 +676,7 @@ void cldu_add_host(const char *hostname, unsigned int port,
 		return;
 
 	if (cldc_saveaddr(&hp->h, 100, 100, port, strlen(hostname), hostname,
-			  debugging, log))
+			  debugging, applog))
 		return;
 	hp->known = 1;
 

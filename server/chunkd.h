@@ -191,11 +191,9 @@ extern void cli_out_end(struct client *cli);
 extern void cli_in_end(struct client *cli);
 
 /* cldu.c */
-extern void cldu_add_host(const char *host, unsigned int port,
-			  void print(const char *fmt, ...));
+extern void cldu_add_host(const char *host, unsigned int port);
 extern int cld_begin(const char *thishost, const char *thiscell, uint32_t nid,
-		     struct geo *locp, void (*cb)(enum st_cld),
-		     void print(const char *fmt, ...));
+		     struct geo *locp, void (*cb)(enum st_cld));
 extern void cld_end(void);
 
 /* util.c */

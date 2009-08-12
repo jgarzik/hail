@@ -19,8 +19,6 @@
 #include <glib.h>
 #include "chunkd.h"
 
-void app_log(const char *fmt, ...);	/* FIXME: get rid of this */
-
 struct config_context {
 	char		*text;
 	bool		badnid;
@@ -202,7 +200,7 @@ static void cfg_elm_end_cld(struct config_context *cc)
 		goto end;
 	}
 
-	cldu_add_host(cc->cld_host, cc->cld_port, app_log);
+	cldu_add_host(cc->cld_host, cc->cld_port);
 
 end:
 	free(cc->cld_host);
