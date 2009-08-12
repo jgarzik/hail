@@ -983,8 +983,8 @@ static void cmd_cat(const char *arg)
 
 	len = cresp.u.file_len;
 	mem = malloc(len);
-	if (!len) {
-		fprintf(stderr, "OOM\n");
+	if (!mem) {
+		fprintf(stderr, "%s: OOM (%u)\n", __func__, (unsigned int) len);
 		return;
 	}
 
@@ -1098,7 +1098,8 @@ static void cmd_cp_io(const char *cmd, const char *arg, bool read_cld_file)
 		flen = cresp.u.file_len;
 		mem = malloc(flen);
 		if (!mem) {
-			fprintf(stderr, "OOM\n");
+			fprintf(stderr, "%s: OOM (%u)\n",
+				__func__, (unsigned int) flen);
 			exit(1);
 		}
 
@@ -1184,14 +1185,16 @@ static bool push_host(const char *arg)
 
 	dr = malloc(sizeof(*dr));
 	if (!dr) {
-		fprintf(stderr, "OOM\n");
+		fprintf(stderr, "%s: OOM (%zu)\n",
+			__func__, sizeof(*dr));
 		goto err;
 	}
 	memset(dr, 0, sizeof(*dr));
 
 	dr->host = strdup(arg);
 	if (!dr->host) {
-		fprintf(stderr, "OOM\n");
+		fprintf(stderr, "%s: OOM (%zu)\n",
+			__func__, strlen(arg));
 		goto err_out;
 	}
 
