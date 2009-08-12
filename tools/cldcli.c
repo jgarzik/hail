@@ -33,6 +33,8 @@ static struct argp_option options[] = {
 	  "Connect to remote CLD at specified HOST:PORT" },
 	{ "user", 'u', "USER", 0,
 	  "Set username to USER" },
+	{ "verbose", 'v', NULL, 0,
+	  "Enable verbose libcldc output" },
 	{ }
 };
 
@@ -100,6 +102,7 @@ static int to_thread[2], from_thread[2];
 static GThread *cldthr;
 static char our_user[CLD_MAX_USERNAME + 1] = "cli_user";
 static GList *timer_list;
+static bool cldcli_verbose;
 
 /* globals only for use in thread */
 static struct cldc_udp *thr_udp;
@@ -822,6 +825,8 @@ static gpointer cld_thread(gpointer dummy)
 		return NULL;
 	}
 
+	thr_udp->sess->verbose = cldcli_verbose;
+
 	pfd[0].fd = thr_udp->fd;
 	pfd[0].events = POLLIN;
 
@@ -1250,6 +1255,9 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 			argp_usage(state);
 		} else
 			strcpy(our_user, arg);
+		break;
+	case 'v':
+		cldcli_verbose = true;
 		break;
 	case ARGP_KEY_ARG:
 		argp_usage(state);	/* too many args */
