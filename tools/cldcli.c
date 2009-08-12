@@ -144,12 +144,14 @@ static void errc_msg(struct cresp *cresp, enum cle_err_codes errc)
 	strcpy(cresp->msg, names_cle_err[errc]);
 }
 
-static void app_log(const char *fmt, ...)
+static void applog(int prio, const char *fmt, ...)
 {
+	char buf[200];
 	va_list ap;
 
 	va_start(ap, fmt);
-	vfprintf(stderr, fmt, ap);
+	vsnprintf(buf, 200, fmt, ap);
+	fprintf(stderr, "%s\n", buf);
 	va_end(ap);
 }
 
@@ -780,20 +782,11 @@ static void cld_p_event(void *private, struct cldc_session *sess,
 	fprintf(stderr, "FIXME: event\n");
 }
 
-static void cld_p_log(const char *fmt, ...)
-{
-	va_list ap;
-
-	va_start(ap, fmt);
-	vfprintf(stderr, fmt, ap);
-	va_end(ap);
-}
-
 static struct cldc_ops cld_ops = {
 	.timer_ctl	= cld_p_timer_ctl,
 	.pkt_send	= cld_p_pkt_send,
 	.event		= cld_p_event,
-	.printf		= cld_p_log,
+	.errlog		= applog,
 };
 
 static gpointer cld_thread(gpointer dummy)
@@ -1307,7 +1300,7 @@ int main (int argc, char *argv[])
 			return 1;
 		}
 		hostb[hostsz-1] = 0;
-		if (cldc_getaddr(&host_list, hostb, debugging, app_log)) {
+		if (cldc_getaddr(&host_list, hostb, debugging, applog)) {
 			fprintf(stderr, "Unable to find a CLD host\n");
 			return 1;
 		}

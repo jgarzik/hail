@@ -78,7 +78,6 @@ struct cldc_ops {
 				const void *buf, size_t buflen);
 	void		(*event)(void *private, struct cldc_session *,
 				 struct cldc_fh *, uint32_t);
-	void		(*printf)(const char *fmt, ...);
 	void		(*errlog)(int prio, const char *fmt, ...);
 };
 
@@ -89,8 +88,7 @@ struct cldc_session {
 	bool		verbose;
 
 	const struct cldc_ops *ops;
-	void		(*act_log)(struct cldc_session *,
-				   int prio, const char *fmt, ...);
+	void		(*act_log)(int prio, const char *fmt, ...);
 	void		*private;
 
 	uint8_t		addr[64];		/* server address */
@@ -211,13 +209,13 @@ extern bool cldc_levent_timer(void *private, bool add,
 
 /* cldc-dns */
 extern int cldc_getaddr(GList **host_list, const char *thishost, bool verbose,
-		 void (*act_log)(const char *fmt, ...));
+		 void (*act_log)(int prio, const char *fmt, ...));
 extern int cldc_saveaddr(struct cldc_host *hp,
 			 unsigned int priority,
 			 unsigned int weight, unsigned int port,
 			 unsigned int nlen, const char *name,
 			 bool verbose,
-			 void (*act_log)(const char *fmt, ...));
+			 void (*act_log)(int prio, const char *fmt, ...));
 
 static inline bool seqid_after_eq(uint64_t a_, uint64_t b_)
 {

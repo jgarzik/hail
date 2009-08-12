@@ -8,6 +8,7 @@
 #include <arpa/nameser.h>
 #include <netdb.h>
 #include <resolv.h>
+#include <syslog.h>
 #include "cldc.h"
 
 #define ADDRSIZE	24	/* Enough for IPv6, including port. */
@@ -21,7 +22,7 @@ int cldc_saveaddr(struct cldc_host *hp,
 			 unsigned int weight, unsigned int port,
 			 unsigned int nlen, const char *name,
 			 bool verbose,
-			 void (*act_log)(const char *fmt, ...))
+			 void (*act_log)(int prio, const char *fmt, ...))
 {
 	char portstr[11];
 	char *hostname;
@@ -46,7 +47,7 @@ int cldc_saveaddr(struct cldc_host *hp,
 
 	rc = getaddrinfo(hostname, portstr, &hints, &res0);
 	if (rc) {
-		act_log("getaddrinfo(%s,%s) failed: %s",
+		act_log(LOG_INFO, "getaddrinfo(%s,%s) failed: %s",
 		       hostname, portstr, gai_strerror(rc));
 		rc = -EINVAL;
 		goto err_addr;
@@ -65,7 +66,7 @@ int cldc_saveaddr(struct cldc_host *hp,
 	}
 
 	if (!something_suitable) {
-		act_log("Host %s port %u has no addresses",
+		act_log(LOG_INFO, "Host %s port %u has no addresses",
 		       hostname, port);
 		rc = -EINVAL;
 		goto err_suitable;
@@ -77,7 +78,7 @@ int cldc_saveaddr(struct cldc_host *hp,
 	hp->weight = weight;
 
 	if (verbose) {
-		act_log(
+		act_log(LOG_DEBUG,
 		       "Found CLD host %s prio %d weight %d",
 		       hostname, priority, weight);
 	}
@@ -100,7 +101,7 @@ err_name:
  */
 static int cldc_make_fqdn(char *buf, int size, const char *srvname,
 			  const char *thishost,
-		 	  void (*act_log)(const char *fmt, ...))
+		 	  void (*act_log)(int prio, const char *fmt, ...))
 {
 	char *s;
 	int nlen;
@@ -108,18 +109,19 @@ static int cldc_make_fqdn(char *buf, int size, const char *srvname,
 
 	nlen = strlen(srvname);
 	if (nlen >= size-20) {
-		act_log(
+		act_log(LOG_INFO,
 		       "cldc_getaddr: internal error (nlen %d size %d)",
 		       nlen, size);
 		return -1;
 	}
 
 	if (thishost == NULL) {
-		act_log("cldc_getaddr: internal error (null hostname)");
+		act_log(LOG_INFO,
+			"cldc_getaddr: internal error (null hostname)");
 		return -1;
 	}
 	if ((s = strchr(thishost, '.')) == NULL) {
-		act_log(
+		act_log(LOG_INFO,
 		       "cldc_getaddr: hostname is not FQDN: \"%s\"",
 		       thishost);
 		return -1;
@@ -128,7 +130,7 @@ static int cldc_make_fqdn(char *buf, int size, const char *srvname,
 
 	dlen = strlen(s);
 	if (nlen + 1 + dlen + 1 > size) {
-		act_log(
+		act_log(LOG_INFO,
 		       "cldc_getaddr: domain is too long: \"%s\"", s);
 		return -1;
 	}
@@ -160,7 +162,7 @@ static void push_host(GList **host_list, struct cldc_host *hp_in)
  * are started.
  */
 int cldc_getaddr(GList **host_list, const char *thishost, bool verbose,
-		 void (*act_log)(const char *fmt, ...))
+		 void (*act_log)(int prio, const char *fmt, ...))
 {
 	enum { hostsz = 64 };
 	char cldb[hostsz];
@@ -189,10 +191,12 @@ do_try_again:
 	if (rc < 0) {
 		switch (h_errno) {
 		case HOST_NOT_FOUND:
-			act_log("No _cld._udp SRV record");
+			act_log(LOG_INFO,
+				"cldc_getaddr: No _cld._udp SRV record");
 			return -1;
 		case NO_DATA:
-			act_log("Cannot find _cld._udp SRV record");
+			act_log(LOG_INFO,
+				"cldc_getaddr: Cannot find _cld._udp SRV record");
 			return -1;
 		case TRY_AGAIN:
 			if (search_retries-- > 0)
@@ -200,23 +204,22 @@ do_try_again:
 			/* fall through */
 		case NO_RECOVERY:
 		default:
-			act_log(
-			       "cldc_getaddr: res_search error (%d): %s",
-			       h_errno, hstrerror(h_errno));
+			act_log(LOG_INFO,
+				"cldc_getaddr: res_search error (%d): %s",
+				h_errno, hstrerror(h_errno));
 			return -1;
 		}
 	}
 	rlen = rc;
 
 	if (rlen == 0) {
-		act_log(
-		       "cldc_getaddr: res_search returned empty reply");
+		act_log(LOG_INFO,
+			"cldc_getaddr: res_search returned empty reply");
 		return -1;
 	}
 
 	if (ns_initparse(resp, rlen, &nsb) < 0) {
-		act_log(
-		       "cldc_getaddr: ns_initparse error");
+		act_log(LOG_INFO, "cldc_getaddr: ns_initparse error");
 		return -1;
 	}
 
@@ -235,9 +238,9 @@ do_try_again:
 			rrlen = ns_rr_rdlen(rrb);
 			if (rrlen < 8) {	/* 2+2+2 and 2 for host */
 				if (verbose) {
-					act_log(
-					       "cldc_getaddr: SRV len %d",
-					       rrlen);
+					act_log(LOG_DEBUG,
+						"cldc_getaddr: SRV len %d", 
+						rrlen);
 				}
 				break;
 			}
@@ -245,14 +248,14 @@ do_try_again:
 			rc = dn_expand(resp, resp+rlen, p+6, hostb, hostsz);
 			if (rc < 0) {
 				if (verbose) {
-					act_log("cldc_getaddr: "
+					act_log(LOG_DEBUG, "cldc_getaddr: "
 					       "dn_expand error %d", rc);
 				}
 				break;
 			}
 			if (rc < 2) {
 				if (verbose) {
-					act_log("cldc_getaddr: "
+					act_log(LOG_DEBUG, "cldc_getaddr: "
 					       "dn_expand short %d", rc);
 				}
 				break;
@@ -267,8 +270,8 @@ do_try_again:
 			break;
 		case ns_t_cname:	/* impossible, but */
 			if (verbose) {
-				act_log(
-				       "CNAME in SRV request, ignored");
+				act_log(LOG_DEBUG,
+					"CNAME in SRV request, ignored");
 			}
 			break;
 		default:
