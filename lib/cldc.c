@@ -49,6 +49,8 @@ enum {
 };
 
 static bool authsign(struct cldc_session *, struct cld_packet *, size_t);
+static int sess_send_pkt(struct cldc_session *sess,
+			 const struct cld_packet *pkt, size_t pkt_len);
 
 static const struct cld_msg_hdr def_msg_ack = {
 	.magic		= CLD_MSG_MAGIC,
@@ -140,8 +142,7 @@ static int ack_seqid(struct cldc_session *sess, uint64_t seqid_le)
 		return -1;
 	}
 
-	return sess->ops->pkt_send(sess->private, sess->addr, sess->addr_len,
-				   pkt, pkt_len);
+	return sess_send_pkt(sess, pkt, pkt_len);
 }
 
 static int cldc_rx_generic(struct cldc_session *sess,
@@ -680,6 +681,37 @@ static void sess_expire(struct cldc_session *sess)
 	/* FIXME why not sess_free here */
 }
 
+static int sess_send_pkt(struct cldc_session *sess,
+			 const struct cld_packet *pkt, size_t pkt_len)
+{
+	if (sess->verbose) {
+		uint32_t flags = le32_to_cpu(pkt->flags);
+		bool first = (flags & CPF_FIRST);
+		bool last = (flags & CPF_LAST);
+		uint8_t op = cmo_nop;
+
+		if (first) {
+			struct cld_msg_hdr *hdr;
+
+			hdr = (struct cld_msg_hdr *) (pkt + 1);
+			op = hdr->op;
+		}
+
+		sess->act_log(sess, LOG_DEBUG,
+			      "send_pkt(len %zu, flags %s%s, "
+			      "seqid %llu, msg op %u)",
+			      pkt_len,
+			      first ? "F" : "",
+			      last ? "L" : "",
+			      le64_to_cpu(pkt->seqid),
+			      op);
+	}
+
+	return sess->ops->pkt_send(sess->private,
+				   sess->addr, sess->addr_len,
+				   pkt, pkt_len);
+}
+
 static int sess_timer(struct cldc_session *sess, void *priv)
 {
 	struct cldc_msg *msg;
@@ -714,9 +746,7 @@ static int sess_timer(struct cldc_session *sess, void *priv)
 
 			pi->retries++;
 
-			sess->ops->pkt_send(sess->private,
-				       sess->addr, sess->addr_len,
-				       &pi->pkt, total_pkt_len);
+			sess_send_pkt(sess, &pi->pkt, total_pkt_len);
 		}
 	}
 
@@ -752,9 +782,7 @@ static int sess_send(struct cldc_session *sess,
 			return -1;
 
 		/* attempt first send */
-		if (sess->ops->pkt_send(sess->private,
-			       sess->addr, sess->addr_len,
-			       &pi->pkt, total_pkt_len) < 0)
+		if (sess_send_pkt(sess, &pi->pkt, total_pkt_len) < 0)
 			return -1;
 	}
 
