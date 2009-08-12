@@ -1001,15 +1001,17 @@ static ssize_t open_end_cb(struct cldc_msg *msg, const void *resp_p,
 	struct cldc_fh *fh = msg->cb_private;
 	enum cle_err_codes resp_rc = CLE_OK;
 
-	if (resp_len < sizeof(*resp))
-		return -EINVAL;
-
 	if (!ok)
 		resp_rc = CLE_TIMEOUT;
-	else
+	else {
+		if (resp_len < sizeof(resp->resp))
+			return -1009;
 		resp_rc = le32_to_cpu(resp->resp.code);
+	}
 
 	if (resp_rc == CLE_OK) {
+		if (resp_len < sizeof(*resp))
+			return -1010;
 		fh->fh_le = resp->fh;
 		fh->valid = true;
 	}
