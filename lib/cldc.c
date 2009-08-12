@@ -674,7 +674,7 @@ static int sess_send_pkt(struct cldc_session *sess,
 			op = hdr->op;
 		}
 
-		sess->act_log(sess, LOG_DEBUG,
+		sess->act_log(LOG_DEBUG,
 			      "send_pkt(len %zu, flags %s%s, "
 			      "seqid %llu, msg op %u)",
 			      pkt_len,
