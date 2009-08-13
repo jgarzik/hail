@@ -398,12 +398,13 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 	struct raw_inode *inode = NULL;
 	enum cle_err_codes resp_rc = CLE_OK;
 	cldino_t inum;
-	uint32_t name_len;
+	uint32_t name_len, inode_size;
 	uint32_t omode;
 	int rc;
 	struct session *sess = mp->sess;
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	DB_TXN *txn;
+	void *p;
 
 	/* make sure input data as large as expected */
 	if (mp->msg_len < sizeof(*msg))
@@ -442,9 +443,10 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 	}
 
 	name_len = le32_to_cpu(inode->ino_len);
+	inode_size = le32_to_cpu(inode->size);
 
 	resp_len = sizeof(*resp) + name_len +
-		   (metadata_only ? 0 : le32_to_cpu(inode->size));
+		   (metadata_only ? 0 : inode_size);
 	resp = alloca(resp_len);
 	if (!resp) {
 		resp_rc = CLE_OOM;
@@ -456,23 +458,26 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 		       "inode->size %u, resp_len %u",
 		       sizeof(*resp),
 		       name_len,
-		       le32_to_cpu(inode->size),
+		       inode_size,
 		       resp_len);
 
 	/* return response containing inode metadata */
 	resp_copy(&resp->resp, mp->msg);
-	resp->inum = cpu_to_le64(inum);
+	resp->inum = inode->inum;
 	resp->ino_len = inode->ino_len;
 	resp->size = inode->size;
 	resp->version = inode->version;
 	resp->time_create = inode->time_create;
 	resp->time_modify = inode->time_modify;
 	resp->flags = inode->flags;
-	memcpy(resp+1, inode+1, name_len);
+
+	p = (resp + 1);
+	memcpy(p, (inode + 1), name_len);
+
+	p += name_len;
 
 	/* send data, if requested */
 	if (!metadata_only) {
-		void *p;
 		void *data_mem;
 		size_t data_mem_len;
 
@@ -483,15 +488,14 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 		 * not yet have created the data record
 		 */
 		if (rc == DB_NOTFOUND) {
-			/* do nothing */
-		} else if (rc || (data_mem_len != cpu_to_le32(inode->size))) {
+			resp->size = 0;
+			resp_len -= inode_size;
+		} else if (rc || (data_mem_len != inode_size)) {
 			if (!rc)
 				free(data_mem);
 			resp_rc = CLE_DB_ERR;
 			goto err_out;
 		} else {
-			p = (resp + 1);
-			p += name_len;
 			memcpy(p, data_mem, data_mem_len);
 
 			free(data_mem);
@@ -525,7 +529,7 @@ void msg_open(struct msg_params *mp)
 	const char *name;
 	struct raw_session *raw_sess = NULL;
 	struct raw_inode *inode = NULL, *parent = NULL;
-	struct raw_handle *h;
+	struct raw_handle *h = NULL;
 	int rc, name_len;
 	bool create, excl, do_dir;
 	struct pathname_info pinfo;
@@ -711,6 +715,7 @@ void msg_open(struct msg_params *mp)
 	free(parent);
 	free(inode);
 	free(raw_sess);
+	free(h);
 
 	resp_copy(&resp.resp, mp->msg);
 	resp.resp.code = cpu_to_le32(CLE_OK);
@@ -729,6 +734,7 @@ err_out_noabort:
 	free(parent);
 	free(inode);
 	free(raw_sess);
+	free(h);
 }
 
 void msg_put(struct msg_params *mp)
