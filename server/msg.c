@@ -400,8 +400,6 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 	cldino_t inum;
 	uint32_t name_len;
 	uint32_t omode;
-	void *data_mem = NULL;
-	size_t data_mem_len = 0;
 	int rc;
 	struct session *sess = mp->sess;
 	DB_ENV *dbenv = cld_srv.cldb.env;
@@ -475,6 +473,8 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 	/* send data, if requested */
 	if (!metadata_only) {
 		void *p;
+		void *data_mem;
+		size_t data_mem_len;
 
 		rc = cldb_data_get(txn, inum, &data_mem, &data_mem_len,
 				   false, false);
@@ -483,16 +483,19 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 		 * not yet have created the data record
 		 */
 		if (rc == DB_NOTFOUND) {
-			data_mem = NULL;
-			data_mem_len = 0;
+			/* do nothing */
 		} else if (rc || (data_mem_len != cpu_to_le32(inode->size))) {
+			if (!rc)
+				free(data_mem);
 			resp_rc = CLE_DB_ERR;
 			goto err_out;
-		}
+		} else {
+			p = (resp + 1);
+			p += name_len;
+			memcpy(p, data_mem, data_mem_len);
 
-		p = (resp + 1);
-		p += name_len;
-		memcpy(p, data_mem, data_mem_len);
+			free(data_mem);
+		}
 	}
 
 	sess_sendmsg(sess, resp, resp_len, NULL, NULL);
@@ -503,7 +506,6 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 
 	free(h);
 	free(inode);
-	free(data_mem);
 	return;
 
 err_out:
@@ -514,7 +516,6 @@ err_out_noabort:
 	resp_err(sess, mp->msg, resp_rc);
 	free(h);
 	free(inode);
-	free(data_mem);
 }
 
 void msg_open(struct msg_params *mp)

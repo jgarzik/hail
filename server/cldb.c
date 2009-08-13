@@ -673,6 +673,7 @@ int cldb_data_get(DB_TXN *txn, cldino_t inum,
 	cldino_t inum_le = cldino_to_le(inum);
 
 	*data_out = NULL;
+	*data_len = 0;
 
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
