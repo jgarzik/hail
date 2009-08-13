@@ -436,6 +436,7 @@ static void session_timeout(struct timer *timer)
 
 static void session_encode(struct raw_session *raw, const struct session *sess)
 {
+	memset(raw, 0, sizeof(*raw));
 	memcpy(raw, sess, CLD_SID_SZ);
 
 	raw->addr_len = cpu_to_le16(sess->addr_len);
@@ -565,6 +566,9 @@ static void session_retry(struct timer *timer)
 {
 	struct session *sess = timer->userdata;
 
+	if (!sess->out_q)
+		return;
+
 	sess_retry_output(sess);
 
 	timer_add(&sess->retry_timer, time(NULL) + CLD_RETRY_START);
@@ -671,7 +675,8 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
 			outpkt->flags |= cpu_to_le32(CPF_FIRST);
 		}
 
-		copy_len = MIN(pkt_len - sizeof(*outpkt), msg_left);
+		copy_len = MIN(pkt_len - sizeof(*outpkt) - SHA_DIGEST_LENGTH,
+			       msg_left);
 		memcpy(outmsg_mem, p, copy_len);
 
 		p += copy_len;
