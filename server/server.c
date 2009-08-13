@@ -631,7 +631,7 @@ static bool cli_resp_xml(struct client *cli, GList *content)
 {
 	int rc;
 	bool rcb;
-	int content_len = strlist_len(content);
+	size_t content_len = strlist_len(content);
 	struct chunksrv_req *resp = NULL;
 
 	resp = malloc(sizeof(*resp));
