@@ -619,6 +619,7 @@ static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 			pi->pkt.flags |= cpu_to_le32(CPF_LAST);
 
 		msg->pkt_info[i] = pi;
+		data_left -= pkt_len;
 	}
 
 	hdr = (struct cld_msg_hdr *) &msg->data[0];

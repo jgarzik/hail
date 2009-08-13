@@ -759,7 +759,13 @@ void msg_put(struct msg_params *mp)
 
 	/* make sure additional input data as large as expected */
 	data_size = le32_to_cpu(msg->data_size);
-	if (mp->msg_len < (data_size + sizeof(*msg))) {
+	if (mp->msg_len != (data_size + sizeof(*msg))) {
+		cldlog(LOG_INFO, "PUT len mismatch: msg len %zu, "
+		       "wanted %zu + %u (== %u)",
+		       mp->msg_len,
+		       sizeof(*msg),
+		       data_size,
+		       data_size + sizeof(*msg));
 		resp_rc = CLE_BAD_PKT;
 		goto err_out_noabort;
 	}
