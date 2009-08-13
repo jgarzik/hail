@@ -239,7 +239,7 @@ do_try_again:
 			if (rrlen < 8) {	/* 2+2+2 and 2 for host */
 				if (verbose) {
 					act_log(LOG_DEBUG,
-						"cldc_getaddr: SRV len %d", 
+						"cldc_getaddr: SRV len %d",
 						rrlen);
 				}
 				break;
