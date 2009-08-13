@@ -422,7 +422,7 @@ static int cldu_lock_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	int rc;
 
 	if (errc != CLE_OK) {
-		applog(LOG_ERR, "CLD lock(%s) failed: %d", sp->cfname, errc);
+		applog(LOG_ERR, "CLD lock(%s) failed: %d", sp->ffname, errc);
 		return 0;
 	}
 
