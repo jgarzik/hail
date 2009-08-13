@@ -462,6 +462,7 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 		       resp_len);
 
 	/* return response containing inode metadata */
+	memset(resp, 0, resp_len);
 	resp_copy(&resp->resp, mp->msg);
 	resp->inum = inode->inum;
 	resp->ino_len = inode->ino_len;
