@@ -382,6 +382,12 @@ static int cldc_receive_msg(struct cldc_session *sess,
 	const struct cld_msg_hdr *msg = (struct cld_msg_hdr *) sess->msg_buf;
 	size_t msglen = sess->msg_buf_len;
 
+	if (memcmp(msg->magic, CLD_MSG_MAGIC, sizeof(msg->magic))) {
+		if (sess->verbose)
+			sess->act_log(LOG_DEBUG, "receive_pkt: bad msg magic");
+		return -EPROTO;
+	}
+
 	switch(msg->op) {
 	case cmo_nop:
 	case cmo_close:
@@ -515,12 +521,6 @@ int cldc_receive_pkt(struct cldc_session *sess,
 
 	memcpy(sess->msg_buf + sess->msg_buf_len, msg, msglen);
 	sess->msg_buf_len += msglen;
-
-	if (memcmp(msg->magic, CLD_MSG_MAGIC, sizeof(msg->magic))) {
-		if (sess->verbose)
-			sess->act_log(LOG_DEBUG, "receive_pkt: bad msg magic");
-		return -EPROTO;
-	}
 
 	/* verify (or set, for new-sess) sequence id */
 	seqid = le64_to_cpu(pkt->seqid);
