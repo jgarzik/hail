@@ -382,7 +382,7 @@ static void udp_rx(int sock_fd,
 	mp.sess = sess;
 	mp.pkt = pkt;
 	mp.msg = msg;
-	mp.msg_len = pkt_len - sizeof(*pkt);
+	mp.msg_len = pkt_len - sizeof(*pkt) - SHA_DIGEST_LENGTH;
 
 	if (debugging > 1)
 		cldlog(LOG_DEBUG, "pkt: len %zu, seqid %llu, sid " SIDFMT ", "
