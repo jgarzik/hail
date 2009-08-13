@@ -1,13 +1,13 @@
 Name:		cld
 Version:	0.2
-Release:	0.12.g85e14281%{?dist}
+Release:	0.16.gefe1f957%{?dist}
 Summary:	Coarse locking daemon
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-# pulled from upstream git, commit 85e14281e1638ed8417c71beab0ba9361a9f0d2d
+# pulled from upstream git, commit efe1f95712cefa78cf28c328bcce8e25ac50e72b
 # to recreate tarball, check out commit, then run "make dist"
 Source0:	cld-%{version}git.tar.gz
 Source2:	cld.init
@@ -101,6 +101,15 @@ fi
 %{_includedir}/*
 
 %changelog
+* Thu Aug 13 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-0.16.gefe1f957
+- update to commit efe1f95712cefa78cf28c328bcce8e25ac50e72b
+
+* Wed Aug 12 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-0.15.g6409c437
+- update to commit 6409c437045a4545377c17016d514ecaca3d74a0
+
+* Tue Aug 11 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-0.14.g8c350253
+- update to commit 8c3502530c8061ffdaf892e9529abceecfee8dcf
+
 * Sat Aug  8 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-0.12.g85e14281
 - update to commit 85e14281e1638ed8417c71beab0ba9361a9f0d2d
 
