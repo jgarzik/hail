@@ -235,7 +235,35 @@ const char *opstr(enum cld_msg_ops op)
 	case cmo_ping:		return "cmo_ping";
 	case cmo_not_master:	return "cmo_not_master";
 	case cmo_event:		return "cmo_event";
+	case cmo_ack_frag:	return "cmo_ack_frag";
 	default:		return "(unknown)";
+	}
+}
+
+static void show_msg(const struct cld_msg_hdr *msg)
+{
+	switch (msg->op) {
+	case cmo_nop:
+	case cmo_new_sess:
+	case cmo_open:
+	case cmo_get_meta:
+	case cmo_get:
+	case cmo_put:
+	case cmo_close:
+	case cmo_del:
+	case cmo_lock:
+	case cmo_unlock:
+	case cmo_trylock:
+	case cmo_ack:
+	case cmo_end_sess:
+	case cmo_ping:
+	case cmo_not_master:
+	case cmo_event:
+	case cmo_ack_frag:
+		cldlog(LOG_DEBUG, "msg: op %s, xid %llu",
+		       opstr(msg->op),
+		       (unsigned long long) le64_to_cpu(msg->xid));
+		break;
 	}
 }
 
@@ -243,6 +271,9 @@ static void udp_rx_msg(const struct client *cli, const struct cld_packet *pkt,
 		       const struct cld_msg_hdr *msg, struct msg_params *mp)
 {
 	struct session *sess = mp->sess;
+
+	if (debugging)
+		show_msg(msg);
 
 	switch(msg->op) {
 	case cmo_nop:
@@ -315,7 +346,7 @@ static void udp_rx(int sock_fd,
 	struct msg_params mp;
 	size_t alloc_len;
 	uint32_t pkt_flags;
-	bool first_frag, have_new_sess, have_ack, have_put;
+	bool first_frag, last_frag, have_new_sess, have_ack, have_put;
 
 	/* drop all completely corrupted packets */
 	if ((pkt_len < (sizeof(*pkt) + SHA_DIGEST_LENGTH)) ||
@@ -330,6 +361,7 @@ static void udp_rx(int sock_fd,
 
 	pkt_flags = le32_to_cpu(pkt->flags);
 	first_frag = pkt_flags & CPF_FIRST;
+	last_frag = pkt_flags & CPF_LAST;
 	have_new_sess = first_frag && (msg->op == cmo_new_sess);
 	have_ack = first_frag && (msg->op == cmo_ack);
 	have_put = first_frag && (msg->op == cmo_put);
@@ -352,24 +384,15 @@ static void udp_rx(int sock_fd,
 	mp.msg = msg;
 	mp.msg_len = pkt_len - sizeof(*pkt);
 
-	if (debugging) {
-		if (have_put) {
-			struct cld_msg_put *dp = (struct cld_msg_put *) msg;
-			cldlog(LOG_DEBUG, "    msg op %s, seqid %llu, xid %llu, size %u",
-			       opstr(msg->op),
-			       (unsigned long long) le64_to_cpu(pkt->seqid),
-			       (unsigned long long) le64_to_cpu(msg->xid),
-			       le32_to_cpu(dp->data_size));
-		} else if (first_frag) {
-			cldlog(LOG_DEBUG, "    msg op %s, seqid %llu, xid %llu",
-			       opstr(msg->op),
-			       (unsigned long long) le64_to_cpu(pkt->seqid),
-			       (unsigned long long) le64_to_cpu(msg->xid));
-		} else {
-			cldlog(LOG_DEBUG, "    seqid %llu",
-			       (unsigned long long) le64_to_cpu(pkt->seqid));
-		}
-	}
+	if (debugging > 1)
+		cldlog(LOG_DEBUG, "pkt: len %zu, seqid %llu, sid " SIDFMT ", "
+		       "flags %s%s, user %s",
+		       pkt_len,
+		       (unsigned long long) le64_to_cpu(pkt->seqid),
+		       SIDARG(pkt->sid),
+		       first_frag ? "F" : "",
+		       last_frag ? "L" : "",
+		       pkt->user);
 
 	/* advance sequence id's and update last-contact timestamp */
 	if (!have_new_sess) {
@@ -408,7 +431,7 @@ static void udp_rx(int sock_fd,
 
 	/* copy message fragment into reassembly buffer */
 	if (sess) {
-		if (pkt_flags & CPF_FIRST)
+		if (first_frag)
 			sess->msg_buf_len = 0;
 
 		if ((sess->msg_buf_len + mp.msg_len) > CLD_MAX_MSG_SZ) {
@@ -419,7 +442,7 @@ static void udp_rx(int sock_fd,
 		memcpy(&sess->msg_buf[sess->msg_buf_len], msg, mp.msg_len);
 		sess->msg_buf_len += mp.msg_len;
 
-		if (!(pkt_flags & CPF_LAST)) {
+		if (!last_frag) {
 			pkt_ack_frag(sock_fd, cli, pkt);
 			return;
 		}
@@ -432,7 +455,8 @@ static void udp_rx(int sock_fd,
 			       sess->msg_buf_len);
 	}
 
-	udp_rx_msg(cli, pkt, msg, &mp);
+	if (last_frag)
+		udp_rx_msg(cli, pkt, msg, &mp);
 	return;
 
 err_out:

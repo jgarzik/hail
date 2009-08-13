@@ -370,6 +370,7 @@ static const char *opstr(enum cld_msg_ops op)
 	case cmo_ping:		return "cmo_ping";
 	case cmo_not_master:	return "cmo_not_master";
 	case cmo_event:		return "cmo_event";
+	case cmo_ack_frag:	return "cmo_ack_frag";
 	default:		return "(unknown)";
 	}
 }
@@ -423,6 +424,7 @@ int cldc_receive_pkt(struct cldc_session *sess,
 	uint64_t seqid;
 	uint32_t pkt_flags;
 	bool first_frag, last_frag, have_new_sess, no_seqid;
+	bool have_get;
 
 	gettimeofday(&tv, NULL);
 	current_time = tv.tv_sec;
@@ -435,8 +437,16 @@ int cldc_receive_pkt(struct cldc_session *sess,
 
 	msglen = pkt_len - sizeof(*pkt) - SHA_DIGEST_LENGTH;
 
+	pkt_flags = le32_to_cpu(pkt->flags);
+	first_frag = pkt_flags & CPF_FIRST;
+	last_frag = pkt_flags & CPF_LAST;
+	have_get = first_frag && (msg->op == cmo_get);
+	have_new_sess = first_frag && (msg->op == cmo_new_sess);
+	no_seqid = first_frag && ((msg->op == cmo_not_master) ||
+				  (msg->op == cmo_ack_frag));
+
 	if (sess->verbose) {
-		if (msg->op == cmo_get) {
+		if (have_get) {
 			struct cld_msg_get_resp *dp;
 			dp = (struct cld_msg_get_resp *) msg;
 			sess->act_log(LOG_DEBUG, "receive pkt: len %u, op %s"
@@ -446,7 +456,7 @@ int cldc_receive_pkt(struct cldc_session *sess,
 				(unsigned long long) le64_to_cpu(pkt->seqid),
 				pkt->user,
 				le32_to_cpu(dp->size));
-		} else if (msg->op == cmo_new_sess) {
+		} else if (have_new_sess) {
 			struct cld_msg_resp *dp;
 			dp = (struct cld_msg_resp *) msg;
 			sess->act_log(LOG_DEBUG, "receive pkt: len %u, op %s"
@@ -457,10 +467,12 @@ int cldc_receive_pkt(struct cldc_session *sess,
 				pkt->user,
 				(unsigned long long) le64_to_cpu(dp->xid_in));
 		} else {
-			sess->act_log(LOG_DEBUG, "receive pkt: len %u, op %s"
-				      ", seqid %llu, user %s",
+			sess->act_log(LOG_DEBUG, "receive pkt: len %u, "
+				      "flags %s%s, op %s, seqid %llu, user %s",
 				(unsigned int) pkt_len,
-				opstr(msg->op),
+				first_frag ? "F" : "",
+				last_frag ? "L" : "",
+				first_frag ? opstr(msg->op) : "n/a",
 				(unsigned long long) le64_to_cpu(pkt->seqid),
 				pkt->user);
 		}
@@ -491,13 +503,6 @@ int cldc_receive_pkt(struct cldc_session *sess,
 	/* expire old sess outgoing messages */
 	if (current_time >= sess->msg_scan_time)
 		sess_expire_outmsg(sess, current_time);
-
-	pkt_flags = le32_to_cpu(pkt->flags);
-	first_frag = pkt_flags & CPF_FIRST;
-	last_frag = pkt_flags & CPF_LAST;
-	have_new_sess = first_frag && (msg->op == cmo_new_sess);
-	no_seqid = first_frag && ((msg->op == cmo_not_master) ||
-				  (msg->op == cmo_ack_frag));
 
 	if (first_frag)
 		sess->msg_buf_len = 0;
@@ -676,12 +681,12 @@ static int sess_send_pkt(struct cldc_session *sess,
 
 		sess->act_log(LOG_DEBUG,
 			      "send_pkt(len %zu, flags %s%s, "
-			      "seqid %llu, msg op %u)",
+			      "seqid %llu, msg op %s)",
 			      pkt_len,
 			      first ? "F" : "",
 			      last ? "L" : "",
 			      le64_to_cpu(pkt->seqid),
-			      op);
+			      first ? opstr(op) : "n/a");
 	}
 
 	return sess->ops->pkt_send(sess->private,
