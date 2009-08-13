@@ -494,8 +494,6 @@ static bool udp_srv_event(int fd, short events, void *userdata)
 	struct iovec iov[2];
 	uint8_t raw_pkt[CLD_RAW_MSG_SZ], ctl_msg[CLD_RAW_MSG_SZ];
 
-	gettimeofday(&current_time, NULL);
-
 	memset(&cli, 0, sizeof(cli));
 
 	iov[0].iov_base = raw_pkt;
@@ -853,6 +851,8 @@ int main (int argc, char *argv[])
 			if (errno != EINTR)
 				break;
 		}
+
+		gettimeofday(&current_time, NULL);
 
 		/* determine which fd's fired; call their callbacks */
 		fired = 0;
