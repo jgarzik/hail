@@ -1,13 +1,13 @@
 Name:		chunkd
 Version:	0.4
-Release:	0.9.g68cabfe7%{?dist}
+Release:	0.11.g8749c45c%{?dist}
 Summary:	Data storage daemon for cloud computing
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-# pulled from upstream git, commit 68cabfe72a315a062126eaf405dfe2c186e04f99
+# pulled from upstream git, commit 8749c45cb46a26dcf3f93369665da6573204d028
 # to recreate tarball, check out commit, then run "make dist"
 Source0:	chunkd-%{version}git.tar.gz
 Source2:	chunkd.init
@@ -17,9 +17,6 @@ BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 # N.B. We need cld to build, because our "make check" spawns a private copy.
 BuildRequires:	libevent-devel glib2-devel openssl-devel zlib-devel
 BuildRequires:	libxml2-devel procps cld cld-devel
-
-# ugly and embarrassing!  pkg build fails on big endian
-ExcludeArch:	ppc ppc64
 
 %description
 Single-node data storage daemon for cloud computing.
@@ -98,6 +95,12 @@ fi
 %{_includedir}/*
 
 %changelog
+* Wed Aug 12 2009 Jeff Garzik <jgarzik@redhat.com> - 0.4-0.11.g8749c45c
+- update source to commit 8749c45cb46a26dcf3f93369665da6573204d028
+
+* Tue Aug 11 2009 Jeff Garzik <jgarzik@redhat.com> - 0.4-0.10.g6456a2cc
+- update source to commit 6456a2cc90b8b81f4e2ab23a87776e5ec8e8c76d
+
 * Sat Aug  8 2009 Jeff Garzik <jgarzik@redhat.com> - 0.4-0.9.g68cabfe7
 - update source to commit 68cabfe72a315a062126eaf405dfe2c186e04f99
 
