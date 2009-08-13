@@ -1172,15 +1172,9 @@ int cldc_put(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 	struct cldc_session *sess;
 	struct cldc_msg *msg;
 	struct cld_msg_put *put;
-	int n_pkts;
 
 	if (!data || !data_len || data_len > CLDC_MAX_DATA_SZ)
 		return -EINVAL;
-
-	n_pkts = (data_len / CLDC_MAX_DATA_PKT_SZ);
-	if (data_len % CLDC_MAX_DATA_PKT_SZ)
-		n_pkts++;
-	n_pkts++;			/* add one for terminator segment */
 
 	if (!fh->valid)
 		return -EINVAL;
