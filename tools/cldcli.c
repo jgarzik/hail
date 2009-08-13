@@ -881,7 +881,7 @@ static bool make_abs_path(char *dest, size_t dest_len, const char *src)
 
 static void cmd_cd(const char *arg)
 {
-	struct creq creq;
+	struct creq creq = { CREQ_CD, };
 	struct cresp cresp;
 
 	if (!*arg)
@@ -891,8 +891,6 @@ static void cmd_cd(const char *arg)
 		fprintf(stderr, "%s: path too long\n", arg);
 		return;
 	}
-
-	creq.cmd = CREQ_CD;
 
 	/* send message to thread */
 	write_to_thread(&creq, sizeof(creq));
@@ -915,7 +913,7 @@ static void show_lsr(const struct ls_rec *lsr)
 
 static void cmd_ls(const char *arg)
 {
-	struct creq creq;
+	struct creq creq = { CREQ_LS, };
 	struct cresp cresp;
 	int i;
 
@@ -926,8 +924,6 @@ static void cmd_ls(const char *arg)
 		fprintf(stderr, "%s: path too long\n", arg);
 		return;
 	}
-
-	creq.cmd = CREQ_LS;
 
 	/* send message to thread */
 	write_to_thread(&creq, sizeof(creq));
@@ -951,7 +947,7 @@ static void cmd_ls(const char *arg)
 
 static void cmd_cat(const char *arg)
 {
-	struct creq creq;
+	struct creq creq = { CREQ_CAT, };
 	struct cresp cresp;
 	size_t len;
 	void *mem;
@@ -965,8 +961,6 @@ static void cmd_cat(const char *arg)
 		fprintf(stderr, "%s: path too long\n", arg);
 		return;
 	}
-
-	creq.cmd = CREQ_CAT;
 
 	/* send message to thread */
 	write_to_thread(&creq, sizeof(creq));
@@ -998,11 +992,9 @@ static void cmd_cat(const char *arg)
 
 static void cmd_list_locks(void)
 {
-	struct creq creq;
+	struct creq creq = { CREQ_LIST_LOCKS, };
 	struct cresp cresp;
 	GList *tmp, *content;
-
-	creq.cmd = CREQ_LIST_LOCKS;
 
 	/* send message to thread */
 	write_to_thread(&creq, sizeof(creq));
@@ -1048,6 +1040,8 @@ static void cmd_cp_io(const char *cmd, const char *arg, bool read_cld_file)
 		fprintf(stderr, "%s: two arguments required\n", cmd);
 		goto out;
 	}
+
+	memset(&creq, 0, sizeof(creq));
 
 	if (read_cld_file) {
 		creq.cmd = CREQ_CP_CF;
@@ -1118,7 +1112,7 @@ out:
 
 static void basic_cmd(const char *cmd, const char *arg, enum creq_cmd cmd_no)
 {
-	struct creq creq;
+	struct creq creq = { cmd_no, };
 	struct cresp cresp;
 
 	if (!*arg) {
@@ -1130,8 +1124,6 @@ static void basic_cmd(const char *cmd, const char *arg, enum creq_cmd cmd_no)
 		fprintf(stderr, "%s: path too long\n", arg);
 		return;
 	}
-
-	creq.cmd = cmd_no;
 
 	/* send message to thread */
 	write_to_thread(&creq, sizeof(creq));
