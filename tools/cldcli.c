@@ -1360,8 +1360,10 @@ int main (int argc, char *argv[])
 		}
 
 		/* skip blank and comment lines */
-		if (linebuf[0] == 0 || linebuf[0] == '#')
+		if (linebuf[0] == 0 || linebuf[0] == '#') {
+			prompt();
 			continue;
+		}
 
 		/* skip leading spaces, find first token */
 		s = linebuf;
