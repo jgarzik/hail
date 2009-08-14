@@ -1063,7 +1063,7 @@ void msg_del(struct msg_params *mp)
 	}
 
 	/* remove record from inode's directory data */
-	if (!dirdata_delete(&parent_data, &parent_len,
+	if (!dirdata_delete(parent_data, &parent_len,
 			    pinfo.base, pinfo.base_len)) {
 		cldlog(LOG_WARNING, "dirent del failed");
 		resp_rc = CLE_DB_ERR;
