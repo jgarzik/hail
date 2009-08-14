@@ -798,7 +798,12 @@ static int cld_p_pkt_send(void *priv, const void *addr, size_t addrlen,
 static void cld_p_event(void *private, struct cldc_session *sess,
 			struct cldc_fh *fh, uint32_t what)
 {
-	fprintf(stderr, "FIXME: event\n");
+	fprintf(stderr, "FIXME: handle event(s) %s%s%s%s%s\n",
+		(what & CE_UPDATED) ? "updated " : "",
+		(what & CE_DELETED) ? "deleted " : "",
+		(what & CE_LOCKED) ? "locked " : "",
+		(what & CE_MASTER_FAILOVER) ? "master-fail " : "",
+		(what & CE_SESS_FAILED) ? "sess-fail " : "");
 }
 
 static struct cldc_ops cld_ops = {
