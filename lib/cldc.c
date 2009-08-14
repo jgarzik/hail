@@ -455,8 +455,8 @@ int cldc_receive_pkt(struct cldc_session *sess,
 		if (have_get) {
 			struct cld_msg_get_resp *dp;
 			dp = (struct cld_msg_get_resp *) msg;
-			sess->act_log(LOG_DEBUG, "receive pkt: len %u, op %s"
-				      ", seqid %llu, user %s, size %u",
+			sess->act_log(LOG_DEBUG, "receive_pkt(len %u, op %s"
+				      ", seqid %llu, user %s, size %u)",
 				(unsigned int) pkt_len,
 				opstr(msg->op),
 				(unsigned long long) le64_to_cpu(pkt->seqid),
@@ -465,16 +465,16 @@ int cldc_receive_pkt(struct cldc_session *sess,
 		} else if (have_new_sess) {
 			struct cld_msg_resp *dp;
 			dp = (struct cld_msg_resp *) msg;
-			sess->act_log(LOG_DEBUG, "receive pkt: len %u, op %s"
-				      ", seqid %llu, user %s, xid_in %llu",
+			sess->act_log(LOG_DEBUG, "receive_pkt(len %u, op %s"
+				      ", seqid %llu, user %s, xid_in %llu)",
 				(unsigned int) pkt_len,
 				opstr(msg->op),
 				(unsigned long long) le64_to_cpu(pkt->seqid),
 				pkt->user,
 				(unsigned long long) le64_to_cpu(dp->xid_in));
 		} else {
-			sess->act_log(LOG_DEBUG, "receive pkt: len %u, "
-				      "flags %s%s, op %s, seqid %llu, user %s",
+			sess->act_log(LOG_DEBUG, "receive_pkt(len %u, "
+				      "flags %s%s, op %s, seqid %llu, user %s)",
 				(unsigned int) pkt_len,
 				first_frag ? "F" : "",
 				last_frag ? "L" : "",
@@ -682,12 +682,12 @@ static int sess_send_pkt(struct cldc_session *sess,
 
 		sess->act_log(LOG_DEBUG,
 			      "send_pkt(len %zu, flags %s%s, "
-			      "seqid %llu, msg op %s)",
+			      "op %s, seqid %llu)",
 			      pkt_len,
 			      first ? "F" : "",
 			      last ? "L" : "",
-			      le64_to_cpu(pkt->seqid),
-			      first ? opstr(op) : "n/a");
+			      first ? opstr(op) : "n/a",
+			      le64_to_cpu(pkt->seqid));
 	}
 
 	return sess->ops->pkt_send(sess->private,
