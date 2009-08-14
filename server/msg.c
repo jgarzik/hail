@@ -212,6 +212,7 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 	val.flags = DB_DBT_USERMEM;
 
 	memset(&me, 0, sizeof(me));
+	memcpy(me.hdr.magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
 	me.hdr.op = cmo_event;
 
 	rc = hand_idx->cursor(hand_idx, txn, &cur, 0);
@@ -314,6 +315,7 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 	val.flags = DB_DBT_USERMEM;
 
 	memset(&me, 0, sizeof(me));
+	memcpy(me.hdr.magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
 	me.hdr.op = cmo_event;
 
 	/* loop through locks associated with this inode, searching
