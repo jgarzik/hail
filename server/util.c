@@ -161,16 +161,26 @@ time_t timers_run(void)
 {
 	struct timer *timer;
 	time_t now = time(NULL);
+	GList *tmp, *cur;
 
-	while (timer_list) {
-		timer = timer_list->data;
+	tmp = timer_list;
+	while (tmp) {
+		timer = tmp->data;
+		cur = tmp;
+		tmp = tmp->next;
+
+		/* if not expired, calculate poll(2) timeout */
 		if (timer->expires > now)
 			return (timer->expires - now);
 
+		/*
+		 * timer expired; remove from list and fire
+		 */
+
+		timer_list = g_list_delete_link(timer_list, cur);
+
 		timer->fired = true;
 		timer->cb(timer);
-
-		timer_list = g_list_delete_link(timer_list, timer_list);
 	}
 
 	return 0;
