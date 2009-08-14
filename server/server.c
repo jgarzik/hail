@@ -63,6 +63,9 @@ static struct argp_option options[] = {
 	  "bind to UDP port PORT.  Default: " CLD_DEF_PORT },
 	{ "pid", 'P', "FILE", 0,
 	  "Write daemon process id to FILE.  Default: " CLD_DEF_PIDFN },
+	{ "strict-free", 1001, NULL, 0,
+	  "For memory-checker runs.  When shutting down server, free local "
+	  "heap, rather than simply exit(2)ing and letting OS clean up." },
 	{ }
 };
 
@@ -77,6 +80,7 @@ static const struct argp argp = { options, parse_opt, NULL, doc };
 static bool server_running = true;
 static bool dump_stats;
 static bool use_syslog = true;
+static bool strict_free = false;
 int debugging = 0;
 struct timeval current_time;
 
@@ -736,6 +740,11 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 	case 'P':
 		cld_srv.pid_file = arg;
 		break;
+
+	case 1001:			/* --strict-free */
+		strict_free = true;
+		break;
+
 	case ARGP_KEY_ARG:
 		argp_usage(state);	/* too many args */
 		break;
@@ -827,8 +836,9 @@ int main (int argc, char *argv[])
 	if (rc)
 		goto err_out_pid;
 
-	cldlog(LOG_INFO, "initialized: dbg %u",
-	       debugging);
+	cldlog(LOG_INFO, "initialized: dbg %u%s",
+	       debugging,
+	       strict_free ? ", strict-free" : "");
 
 	next_timeout = timers_run();
 
@@ -908,6 +918,23 @@ err_out_pid:
 	close(cld_srv.pid_fd);
 err_out:
 	closelog();
+
+	if (strict_free) {
+		struct pollfd *pfd;
+		int i;
+
+		for (i = 0; i < cld_srv.polls->len; i++) {
+			pfd = &g_array_index(cld_srv.polls, struct pollfd, i);
+			if (pfd->fd >= 0)
+				close(pfd->fd);
+		}
+
+		g_array_free(cld_srv.polls, TRUE);
+		g_array_free(cld_srv.poll_data, TRUE);
+		g_queue_free(cld_srv.timers);
+		g_hash_table_unref(cld_srv.sessions);
+	}
+
 	return rc;
 }
 
