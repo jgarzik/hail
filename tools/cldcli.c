@@ -576,6 +576,8 @@ static void handle_user_command(void)
 		rc = cldc_open(thr_udp->sess, &copts, creq.path,
 			       COM_DIRECTORY, 0, &thr_fh);
 		if (rc) {
+			snprintf(cresp.msg, sizeof(cresp.msg),
+				 "cldc_open rc %d", rc);
 			write_from_thread(&cresp, sizeof(cresp));
 			return;
 		}
@@ -585,6 +587,8 @@ static void handle_user_command(void)
 		rc = cldc_open(thr_udp->sess, &copts, creq.path,
 			       COM_READ, 0, &thr_fh);
 		if (rc) {
+			snprintf(cresp.msg, sizeof(cresp.msg),
+				 "cldc_open rc %d", rc);
 			write_from_thread(&cresp, sizeof(cresp));
 			return;
 		}
@@ -594,6 +598,8 @@ static void handle_user_command(void)
 		rc = cldc_open(thr_udp->sess, &copts, creq.path,
 			       COM_READ, 0, &thr_fh);
 		if (rc) {
+			snprintf(cresp.msg, sizeof(cresp.msg),
+				 "cldc_open rc %d", rc);
 			write_from_thread(&cresp, sizeof(cresp));
 			return;
 		}
@@ -604,6 +610,8 @@ static void handle_user_command(void)
 		rc = cldc_open(thr_udp->sess, &copts, creq.path,
 			       COM_CREATE | COM_WRITE, 0, &thr_fh);
 		if (rc) {
+			snprintf(cresp.msg, sizeof(cresp.msg),
+				 "cldc_open rc %d", rc);
 			write_from_thread(&cresp, sizeof(cresp));
 			return;
 		}
@@ -613,6 +621,8 @@ static void handle_user_command(void)
 		rc = cldc_open(thr_udp->sess, &copts, creq.path,
 			       COM_DIRECTORY | COM_READ, 0, &thr_fh);
 		if (rc) {
+			snprintf(cresp.msg, sizeof(cresp.msg),
+				 "cldc_open rc %d", rc);
 			write_from_thread(&cresp, sizeof(cresp));
 			return;
 		}
@@ -621,6 +631,8 @@ static void handle_user_command(void)
 		copts.cb = cb_ok_done;
 		rc = cldc_del(thr_udp->sess, &copts, creq.path);
 		if (rc) {
+			snprintf(cresp.msg, sizeof(cresp.msg),
+				 "cldc_del rc %d", rc);
 			write_from_thread(&cresp, sizeof(cresp));
 			return;
 		}
@@ -631,6 +643,8 @@ static void handle_user_command(void)
 			       COM_DIRECTORY | COM_CREATE | COM_EXCL, 0,
 			       &thr_fh);
 		if (rc) {
+			snprintf(cresp.msg, sizeof(cresp.msg),
+				 "cldc_open rc %d", rc);
 			write_from_thread(&cresp, sizeof(cresp));
 			return;
 		}
@@ -641,6 +655,7 @@ static void handle_user_command(void)
 
 		li = calloc(1, sizeof(*li));
 		if (!li) {
+			strcpy(cresp.msg, "OOM");
 			write_from_thread(&cresp, sizeof(cresp));
 			return;
 		}
@@ -654,6 +669,8 @@ static void handle_user_command(void)
 		rc = cldc_open(thr_udp->sess, &copts, creq.path,
 			       COM_LOCK, 0, &li->fh);
 		if (rc) {
+			snprintf(cresp.msg, sizeof(cresp.msg),
+				 "cldc_open rc %d", rc);
 			write_from_thread(&cresp, sizeof(cresp));
 			free(li);
 			return;
@@ -686,6 +703,8 @@ static void handle_user_command(void)
 		copts.private = li;
 		rc = cldc_unlock(li->fh, &copts);
 		if (rc) {
+			snprintf(cresp.msg, sizeof(cresp.msg),
+				 "cldc_unlock rc %d", rc);
 			write_from_thread(&cresp, sizeof(cresp));
 			free(li);
 			return;
@@ -903,7 +922,7 @@ static void cmd_cd(const char *arg)
 		return;
 	}
 
-	strcpy(clicwd, arg);
+	strcpy(clicwd, creq.path);
 }
 
 static void show_lsr(const struct ls_rec *lsr)
@@ -932,7 +951,7 @@ static void cmd_ls(const char *arg)
 	read_from_thread(&cresp, sizeof(cresp));
 
 	if (cresp.tcode != TC_OK) {
-		fprintf(stderr, "%s: ls failed: %s\n", arg, cresp.msg);
+		fprintf(stderr, "ls(%s) failed: %s\n", creq.path, cresp.msg);
 		return;
 	}
 
