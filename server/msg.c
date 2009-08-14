@@ -1243,7 +1243,7 @@ void msg_lock(struct msg_params *mp, bool wait)
 	/* lock was added, in the waiting-to-be-acquired state */
 	if (!acquired) {
 		resp_rc = CLE_LOCK_PENDING;
-		goto err_out;
+		goto err_out_noabort;
 	}
 
 	/* lock was acquired immediately */

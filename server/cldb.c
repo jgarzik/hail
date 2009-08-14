@@ -1007,7 +1007,7 @@ int cldb_lock_add(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 	if (rc)
 		db_locks->err(db_locks, rc, "lock_add db4 put");
 
-	if (acquired && !rc)
+	if (acquired && !have_conflict && !rc)
 		*acquired = true;
 
 	return rc;
