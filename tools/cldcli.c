@@ -63,7 +63,7 @@ struct cp_fc_info {
 struct creq {
 	enum creq_cmd		cmd;
 	char			path[CLD_PATH_MAX + 1];
-	struct cp_fc_info	cfi;
+	struct cp_fc_info	*cfi;
 };
 
 struct cresp {
@@ -606,7 +606,7 @@ static void handle_user_command(void)
 		break;
 	case CREQ_CP_FC:
 		copts.cb = cb_cp_fc_1;
-		copts.private = &creq.cfi;
+		copts.private = creq.cfi;
 		rc = cldc_open(thr_udp->sess, &copts, creq.path,
 			       COM_CREATE | COM_WRITE, 0, &thr_fh);
 		if (rc) {
@@ -1090,8 +1090,14 @@ static void cmd_cp_io(const char *cmd, const char *arg, bool read_cld_file)
 		goto out;
 	}
 
-	creq.cfi.mem = mem;
-	creq.cfi.mem_len = flen;
+	creq.cfi = calloc(1, sizeof(*creq.cfi));
+	if (!creq.cfi) {
+		fprintf(stderr, "OOM\n");
+		goto out;
+	}
+
+	creq.cfi->mem = mem;
+	creq.cfi->mem_len = flen;
 
 	/* send message to thread */
 	write_to_thread(&creq, sizeof(creq));
@@ -1125,6 +1131,7 @@ static void cmd_cp_io(const char *cmd, const char *arg, bool read_cld_file)
 	}
 
 out:
+	free(creq.cfi);
 	g_strfreev(sv);
 	free(mem);
 }
