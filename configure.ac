@@ -32,7 +32,7 @@ m4_define([libchunkdc_revision], [libchunkdc_interface_age])
 m4_define([libchunkdc_age], [m4_eval(libchunkdc_binary_age - libchunkdc_interface_age)])
 m4_define([libchunkdc_version], [libchunkdc_major_version().libchunkdc_minor_version().libchunkdc_micro_version()libchunkdc_extraversion()])
 
-AC_INIT([chunkd], [0.4git],
+AC_INIT([chunkd], [0.4],
         [http://hail.wiki.kernel.org/])
 
 AC_PREREQ(2.52)

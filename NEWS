@@ -1,3 +1,16 @@
+
+Version 0.4 - August 15, 2009
+
+- chunkd: add CLD support; write contact info into CLD
+- chunkd: remove NID requirement
+- chunkd: add user access checking (i.e. real security)
+- chunkd: add -E to permit switching between syslog and strerr logging
+- chunkd: add '-C FILE' option to read config file; '-f FILE' deprecated
+- chunkd: improve PID file use
+- change TCP/UDP ports used in tests, to avoid conflicts
+- OpenSolaris, FreeBSD portability improvements
+- many bug fixes
+
 Version 0.3 - May 15, 2009
 
 - Fix RPM package specfile to match version
