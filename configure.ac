@@ -32,7 +32,7 @@ m4_define([libcldc_revision], [libcldc_interface_age])
 m4_define([libcldc_age], [m4_eval(libcldc_binary_age - libcldc_interface_age)])
 m4_define([libcldc_version], [libcldc_major_version().libcldc_minor_version().libcldc_micro_version()libcldc_extraversion()])
 
-AC_INIT([cld], [0.2],
+AC_INIT([cld], [0.3git],
         [http://hail.wiki.kernel.org/])
 
 AC_PREREQ(2.52)
