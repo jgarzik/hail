@@ -30,10 +30,10 @@ likely useful to you, unless you are a cld maintainer.
 	$ make distcheck
 
 7) upload tarball to master.kernel.org, directory
-   /pub/software/network/distsrv
+   /pub/software/network/distsrv/cld
 
 	$ scp cld-0.3.tar.gz \
-	  master.kernel.org:/pub/software/network/distsrv
+	  master.kernel.org:/pub/software/network/distsrv/cld
 
 8) Adjust configure.ac to next upcoming version;
    add "git" suffix, e.g. "0.4git" follows release "0.3".  Commit
