@@ -6,9 +6,9 @@ likely useful to you, unless you are a cld maintainer.
 
 	$ make distcheck
 
-2) remove "git" suffix from version, in configure.ac and pkg/cld.spec
+2) remove "git" suffix from version, in configure.ac
 
-	$ vi configure.ac pkg/cld.spec
+	$ vi configure.ac
 
 3) review 'git log' since last release.  Add short list of summarized
    changes to NEWS.
@@ -23,7 +23,7 @@ likely useful to you, unless you are a cld maintainer.
 
 5) tag release, with just-committed (in configure.ac) version number:
 
-	$ git tag v0.3
+	$ git tag -a v0.3
 
 6) create tarball for distribution
 
@@ -35,12 +35,12 @@ likely useful to you, unless you are a cld maintainer.
 	$ scp cld-0.3.tar.gz \
 	  master.kernel.org:/pub/software/network/distsrv
 
-8) Adjust configure.ac and pkg/cld.spec to next upcoming version;
+8) Adjust configure.ac to next upcoming version;
    add "git" suffix, e.g. "0.4git" follows release "0.3".  Commit
    change, with a release message along the lines of
    "Bump version to 0.4git"
 
-	$ vi configure.ac pkg/cld.spec
+	$ vi configure.ac
 	$ git commit -a
 
 9) Push git repo changes to master

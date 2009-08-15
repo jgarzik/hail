@@ -1,4 +1,19 @@
 
+Version 0.2 - August 15, 2009
+
+- libcldc: new logging API
+- libcldc: new cldc_init() API function for global library init
+- libcldc: move DNS helpers from chunkd/tabled into libcldc proper
+- cld: add --strict-free option
+- cld: permit logging to stderr, in addition to syslog
+- cld: drop libevent; instead use open-coded poll(2)
+- cld, libcldc: improved diagnostic output
+- new tool 'cldcli'
+- network protocol changes, separating "packet" from "message",
+  permitting messages larger than a single packet.
+- OpenSolaris, FreeBSD portability fixes
+- many, many bugs fixes
+
 Version 0.1 - July 17, 2009
 
 - initial release
