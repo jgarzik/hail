@@ -553,7 +553,7 @@ int cldc_receive_pkt(struct cldc_session *sess,
 	sess->expire_time = current_time + CLDC_SESS_EXPIRE;
 
 	if (!last_frag)
-		return 0;
+		return sess ? ack_seqid(sess, pkt->seqid) : 0;
 
 	return cldc_receive_msg(sess, pkt, pkt_len);
 }
