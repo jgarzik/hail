@@ -129,6 +129,16 @@ static void session_free(struct session *sess)
 	free(sess);
 }
 
+static void session_free_iter(gpointer key, gpointer val, gpointer dummy)
+{
+	session_free(val);
+}
+
+void sessions_free(void)
+{
+	g_hash_table_foreach(cld_srv.sessions, session_free_iter, NULL);
+}
+
 static void session_trash(struct session *sess)
 {
 	if (debugging)

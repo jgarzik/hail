@@ -581,6 +581,25 @@ static void cldb_checkpoint(struct timer *timer)
 	add_chkpt_timer();
 }
 
+static void net_close(void)
+{
+	struct pollfd *pfd;
+	int i;
+
+	if (!cld_srv.polls)
+		return;
+
+	for (i = 0; i < cld_srv.polls->len; i++) {
+		pfd = &g_array_index(cld_srv.polls, struct pollfd, i);
+		if (pfd->fd >= 0) {
+			if (close(pfd->fd) < 0)
+				cldlog(LOG_WARNING, "net_close(%d): %s",
+				       pfd->fd, strerror(errno));
+			pfd->fd = -1;
+		}
+	}
+}
+
 static int net_open(void)
 {
 	int ipv6_found = 0;
@@ -917,23 +936,16 @@ err_out_pid:
 	unlink(cld_srv.pid_file);
 	close(cld_srv.pid_fd);
 err_out:
-	closelog();
-
 	if (strict_free) {
-		struct pollfd *pfd;
-		int i;
-
-		for (i = 0; i < cld_srv.polls->len; i++) {
-			pfd = &g_array_index(cld_srv.polls, struct pollfd, i);
-			if (pfd->fd >= 0)
-				close(pfd->fd);
-		}
-
+		net_close();
 		g_array_free(cld_srv.polls, TRUE);
 		g_array_free(cld_srv.poll_data, TRUE);
 		g_queue_free(cld_srv.timers);
+		sessions_free();
 		g_hash_table_unref(cld_srv.sessions);
 	}
+
+	closelog();
 
 	return rc;
 }
