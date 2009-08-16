@@ -926,6 +926,9 @@ int main (int argc, char *argv[])
 
 	cldlog(LOG_INFO, "shutting down");
 
+	if (strict_free)
+		timer_del(&cld_srv.chkpt_timer);
+
 	if (cld_srv.cldb.up)
 		cldb_down(&cld_srv.cldb);
 	cldb_fini(&cld_srv.cldb);
