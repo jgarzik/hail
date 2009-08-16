@@ -111,8 +111,8 @@ static struct session *session_new(void)
 
 	__cld_rand64(&sess->next_seqid_out);
 
-	timer_init(&sess->timer, session_timeout, sess);
-	timer_init(&sess->retry_timer, session_retry, sess);
+	timer_init(&sess->timer, "session-timeout", session_timeout, sess);
+	timer_init(&sess->retry_timer, "session-retry", session_retry, sess);
 
 	return sess;
 }

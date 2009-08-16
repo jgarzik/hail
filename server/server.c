@@ -833,7 +833,8 @@ int main (int argc, char *argv[])
 
 	ensure_root();
 
-	timer_init(&cld_srv.chkpt_timer, cldb_checkpoint, NULL);
+	timer_init(&cld_srv.chkpt_timer, "db4-checkpoint",
+		   cldb_checkpoint, NULL);
 	add_chkpt_timer();
 
 	rc = 1;
