@@ -50,6 +50,7 @@ struct session_outpkt {
 static void session_retry(struct timer *);
 static void session_timeout(struct timer *);
 static int sess_load_db(GHashTable *ss, DB_TXN *txn);
+static void op_unref(struct session_outpkt *op);
 
 uint64_t next_seqid_le(uint64_t *seq)
 {
@@ -116,22 +117,38 @@ static struct session *session_new(void)
 	return sess;
 }
 
-static void session_free(struct session *sess)
+static void session_free(struct session *sess, bool hash_remove)
 {
+	GList *tmp;
+
 	if (!sess)
 		return;
 
-	g_hash_table_remove(cld_srv.sessions, sess->sid);
+	if (hash_remove)
+		g_hash_table_remove(cld_srv.sessions, sess->sid);
 
 	timer_del(&sess->timer);
 	timer_del(&sess->retry_timer);
+
+	tmp = sess->out_q;
+	while (tmp) {
+		struct session_outpkt *op;
+
+		op = tmp->data;
+		op_unref(op);
+
+		tmp->data = NULL;
+		tmp = tmp->next;
+	}
+
+	g_list_free(sess->out_q);
 
 	free(sess);
 }
 
 static void session_free_iter(gpointer key, gpointer val, gpointer dummy)
 {
-	session_free(val);
+	session_free(val, false);
 }
 
 void sessions_free(void)
@@ -371,7 +388,7 @@ int session_dispose(DB_TXN *txn, struct session *sess)
 
 	rc = session_remove(txn, sess);
 
-	session_free(sess);
+	session_free(sess, true);
 
 	if (rc)
 		cldlog(LOG_WARNING, "failed to remove session");
@@ -827,7 +844,7 @@ void msg_new_sess(struct msg_params *mp, const struct client *cli)
 	return;
 
 err_out:
-	session_free(sess);
+	session_free(sess, true);
 
 	alloc_len = sizeof(*outpkt) + sizeof(*resp) + SHA_DIGEST_LENGTH;
 	outpkt = alloca(alloc_len);
