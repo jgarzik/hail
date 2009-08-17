@@ -583,7 +583,7 @@ static int sess_retry_output(struct session *sess)
 		if (rc)
 			break;
 
-		op->next_retry *= 2;
+		op->next_retry += 5;
 	}
 
 	return rc;
