@@ -122,7 +122,7 @@ static int dirent_find(const void *data, size_t data_len,
 	if (!tmp_len)
 		return -1;
 
-	ofs = (p - data) - 2;
+	ofs = (p - data);
 
 	if (ofs_out)
 		*ofs_out = (int) ofs;
