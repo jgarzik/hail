@@ -549,11 +549,14 @@ static void op_unref(struct session_outpkt *op)
 	free(op);
 }
 
-static int sess_retry_output(struct session *sess)
+static int sess_retry_output(struct session *sess, time_t *next_retry_out)
 {
 	GList *tmp, *tmp1;
 	struct session_outpkt *op;
 	int rc = 0;
+	time_t next_retry = 0;
+
+	*next_retry_out = 0;
 
 	tmp = sess->out_q;
 	while (tmp) {
@@ -566,6 +569,9 @@ static int sess_retry_output(struct session *sess)
 		op = tmp1->data;
 		outpkt = op->pkt;
 		outmsg = (struct cld_msg_hdr *) (outpkt + 1);
+
+		if (!next_retry || (op->next_retry < next_retry))
+			*next_retry_out = next_retry = op->next_retry;
 
 		if (current_time.tv_sec < op->next_retry)
 			continue;
@@ -592,13 +598,14 @@ static int sess_retry_output(struct session *sess)
 static void session_retry(struct timer *timer)
 {
 	struct session *sess = timer->userdata;
+	time_t next_retry;
 
 	if (!sess->out_q)
 		return;
 
-	sess_retry_output(sess);
+	sess_retry_output(sess, &next_retry);
 
-	timer_add(&sess->retry_timer, time(NULL) + CLD_RETRY_START);
+	timer_add(&sess->retry_timer, next_retry);
 }
 
 static void session_outq(struct session *sess, GList *new_pkts)
