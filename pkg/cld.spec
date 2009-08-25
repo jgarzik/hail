@@ -1,15 +1,13 @@
 Name:		cld
 Version:	0.2
-Release:	0.16.gefe1f957%{?dist}
+Release:	2%{?dist}
 Summary:	Coarse locking daemon
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-# pulled from upstream git, commit efe1f95712cefa78cf28c328bcce8e25ac50e72b
-# to recreate tarball, check out commit, then run "make dist"
-Source0:	cld-%{version}git.tar.gz
+Source0:	cld-%{version}.tar.gz
 Source2:	cld.init
 Source3:	cld.sysconf
 BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
@@ -40,7 +38,7 @@ The %{name}-devel package contains libraries and header files for
 developing applications that use %{name}.
 
 %prep
-%setup -q -n cld-0.2git
+%setup -q
 
 %build
 %configure --disable-static
@@ -101,6 +99,15 @@ fi
 %{_includedir}/*
 
 %changelog
+* Fri Aug 21 2009 Tomas Mraz <tmraz@redhat.com> - 0.2-2
+- rebuilt with new openssl
+
+* Sat Aug 15 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-1
+- Upstream version 0.2 release.
+
+* Fri Aug 14 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-0.17.gbb117496
+- update to commit bb11749606a204b9ab87b815352d231179dba7a1
+
 * Thu Aug 13 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-0.16.gefe1f957
 - update to commit efe1f95712cefa78cf28c328bcce8e25ac50e72b
 
