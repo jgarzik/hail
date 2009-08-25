@@ -30,6 +30,7 @@ static void test(int n_objects, bool encrypt)
 		      TEST_USER, TEST_USER_KEY, encrypt);
 	OK(stc);
 
+	fprintf(stderr, "      lotsa-objects syncing...\n");
 	sync();
 
 	gettimeofday(&ta, NULL);

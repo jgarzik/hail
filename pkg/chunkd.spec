@@ -1,22 +1,24 @@
 Name:		chunkd
 Version:	0.4
-Release:	0.11.g8749c45c%{?dist}
+Release:	2%{?dist}
 Summary:	Data storage daemon for cloud computing
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-# pulled from upstream git, commit 8749c45cb46a26dcf3f93369665da6573204d028
-# to recreate tarball, check out commit, then run "make dist"
-Source0:	chunkd-%{version}git.tar.gz
+Source0:	chunkd-%{version}.tar.gz
 Source2:	chunkd.init
 Source3:	chunkd.sysconf
 BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 # N.B. We need cld to build, because our "make check" spawns a private copy.
 BuildRequires:	libevent-devel glib2-devel openssl-devel zlib-devel
-BuildRequires:	libxml2-devel procps cld cld-devel
+BuildRequires:	libxml2-devel procps
+BuildRequires:	cld >= 0.2
+BuildRequires:	cld-devel >= 0.2
+
+Requires:	cld >= 0.2
 
 %description
 Single-node data storage daemon for cloud computing.
@@ -37,7 +39,7 @@ The %{name}-devel package contains libraries and header files for
 developing applications that use %{name}.
 
 %prep
-%setup -q -n %{name}-%{version}git
+%setup -q
 
 
 %build
@@ -95,6 +97,12 @@ fi
 %{_includedir}/*
 
 %changelog
+* Fri Aug 21 2009 Tomas Mraz <tmraz@redhat.com> - 0.4-2
+- rebuilt with new openssl
+
+* Sat Aug 15 2009 Jeff Garzik <jgarzik@redhat.com> - 0.4-1
+- Update to release version 0.4.
+
 * Wed Aug 12 2009 Jeff Garzik <jgarzik@redhat.com> - 0.4-0.11.g8749c45c
 - update source to commit 8749c45cb46a26dcf3f93369665da6573204d028
 
