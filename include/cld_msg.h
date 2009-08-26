@@ -167,6 +167,7 @@ struct cld_msg_open {
 	uint32_t		mode;		/**< open mode, COM_xxx */
 	uint32_t		events;		/**< events mask, CE_xxx */
 	uint16_t		name_len;	/**< length of file name */
+	uint8_t			res[6];
 	/* inode name */
 };
 
@@ -195,7 +196,7 @@ struct cld_msg_get_resp {
 	uint64_t		time_create;	/**< creation time */
 	uint64_t		time_modify;	/**< last modification time */
 	uint32_t		flags;		/**< inode flags; CIFL_xxx */
-
+	uint8_t			res[4];
 	/* inode name */
 };
 
@@ -205,6 +206,7 @@ struct cld_msg_put {
 
 	uint64_t		fh;		/**< open file handle */
 	uint32_t		data_size;	/**< total size of data */
+	uint8_t			res[4];
 };
 
 /** CLOSE message */
@@ -219,6 +221,7 @@ struct cld_msg_del {
 	struct cld_msg_hdr	hdr;
 
 	uint16_t		name_len;	/**< length of file name */
+	uint8_t			res[6];
 	/* inode name */
 };
 
@@ -235,6 +238,7 @@ struct cld_msg_lock {
 
 	uint64_t		fh;		/**< open file handle */
 	uint32_t		flags;		/**< CLF_xxx */
+	uint8_t			res[4];
 };
 
 /** Server-to-client EVENT message */
@@ -243,6 +247,7 @@ struct cld_msg_event {
 
 	uint64_t		fh;		/**< open file handle */
 	uint32_t		events;		/**< CE_xxx */
+	uint8_t			res[4];
 };
 
 /*
