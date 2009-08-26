@@ -1,4 +1,10 @@
 
+Version 0.2.1 - August 26, 2009
+
+- many bug fixes, most notably:
+  pad include/cld_msg.h protocol structures, to ensure they are
+  the same on 32-bit or 64-bit.
+
 Version 0.2 - August 15, 2009
 
 - libcldc: new logging API
