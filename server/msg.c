@@ -583,7 +583,7 @@ void msg_open(struct msg_params *mp)
 		goto err_out;
 	}
 	if (!create && (rc == DB_NOTFOUND)) {
-		resp_rc = CLE_INODE_INVAL;
+		resp_rc = CLE_NAME_INVAL;
 		goto err_out;
 	}
 	if (create && rc == 0) {
@@ -990,7 +990,7 @@ void msg_del(struct msg_params *mp)
 	rc = cldb_inode_get_byname(txn, name, name_len, &ino, false, 0);
 	if (rc) {
 		if (rc == DB_NOTFOUND)
-			resp_rc = CLE_INODE_INVAL;
+			resp_rc = CLE_NAME_INVAL;
 		else
 			resp_rc = CLE_DB_ERR;
 		goto err_out;
