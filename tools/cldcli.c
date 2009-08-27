@@ -66,9 +66,11 @@ struct creq {
 	struct cp_fc_info	*cfi;
 };
 
+enum { CRESP_MSGSZ = 64 };
+
 struct cresp {
 	enum thread_codes	tcode;
-	char			msg[64];
+	char			msg[CRESP_MSGSZ];
 	union {
 		size_t		file_len;
 		unsigned int	n_records;
@@ -117,31 +119,10 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state);
 
 static const struct argp argp = { options, parse_opt, NULL, doc };
 
-static const char *names_cle_err[] = {
-	[CLE_OK]		= "CLE_OK",
-	[CLE_SESS_EXISTS]	= "CLE_SESS_EXISTS",
-	[CLE_SESS_INVAL]	= "CLE_SESS_INVAL",
-	[CLE_DB_ERR]		= "CLE_DB_ERR",
-	[CLE_BAD_PKT]		= "CLE_BAD_PKT",
-	[CLE_INODE_INVAL]	= "CLE_INODE_INVAL",
-	[CLE_NAME_INVAL]	= "CLE_NAME_INVAL",
-	[CLE_OOM]		= "CLE_OOM",
-	[CLE_FH_INVAL]		= "CLE_FH_INVAL",
-	[CLE_DATA_INVAL]	= "CLE_DATA_INVAL",
-	[CLE_LOCK_INVAL]	= "CLE_LOCK_INVAL",
-	[CLE_LOCK_CONFLICT]	= "CLE_LOCK_CONFLICT",
-	[CLE_LOCK_PENDING]	= "CLE_LOCK_PENDING",
-	[CLE_MODE_INVAL]	= "CLE_MODE_INVAL",
-	[CLE_INODE_EXISTS]	= "CLE_INODE_EXISTS",
-	[CLE_DIR_NOTEMPTY]	= "CLE_DIR_NOTEMPTY",
-	[CLE_INTERNAL_ERR]	= "CLE_INTERNAL_ERR",
-	[CLE_TIMEOUT]		= "CLE_TIMEOUT",
-	[CLE_SIG_INVAL]		= "CLE_SIG_INVAL",
-};
-
 static void errc_msg(struct cresp *cresp, enum cle_err_codes errc)
 {
-	strcpy(cresp->msg, names_cle_err[errc]);
+	strncpy(cresp->msg, cld_errstr(errc), CRESP_MSGSZ);
+	cresp->msg[CRESP_MSGSZ-1] = 0;
 }
 
 static void applog(int prio, const char *fmt, ...)
