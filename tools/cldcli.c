@@ -131,8 +131,8 @@ static void applog(int prio, const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	vsnprintf(buf, 200, fmt, ap);
-	fprintf(stderr, "%s\n", buf);
+	snprintf(buf, 200, "%s\n", fmt);
+	vfprintf(stderr, buf, ap);
 	va_end(ap);
 }
 
