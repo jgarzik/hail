@@ -113,6 +113,8 @@ struct server {
 	int			pid_fd;
 
 	char			*port;		/* bind port */
+	char			*port_file;	/* Port file to write */
+	bool			port_set;
 
 	struct cldb		cldb;		/* database info */
 

@@ -1,5 +1,8 @@
 
 #include <stdlib.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
 #include <glib.h>
 #include <cld-private.h>
 #include "cld_msg.h"
@@ -51,5 +54,33 @@ const char *cld_errstr(enum cle_err_codes ecode)
 		return "(unknown)";
 
 	return cld_errlist[ecode];
+}
+
+/*
+ * Read a port number from a port file, return the value or negative error.
+ */
+int cld_readport(const char *fname)
+{
+	enum { LEN = 11 };
+	char buf[LEN+1];
+	long port;
+	int fd;
+	int rc;
+
+	if ((fd = open(fname, O_RDONLY)) == -1)
+		return -errno;
+	rc = read(fd, buf, LEN);
+	close(fd);
+	if (rc < 0)
+		return -errno;
+	if (rc == 0)
+		return -EPIPE;
+	buf[rc] = 0;
+
+	port = strtol(buf, NULL, 10);
+	if (port <= 0 || port >= 65636)
+		return -EDOM;
+
+	return (int)port;
 }
 

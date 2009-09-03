@@ -32,6 +32,7 @@
 #include <argp.h>
 #include <netdb.h>
 #include <signal.h>
+#include <netinet/in.h>
 #include <openssl/sha.h>
 #include <openssl/hmac.h>
 #include <cld-private.h>
@@ -66,6 +67,8 @@ static struct argp_option options[] = {
 	{ "strict-free", 1001, NULL, 0,
 	  "For memory-checker runs.  When shutting down server, free local "
 	  "heap, rather than simply exit(2)ing and letting OS clean up." },
+	{ "port-file", 1002, "FILE", 0,
+	  "Write the listen port to FILE. Implies bind to zero." },
 	{ }
 };
 
@@ -600,7 +603,117 @@ static void net_close(void)
 	}
 }
 
-static int net_open(void)
+static int net_open_socket(int addr_fam, int sock_type, int sock_prot,
+			   int addr_len, void *addr_ptr)
+{
+	struct server_poll sp;
+	struct pollfd pfd;
+	int fd, on;
+	int rc;
+
+	fd = socket(addr_fam, sock_type, sock_prot);
+	if (fd < 0) {
+		syslogerr("tcp socket");
+		return -errno;
+	}
+
+	on = 1;
+	if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) < 0) {
+		syslogerr("setsockopt(SO_REUSEADDR)");
+		close(fd);
+		return -errno;
+	}
+
+	if (bind(fd, addr_ptr, addr_len) < 0) {
+		syslogerr("tcp bind");
+		close(fd);
+		return -errno;
+	}
+
+	rc = fsetflags("udp server", fd, O_NONBLOCK);
+	if (rc) {
+		close(fd);
+		return -errno;
+	}
+
+	sp.fd = fd;
+	sp.cb = udp_srv_event;
+	sp.userdata = NULL;
+	g_array_append_val(cld_srv.poll_data, sp);
+
+	pfd.fd = fd;
+	pfd.events = POLLIN;
+	pfd.revents = 0;
+	g_array_append_val(cld_srv.polls, pfd);
+
+	return fd;
+}
+
+static int net_open_any(void)
+{
+	struct sockaddr_in addr4;
+	struct sockaddr_in6 addr6;
+	FILE *portf;
+	int fd4, fd6;
+	socklen_t addr_len;
+	unsigned short port;
+	int rc;
+
+	port = 0;
+
+	/* Thanks to Linux, IPv6 must be bound first. */
+	memset(&addr6, 0, sizeof(addr6));
+	addr6.sin6_family = AF_INET6;
+	memcpy(&addr6.sin6_addr, &in6addr_any, sizeof(struct in6_addr));
+	fd6 = net_open_socket(AF_INET6, SOCK_DGRAM, 0, sizeof(addr6), &addr6);
+
+	if (fd6 >= 0) {
+		addr_len = sizeof(addr6);
+		if (getsockname(fd6, &addr6, &addr_len) != 0) {
+			rc = errno;
+			cldlog(LOG_ERR, "getsockname failed: %s", strerror(rc));
+			return -rc;
+		}
+		port = ntohs(addr6.sin6_port);
+	}
+
+	memset(&addr4, 0, sizeof(addr4));
+	addr4.sin_family = AF_INET;
+	addr4.sin_addr.s_addr = htonl(INADDR_ANY);
+	/* If IPv6 worked, we must use the same port number for IPv4 */
+	if (port)
+		addr4.sin_port = port;
+	fd4 = net_open_socket(AF_INET, SOCK_DGRAM, 0, sizeof(addr4), &addr4);
+
+	if (!port) {
+		if (fd4 < 0)
+			return fd4;
+
+		addr_len = sizeof(addr4);
+		if (getsockname(fd4, &addr4, &addr_len) != 0) {
+			rc = errno;
+			cldlog(LOG_ERR, "getsockname failed: %s", strerror(rc));
+			return -rc;
+		}
+		port = ntohs(addr4.sin_port);
+	}
+
+	cldlog(LOG_INFO, "Listening on port %u", port);
+
+	portf = fopen(cld_srv.port_file, "w");
+	if (portf == NULL) {
+		rc = errno;
+		cldlog(LOG_INFO, "Cannot create port file %s: %s",
+		       cld_srv.port_file, strerror(rc));
+		return -rc;
+	}
+	fprintf(portf, "%u\n", port);
+	fclose(portf);
+
+	return 0;
+}
+
+static int net_open_known(const char *portstr)
 {
 	int ipv6_found = 0;
 	int rc;
@@ -611,10 +724,10 @@ static int net_open(void)
 	hints.ai_socktype = SOCK_DGRAM;
 	hints.ai_flags = AI_PASSIVE;
 
-	rc = getaddrinfo(NULL, cld_srv.port, &hints, &res0);
+	rc = getaddrinfo(NULL, portstr, &hints, &res0);
 	if (rc) {
 		cldlog(LOG_ERR, "getaddrinfo(*:%s) failed: %s",
-		       cld_srv.port, gai_strerror(rc));
+		       portstr, gai_strerror(rc));
 		rc = -EINVAL;
 		goto err_addr;
 	}
@@ -637,50 +750,16 @@ static int net_open(void)
 #endif
 
 	for (res = res0; res; res = res->ai_next) {
-		struct server_poll sp;
-		struct pollfd pfd;
-		int fd, on;
 		char listen_host[65], listen_serv[65];
 
 		if (ipv6_found && res->ai_family == PF_INET)
 			continue;
 
-		fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-		if (fd < 0) {
-			syslogerr("tcp socket");
-			return -errno;
-		}
-
-		on = 1;
-		if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on,
-			       sizeof(on)) < 0) {
-			syslogerr("setsockopt(SO_REUSEADDR)");
-			rc = -errno;
+		rc = net_open_socket(res->ai_family, res->ai_socktype,
+				     res->ai_protocol, 
+				     res->ai_addrlen, res->ai_addr);
+		if (rc < 0)
 			goto err_out;
-		}
-
-		if (bind(fd, res->ai_addr, res->ai_addrlen) < 0) {
-			syslogerr("tcp bind");
-			close(fd);
-			rc = -errno;
-			goto err_out;
-		}
-
-		rc = fsetflags("udp server", fd, O_NONBLOCK);
-		if (rc) {
-			close(fd);
-			goto err_out;
-		}
-
-		sp.fd = fd;
-		sp.cb = udp_srv_event;
-		sp.userdata = NULL;
-		g_array_append_val(cld_srv.poll_data, sp);
-
-		pfd.fd = fd;
-		pfd.events = POLLIN;
-		pfd.revents = 0;
-		g_array_append_val(cld_srv.polls, pfd);
 
 		getnameinfo(res->ai_addr, res->ai_addrlen,
 			    listen_host, sizeof(listen_host),
@@ -699,6 +778,14 @@ err_out:
 	freeaddrinfo(res0);
 err_addr:
 	return rc;
+}
+
+static int net_open(void)
+{
+	if (cld_srv.port_file)
+		return net_open_any();
+	else
+		return net_open_known(cld_srv.port);
 }
 
 static void segv_signal(int signo)
@@ -749,9 +836,10 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 		cld_srv.flags |= SFL_FOREGROUND;
 		break;
 	case 'p':
-		if (atoi(arg) > 0 && atoi(arg) < 65536)
+		if (atoi(arg) > 0 && atoi(arg) < 65536) {
 			cld_srv.port = arg;
-		else {
+			cld_srv.port_set = true;
+		} else {
 			fprintf(stderr, "invalid port: '%s'\n", arg);
 			argp_usage(state);
 		}
@@ -762,6 +850,9 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 
 	case 1001:			/* --strict-free */
 		strict_free = true;
+		break;
+	case 1002:
+		cld_srv.port_file = arg;
 		break;
 
 	case ARGP_KEY_ARG:
@@ -795,6 +886,11 @@ int main (int argc, char *argv[])
 	aprc = argp_parse(&argp, argc, argv, 0, NULL, NULL);
 	if (aprc) {
 		fprintf(stderr, "argp_parse failed: %s\n", strerror(aprc));
+		return 1;
+	}
+	if (cld_srv.port_set && cld_srv.port_file) {
+		fprintf(stderr, "Options --port and --port-file must not"
+			" be set together\n");
 		return 1;
 	}
 

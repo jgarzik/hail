@@ -1,5 +1,7 @@
 #!/bin/sh
 
+rm -f cld.port
+
 if [ ! -f cld.pid ]
 then
 	echo no daemon pid file found.
