@@ -133,8 +133,9 @@ int fsetflags(const char *prefix, int fd, int or_flags)
 	/* get current flags */
 	old_flags = fcntl(fd, F_GETFL);
 	if (old_flags < 0) {
-		applog(LOG_ERR, "%s F_GETFL: %s", prefix, strerror(errno));
-		return -errno;
+		rc = errno;
+		applog(LOG_ERR, "%s F_GETFL: %s", prefix, strerror(rc));
+		return -rc;
 	}
 
 	/* add or_flags */
@@ -144,8 +145,9 @@ int fsetflags(const char *prefix, int fd, int or_flags)
 	/* set new flags */
 	if (flags != old_flags)
 		if (fcntl(fd, F_SETFL, flags) < 0) {
-			applog(LOG_ERR, "%s F_SETFL: %s", prefix, strerror(errno));
-			rc = -errno;
+			rc = errno;
+			applog(LOG_ERR, "%s F_SETFL: %s", prefix, strerror(rc));
+			rc = -rc;
 		}
 
 	return rc;

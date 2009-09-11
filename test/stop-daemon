@@ -35,4 +35,6 @@ else
 	killpid cld.pid || ret=1
 fi
 
+rm -f chunkd.port chunkd-ssl.port cld.port
+
 exit "$ret"

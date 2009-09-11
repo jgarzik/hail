@@ -14,14 +14,17 @@ static void test(bool encrypt)
 	struct st_object *obj;
 	struct st_keylist *klist;
 	struct st_client *stc;
+	int port;
 	bool rcb;
 	char val[] = "my first value";
 	char key[64] = "deadbeef";
 	size_t len = 0;
 	void *mem;
 
-	stc = stc_new(TEST_HOST, encrypt ? TEST_SSL_PORT : TEST_PORT,
-		      TEST_USER, TEST_USER_KEY, encrypt);
+	port = stc_readport(encrypt ? TEST_PORTFILE_SSL : TEST_PORTFILE);
+	OK(port > 0);
+
+	stc = stc_new(TEST_HOST, port, TEST_USER, TEST_USER_KEY, encrypt);
 	OK(stc);
 
 	/* store object */

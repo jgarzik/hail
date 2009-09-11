@@ -18,6 +18,7 @@ static void test(int n_objects, bool encrypt)
 {
 	struct st_keylist *klist;
 	struct st_client *stc;
+	int port;
 	bool rcb;
 	char val[] = "my first value";
 	char key[64] = "";
@@ -26,8 +27,10 @@ static void test(int n_objects, bool encrypt)
 	char *k;
 	struct timeval ta, tb;
 
-	stc = stc_new(TEST_HOST, encrypt ? TEST_SSL_PORT : TEST_PORT,
-		      TEST_USER, TEST_USER_KEY, encrypt);
+	port = stc_readport(encrypt ? TEST_PORTFILE_SSL : TEST_PORTFILE);
+	OK(port > 0);
+
+	stc = stc_new(TEST_HOST, port, TEST_USER, TEST_USER_KEY, encrypt);
 	OK(stc);
 
 	fprintf(stderr, "      lotsa-objects syncing...\n");

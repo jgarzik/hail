@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <openssl/hmac.h>
 #include <glib.h>
+#include <cldc.h>
 #include "chunkd.h"
 
 struct config_context {
@@ -33,6 +34,7 @@ struct config_context {
 	bool		in_cld;
 	unsigned short	cld_port;
 	char		*cld_host;
+	char		*cld_port_file;
 
 	struct listen_cfg tmp_listen;
 };
@@ -129,24 +131,31 @@ static void cfg_elm_end_listen(struct config_context *cc)
 		return;
 	}
 
-	if (!cc->tmp_listen.port) {
-		free(cc->tmp_listen.node);
-		memset(&cc->tmp_listen, 0, sizeof(struct listen_cfg));
-		applog(LOG_WARNING, "cfgfile: TCP port not specified in Listen");
-		return;
+	if (cc->tmp_listen.port && cc->tmp_listen.port_file) {
+		applog(LOG_ERR, "cfgfile: Listen with both Port and PortFile");
+		goto err;
+	}
+
+	if (!cc->tmp_listen.port && !cc->tmp_listen.port_file) {
+		applog(LOG_ERR, "cfgfile: Listen with no Port or PortFile");
+		goto err;
 	}
 
 	cfg = malloc(sizeof(*cfg));
 	if (!cfg) {
-		free(cc->tmp_listen.node);
-		free(cc->tmp_listen.port);
-		memset(&cc->tmp_listen, 0, sizeof(struct listen_cfg));
 		applog(LOG_ERR, "OOM");
-		return;
+		goto err;
 	}
 
 	memcpy(cfg, &cc->tmp_listen, sizeof(*cfg));
 	chunkd_srv.listeners = g_list_append(chunkd_srv.listeners, cfg);
+	memset(&cc->tmp_listen, 0, sizeof(struct listen_cfg));
+	return;
+
+ err:
+	free(cc->tmp_listen.node);
+	free(cc->tmp_listen.port);
+	free(cc->tmp_listen.port_file);
 	memset(&cc->tmp_listen, 0, sizeof(struct listen_cfg));
 }
 
@@ -195,9 +204,29 @@ static void cfg_elm_end_cld(struct config_context *cc)
 		applog(LOG_WARNING, "No host for CLD element");
 		goto end;
 	}
-	if (!cc->cld_port) {
-		applog(LOG_WARNING, "No port for CLD element");
+
+	if (!cc->cld_port && !cc->cld_port_file) {
+		applog(LOG_WARNING, "No Port nor PortFile for CLD element");
 		goto end;
+	}
+
+	/*
+	 * Waiting here is disadvantageous, because it defeats testing
+	 * of bootstrap robustness for Chunk as a client of CLD.
+	 * But it's the most direct way to give us variable ports.
+	 * Also, no mysterious sleep commands in start-daemon script.
+	 */
+	if (cc->cld_port_file) {
+		int port;
+		if ((port = cld_readport(cc->cld_port_file)) <= 0) {
+			applog(LOG_INFO, "Waiting for CLD PortFile %s",
+			       cc->cld_port_file);
+			sleep(2);
+			while ((port = cld_readport(cc->cld_port_file)) <= 0)
+				sleep(3);
+			applog(LOG_INFO, "Using CLD port %u", port);
+		}
+		cc->cld_port = port;
 	}
 
 	cldu_add_host(cc->cld_host, cc->cld_port);
@@ -373,6 +402,26 @@ static void cfg_elm_end (GMarkupParseContext *context,
 	else if (!strcmp(element_name, "Geo") && cc->text) {
 		cfg_elm_end_geo(cc);
 		cc->in_geo = false;
+	}
+
+	else if (!strcmp(element_name, "PortFile")) {
+		if (!cc->text) {
+			applog(LOG_WARNING, "PortFile element empty");
+			return;
+		}
+
+		if (cc->in_listen) {
+			free(cc->tmp_listen.port_file);
+			cc->tmp_listen.port_file = cc->text;
+		} else if (cc->in_cld) {
+			free(cc->cld_port_file);
+			cc->cld_port_file = cc->text;
+		} else {
+			applog(LOG_WARNING,
+			       "PortFile element not in Listen or CLD");
+			free(cc->text);
+		}
+		cc->text = NULL;
 	}
 
 	else {

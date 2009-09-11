@@ -14,8 +14,9 @@
 #define TEST_USER2 "testuser2"
 #define TEST_USER2_KEY "testuser2"
 
-#define TEST_PORT 18082
-#define TEST_SSL_PORT 28082
+#define TEST_PORTFILE_CLD	"cld.port"
+#define TEST_PORTFILE		"chunkd.port"
+#define TEST_PORTFILE_SSL	"chunkd-ssl.port"
 
 #define OK(expr)				\
 	do {					\

@@ -63,4 +63,6 @@ extern bool stc_ping(struct st_client *stc);
 
 extern struct st_keylist *stc_keys(struct st_client *stc);
 
+extern int stc_readport(const char *fname);
+
 #endif /* __STC_H__ */

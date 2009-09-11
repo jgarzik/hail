@@ -115,6 +115,7 @@ enum st_cld {
 struct listen_cfg {
 	char			*node;
 	char			*port;
+	char			*port_file;
 	bool			encrypt;
 };
 

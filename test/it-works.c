@@ -12,10 +12,13 @@
 static void test(bool ssl)
 {
 	struct st_client *stc;
+	int port;
 	bool rcb;
 
-	stc = stc_new(TEST_HOST, ssl ? TEST_SSL_PORT : TEST_PORT,
-		      TEST_USER, TEST_USER_KEY, ssl);
+	port = stc_readport(ssl ? TEST_PORTFILE_SSL : TEST_PORTFILE);
+	OK(port > 0);
+
+	stc = stc_new(TEST_HOST, port, TEST_USER, TEST_USER_KEY, ssl);
 	OK(stc);
 
 	rcb = stc_ping(stc);

@@ -14,6 +14,7 @@ static void test(bool encrypt)
 	struct st_object *obj;
 	struct st_keylist *klist;
 	struct st_client *stc1, *stc2;
+	int port;
 	bool rcb;
 	char val1[] = "my first value";
 	char val2[] = "my second value";
@@ -22,12 +23,13 @@ static void test(bool encrypt)
 	size_t len = 0;
 	void *mem;
 
-	stc1 = stc_new(TEST_HOST, encrypt ? TEST_SSL_PORT : TEST_PORT,
-		      TEST_USER, TEST_USER_KEY, encrypt);
+	port = stc_readport(encrypt ? TEST_PORTFILE_SSL : TEST_PORTFILE);
+	OK(port > 0);
+
+	stc1 = stc_new(TEST_HOST, port, TEST_USER, TEST_USER_KEY, encrypt);
 	OK(stc1);
 
-	stc2 = stc_new(TEST_HOST, encrypt ? TEST_SSL_PORT : TEST_PORT,
-		      TEST_USER2, TEST_USER2_KEY, encrypt);
+	stc2 = stc_new(TEST_HOST, port, TEST_USER2, TEST_USER2_KEY, encrypt);
 	OK(stc2);
 
 	/* store object 1 */

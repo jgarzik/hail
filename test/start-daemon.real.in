@@ -11,7 +11,7 @@ then
 	exit 1
 fi
 
-@CLDC_CMD@ -d data/cld -P cld.pid -p 18081 -E
+@CLDC_CMD@ -d data/cld -P cld.pid --port-file=cld.port  -E
 
 ../server/chunkd -C $top_srcdir/test/server-test.cfg -E $*
 
