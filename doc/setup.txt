@@ -60,7 +60,7 @@ _cld._udp.phx2.ex.com has SRV record 10 50 8081 maika.phx2.ex.com.
    Do not rely on it, unless you run an appartment-wide cloud cell
    or something equally limited.
 
-        <Cell>"picbak"</Cell>
+        <Cell>picbak</Cell>
 
    It's best to use only ASCII letters, numbers, dash ('-'), underscore ('_'),
    and period ('.') in cell names.
@@ -87,9 +87,9 @@ _cld._udp.phx2.ex.com has SRV record 10 50 8081 maika.phx2.ex.com.
    to skip for small, experimental clouds.
 
 	<Geo>
-		<Area>"US"</Area>
-		<Building>"MTV12"</Building>
-		<Rack>"F3R18"</Rack>
+		<Area>US</Area>
+		<Building>MTV12</Building>
+		<Rack>F3R18</Rack>
 	</Geo>
 
 *) start daemon (it will put itself into the background) with the
