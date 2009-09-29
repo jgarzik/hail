@@ -1018,6 +1018,23 @@ err_out:
 	cli_free(cli);
 }
 
+static int net_write_port(const char *port_file, const char *port_str)
+{
+	FILE *portf;
+	int rc;
+
+	portf = fopen(port_file, "w");
+	if (portf == NULL) {
+		rc = errno;
+		applog(LOG_INFO, "Cannot create port file %s: %s",
+		       port_file, strerror(rc));
+		return -rc;
+	}
+	fprintf(portf, "%s\n", port_str);
+	fclose(portf);
+	return 0;
+}
+
 static int net_open_socket(const struct listen_cfg *cfg,
 			   int addr_fam, int sock_type, int sock_prot,
 			   int addr_len, void *addr_ptr)
@@ -1089,10 +1106,8 @@ static int net_open_socket(const struct listen_cfg *cfg,
  */
 static int net_open_any(struct listen_cfg *cfg)
 {
-	char *portfile = cfg->port_file;
 	struct sockaddr_in addr4;
 	struct sockaddr_in6 addr6;
-	FILE *portf;
 	int fd4, fd6;
 	socklen_t addr_len;
 	unsigned short port;
@@ -1139,24 +1154,17 @@ static int net_open_any(struct listen_cfg *cfg)
 		port = ntohs(addr4.sin_port);
 	}
 
-	applog(LOG_INFO, "Listening on port %u file %s", port, portfile);
+	applog(LOG_INFO, "Listening on auto port %u", port);
 
+	free(cfg->port);
 	rc = asprintf(&cfg->port, "%u", port);
 	if (rc < 0) {
 		applog(LOG_ERR, "OOM");
 		return -ENOMEM;
 	}
 
-	portf = fopen(portfile, "w");
-	if (portf == NULL) {
-		rc = errno;
-		applog(LOG_INFO, "Cannot create port file %s: %s",
-		       portfile, strerror(rc));
-		return -rc;
-	}
-	fprintf(portf, "%u\n", port);
-	fclose(portf);
-
+	if (cfg->port_file)
+		return net_write_port(cfg->port_file, cfg->port);
 	return 0;
 }
 
@@ -1213,12 +1221,14 @@ static int net_open_known(const struct listen_cfg *cfg)
 			    listen_serv, sizeof(listen_serv),
 			    NI_NUMERICHOST | NI_NUMERICSERV);
 
-		applog(LOG_INFO, "Listening on %s port %s",
+		applog(LOG_INFO, "Listening on host %s port %s",
 		       listen_host, listen_serv);
 	}
 
 	freeaddrinfo(res0);
 
+	if (cfg->port_file)
+		net_write_port(cfg->port_file, cfg->port);
 	return 0;
 
 err_out:
@@ -1227,7 +1237,7 @@ err_out:
 
 static int net_open(struct listen_cfg *cfg)
 {
-	if (cfg->port_file)
+	if (!strcmp(cfg->port, "auto"))
 		return net_open_any(cfg);
 	else
 		return net_open_known(cfg);

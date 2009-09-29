@@ -39,6 +39,15 @@ _cld._udp.phx2.ex.com has SRV record 10 50 8081 maika.phx2.ex.com.
    not a great idea to specify interfaces, since they often use IPv6 or
    acquire IP addresses from DHCP. So, just specify a port.
 
+   An option exists to let the server to listen on a random port with
+   the "auto" keyword:
+
+	<Listen>auto</Listen>
+
+   This works with CLD-aware clients that find the connection information
+   from records like /chunk-picbak/*. It's not commonly used in real clouds
+   but may be beneficial in chroots and other odd environments.
+
 *) choose pathname (dir + filename) where daemon should store its
    PID file. Default is /var/run/chunkd.pid, but it limits you to
    one Chunk daemon per node, which is usual in clouds.
