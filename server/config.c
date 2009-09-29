@@ -256,6 +256,12 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		cc->text = NULL;
 	}
 
+	else if (!strcmp(element_name, "ForceHost") && cc->text) {
+		free(chunkd_srv.ourhost);
+		chunkd_srv.ourhost = cc->text;
+		cc->text = NULL;
+	}
+
 	else if (!strcmp(element_name, "Path") && cc->text) {
 		if (stat(cc->text, &st) < 0) {
 			applog(LOG_ERR, "stat(2) cfgfile Path '%s' failed: %s",

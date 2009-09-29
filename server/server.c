@@ -1284,7 +1284,11 @@ int main (int argc, char *argv[])
 	 * early as possible, so that tunables are available.
 	 */
 	read_config();
-	chunkd_srv.ourhost = get_hostname();
+	if (!chunkd_srv.ourhost)
+		chunkd_srv.ourhost = get_hostname();
+	else if (debugging)
+		applog(LOG_INFO, "Forcing local hostname to %s",
+		       chunkd_srv.ourhost);
 
 	/*
 	 * For example, backgrounding and PID file should be done early
