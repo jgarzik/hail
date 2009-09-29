@@ -61,14 +61,14 @@ static struct argp_option options[] = {
 	{ "foreground", 'F', NULL, 0,
 	  "Run in foreground, do not fork" },
 	{ "port", 'p', "PORT", 0,
-	  "bind to UDP port PORT.  Default: " CLD_DEF_PORT },
+	  "Bind to UDP port PORT.  Default: " CLD_DEF_PORT },
 	{ "pid", 'P', "FILE", 0,
 	  "Write daemon process id to FILE.  Default: " CLD_DEF_PIDFN },
 	{ "strict-free", 1001, NULL, 0,
 	  "For memory-checker runs.  When shutting down server, free local "
 	  "heap, rather than simply exit(2)ing and letting OS clean up." },
 	{ "port-file", 1002, "FILE", 0,
-	  "Write the listen port to FILE. Implies bind to zero." },
+	  "Write the listen port to FILE." },
 	{ }
 };
 
@@ -584,6 +584,23 @@ static void cldb_checkpoint(struct timer *timer)
 	add_chkpt_timer();
 }
 
+static int net_write_port(const char *port_file, const char *port_str)
+{
+	FILE *portf;
+	int rc;
+
+	portf = fopen(port_file, "w");
+	if (portf == NULL) {
+		rc = errno;
+		cldlog(LOG_INFO, "Cannot create port file %s: %s",
+		       port_file, strerror(rc));
+		return -rc;
+	}
+	fprintf(portf, "%s\n", port_str);
+	fclose(portf);
+	return 0;
+}
+
 static void net_close(void)
 {
 	struct pollfd *pfd;
@@ -619,9 +636,10 @@ static int net_open_socket(int addr_fam, int sock_type, int sock_prot,
 
 	on = 1;
 	if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) < 0) {
+		rc = errno;
 		syslogerr("setsockopt(SO_REUSEADDR)");
 		close(fd);
-		return -errno;
+		return -rc;
 	}
 
 	if (bind(fd, addr_ptr, addr_len) < 0) {
@@ -653,7 +671,6 @@ static int net_open_any(void)
 {
 	struct sockaddr_in addr4;
 	struct sockaddr_in6 addr6;
-	FILE *portf;
 	int fd4, fd6;
 	socklen_t addr_len;
 	unsigned short port;
@@ -700,16 +717,11 @@ static int net_open_any(void)
 
 	cldlog(LOG_INFO, "Listening on port %u", port);
 
-	portf = fopen(cld_srv.port_file, "w");
-	if (portf == NULL) {
-		rc = errno;
-		cldlog(LOG_INFO, "Cannot create port file %s: %s",
-		       cld_srv.port_file, strerror(rc));
-		return -rc;
+	if (cld_srv.port_file) {
+		char portstr[7];
+		snprintf(portstr, sizeof(portstr), "%u\n", port);
+		return net_write_port(cld_srv.port_file, portstr);
 	}
-	fprintf(portf, "%u\n", port);
-	fclose(portf);
-
 	return 0;
 }
 
@@ -772,6 +784,8 @@ static int net_open_known(const char *portstr)
 
 	freeaddrinfo(res0);
 
+	if (cld_srv.port_file)
+		return net_write_port(cld_srv.port_file, portstr);
 	return 0;
 
 err_out:
@@ -782,7 +796,7 @@ err_addr:
 
 static int net_open(void)
 {
-	if (cld_srv.port_file)
+	if (!cld_srv.port)
 		return net_open_any();
 	else
 		return net_open_known(cld_srv.port);
@@ -836,9 +850,15 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 		cld_srv.flags |= SFL_FOREGROUND;
 		break;
 	case 'p':
-		if (atoi(arg) > 0 && atoi(arg) < 65536) {
+		/*
+		 * We do not permit "0" as an argument in order to be safer
+		 * against a malfunctioning jumpstart script or a simple
+		 * misunderstanding by a human operator.
+		 */
+		if (!strcmp(arg, "auto")) {
+			cld_srv.port = NULL;
+		} else if (atoi(arg) > 0 && atoi(arg) < 65536) {
 			cld_srv.port = arg;
-			cld_srv.port_set = true;
 		} else {
 			fprintf(stderr, "invalid port: '%s'\n", arg);
 			argp_usage(state);
@@ -886,11 +906,6 @@ int main (int argc, char *argv[])
 	aprc = argp_parse(&argp, argc, argv, 0, NULL, NULL);
 	if (aprc) {
 		fprintf(stderr, "argp_parse failed: %s\n", strerror(aprc));
-		return 1;
-	}
-	if (cld_srv.port_set && cld_srv.port_file) {
-		fprintf(stderr, "Options --port and --port-file must not"
-			" be set together\n");
 		return 1;
 	}
 
