@@ -95,7 +95,7 @@ struct server cld_srv = {
 
 static void ensure_root(void);
 
-void cldlog(int prio, const char *fmt, ...)
+void applog(int prio, const char *fmt, ...)
 {
 	va_list ap;
 
@@ -122,11 +122,11 @@ int udp_tx(int sock_fd, struct sockaddr *addr, socklen_t addr_len,
 	ssize_t src;
 
 	if (debugging > 1)
-		cldlog(LOG_DEBUG, "udp_tx, fd %d", sock_fd);
+		applog(LOG_DEBUG, "udp_tx, fd %d", sock_fd);
 
 	src = sendto(sock_fd, data, data_len, 0, addr, addr_len);
 	if (src < 0 && errno != EAGAIN)
-		cldlog(LOG_ERR, "udp_tx sendto (fd %d, data_len %u): %s",
+		applog(LOG_ERR, "udp_tx sendto (fd %d, data_len %u): %s",
 		       sock_fd, (unsigned int) data_len,
 		       strerror(errno));
 
@@ -154,7 +154,7 @@ void resp_err(struct session *sess,
 	resp.code = cpu_to_le32(errcode);
 
 	if (sess->sock_fd <= 0) {
-		cldlog(LOG_ERR, "Nul sock in response");
+		applog(LOG_ERR, "Nul sock in response");
 		return;
 	}
 
@@ -216,7 +216,7 @@ bool authsign(struct cld_packet *pkt, size_t pkt_len)
 	     md, &md_len);
 
 	if (md_len != SHA_DIGEST_LENGTH)
-		cldlog(LOG_ERR, "authsign BUG: md_len != SHA_DIGEST_LENGTH");
+		applog(LOG_ERR, "authsign BUG: md_len != SHA_DIGEST_LENGTH");
 
 	memcpy(buf + pkt_len - SHA_DIGEST_LENGTH, md, SHA_DIGEST_LENGTH);
 
@@ -267,7 +267,7 @@ static void show_msg(const struct cld_msg_hdr *msg)
 	case cmo_not_master:
 	case cmo_event:
 	case cmo_ack_frag:
-		cldlog(LOG_DEBUG, "msg: op %s, xid %llu",
+		applog(LOG_DEBUG, "msg: op %s, xid %llu",
 		       opstr(msg->op),
 		       (unsigned long long) le64_to_cpu(msg->xid));
 		break;
@@ -329,7 +329,7 @@ static void pkt_ack_frag(int sock_fd,
 	authsign(outpkt, alloc_len);
 
 	if (debugging)
-		cldlog(LOG_DEBUG, "ack-partial-msg: "
+		applog(LOG_DEBUG, "ack-partial-msg: "
 		       "sid " SIDFMT ", op %s, seqid %llu",
 		       SIDARG(outpkt->sid),
 		       opstr(ack_msg->hdr.op),
@@ -392,7 +392,7 @@ static void udp_rx(int sock_fd,
 	mp.msg_len = pkt_len - sizeof(*pkt) - SHA_DIGEST_LENGTH;
 
 	if (debugging > 1)
-		cldlog(LOG_DEBUG, "pkt: len %zu, seqid %llu, sid " SIDFMT ", "
+		applog(LOG_DEBUG, "pkt: len %zu, seqid %llu, sid " SIDFMT ", "
 		       "flags %s%s, user %s",
 		       pkt_len,
 		       (unsigned long long) le64_to_cpu(pkt->seqid),
@@ -415,7 +415,7 @@ static void udp_rx(int sock_fd,
 			/* eliminate duplicates; do not return any response */
 			if (le64_to_cpu(pkt->seqid) != sess->next_seqid_in) {
 				if (debugging)
-					cldlog(LOG_DEBUG, "dropping dup");
+					applog(LOG_DEBUG, "dropping dup");
 				return;
 			}
 
@@ -427,7 +427,7 @@ static void udp_rx(int sock_fd,
 			/* eliminate duplicates; do not return any response */
 			if (le64_to_cpu(pkt->seqid) != sess->next_seqid_in) {
 				if (debugging)
-					cldlog(LOG_DEBUG, "dropping dup");
+					applog(LOG_DEBUG, "dropping dup");
 				return;
 			}
 
@@ -458,7 +458,7 @@ static void udp_rx(int sock_fd,
 		mp.msg_len = sess->msg_buf_len;
 
 		if ((debugging > 1) && !first_frag)
-			cldlog(LOG_DEBUG, "    final message size %u",
+			applog(LOG_DEBUG, "    final message size %u",
 			       sess->msg_buf_len);
 	}
 
@@ -481,7 +481,7 @@ err_out:
 	authsign(outpkt, alloc_len);
 
 	if (debugging)
-		cldlog(LOG_DEBUG, "udp_rx err: "
+		applog(LOG_DEBUG, "udp_rx err: "
 		       "sid " SIDFMT ", op %s, seqid %llu, code %d",
 		       SIDARG(outpkt->sid),
 		       opstr(resp->hdr.op),
@@ -528,7 +528,7 @@ static bool udp_srv_event(int fd, short events, void *userdata)
 	strcpy(cli.addr_host, host);
 
 	if (debugging)
-		cldlog(LOG_DEBUG, "client %s message (%d bytes)",
+		applog(LOG_DEBUG, "client %s message (%d bytes)",
 		       host, (int) rrc);
 
 	if (cld_srv.cldb.is_master && cld_srv.cldb.up)
@@ -573,7 +573,7 @@ static void cldb_checkpoint(struct timer *timer)
 	gettimeofday(&current_time, NULL);
 
 	if (debugging)
-		cldlog(LOG_INFO, "db4 checkpoint");
+		applog(LOG_INFO, "db4 checkpoint");
 
 	/* flush logs to db, if log files >= 1MB */
 	rc = dbenv->txn_checkpoint(dbenv, 1024, 0, 0);
@@ -592,7 +592,7 @@ static int net_write_port(const char *port_file, const char *port_str)
 	portf = fopen(port_file, "w");
 	if (portf == NULL) {
 		rc = errno;
-		cldlog(LOG_INFO, "Cannot create port file %s: %s",
+		applog(LOG_INFO, "Cannot create port file %s: %s",
 		       port_file, strerror(rc));
 		return -rc;
 	}
@@ -613,7 +613,7 @@ static void net_close(void)
 		pfd = &g_array_index(cld_srv.polls, struct pollfd, i);
 		if (pfd->fd >= 0) {
 			if (close(pfd->fd) < 0)
-				cldlog(LOG_WARNING, "net_close(%d): %s",
+				applog(LOG_WARNING, "net_close(%d): %s",
 				       pfd->fd, strerror(errno));
 			pfd->fd = -1;
 		}
@@ -688,7 +688,7 @@ static int net_open_any(void)
 		addr_len = sizeof(addr6);
 		if (getsockname(fd6, &addr6, &addr_len) != 0) {
 			rc = errno;
-			cldlog(LOG_ERR, "getsockname failed: %s", strerror(rc));
+			applog(LOG_ERR, "getsockname failed: %s", strerror(rc));
 			return -rc;
 		}
 		port = ntohs(addr6.sin6_port);
@@ -709,13 +709,13 @@ static int net_open_any(void)
 		addr_len = sizeof(addr4);
 		if (getsockname(fd4, &addr4, &addr_len) != 0) {
 			rc = errno;
-			cldlog(LOG_ERR, "getsockname failed: %s", strerror(rc));
+			applog(LOG_ERR, "getsockname failed: %s", strerror(rc));
 			return -rc;
 		}
 		port = ntohs(addr4.sin_port);
 	}
 
-	cldlog(LOG_INFO, "Listening on port %u", port);
+	applog(LOG_INFO, "Listening on port %u", port);
 
 	if (cld_srv.port_file) {
 		char portstr[7];
@@ -738,7 +738,7 @@ static int net_open_known(const char *portstr)
 
 	rc = getaddrinfo(NULL, portstr, &hints, &res0);
 	if (rc) {
-		cldlog(LOG_ERR, "getaddrinfo(*:%s) failed: %s",
+		applog(LOG_ERR, "getaddrinfo(*:%s) failed: %s",
 		       portstr, gai_strerror(rc));
 		rc = -EINVAL;
 		goto err_addr;
@@ -768,7 +768,7 @@ static int net_open_known(const char *portstr)
 			continue;
 
 		rc = net_open_socket(res->ai_family, res->ai_socktype,
-				     res->ai_protocol, 
+				     res->ai_protocol,
 				     res->ai_addrlen, res->ai_addr);
 		if (rc < 0)
 			goto err_out;
@@ -778,7 +778,7 @@ static int net_open_known(const char *portstr)
 			    listen_serv, sizeof(listen_serv),
 			    NI_NUMERICHOST | NI_NUMERICSERV);
 
-		cldlog(LOG_INFO, "Listening on %s port %s",
+		applog(LOG_INFO, "Listening on %s port %s",
 		       listen_host, listen_serv);
 	}
 
@@ -804,7 +804,7 @@ static int net_open(void)
 
 static void segv_signal(int signo)
 {
-	cldlog(LOG_ERR, "SIGSEGV");
+	applog(LOG_ERR, "SIGSEGV");
 	exit(1);
 }
 
@@ -819,7 +819,7 @@ static void stats_signal(int signo)
 }
 
 #define X(stat) \
-	cldlog(LOG_INFO, "STAT %s %lu", #stat, cld_srv.stats.stat)
+	applog(LOG_INFO, "STAT %s %lu", #stat, cld_srv.stats.stat)
 
 static void stats_dump(void)
 {
@@ -1034,7 +1034,7 @@ int main (int argc, char *argv[])
 	if (rc)
 		goto err_out_pid;
 
-	cldlog(LOG_INFO, "initialized: dbg %u%s",
+	applog(LOG_INFO, "initialized: dbg %u%s",
 	       debugging,
 	       strict_free ? ", strict-free" : "");
 
@@ -1043,7 +1043,7 @@ int main (int argc, char *argv[])
 	 */
 	main_loop();
 
-	cldlog(LOG_INFO, "shutting down");
+	applog(LOG_INFO, "shutting down");
 
 	if (strict_free)
 		timer_del(&cld_srv.chkpt_timer);
@@ -1091,12 +1091,12 @@ static void ensure_root()
 	rc = cldb_inode_get_byname(txn, "/", sizeof("/")-1, &inode, false, 0);
 	if (rc == 0) {
 		if (debugging)
-			cldlog(LOG_DEBUG, "Root inode found, ino %llu",
+			applog(LOG_DEBUG, "Root inode found, ino %llu",
 			       (unsigned long long) cldino_from_le(inode->inum));
 	} else if (rc == DB_NOTFOUND) {
 		inode = cldb_inode_mem("/", sizeof("/")-1, CIFL_DIR, CLD_INO_ROOT);
 		if (!inode) {
-			cldlog(LOG_CRIT, "Cannot allocate new root inode");
+			applog(LOG_CRIT, "Cannot allocate new root inode");
 			goto err_;
 		}
 
@@ -1107,12 +1107,12 @@ static void ensure_root()
 		rc = cldb_inode_put(txn, inode, 0);
 		if (rc) {
 			free(inode);
-			cldlog(LOG_CRIT, "Cannot allocate new root inode");
+			applog(LOG_CRIT, "Cannot allocate new root inode");
 			goto err_;
 		}
 
 		if (debugging)
-			cldlog(LOG_DEBUG, "Root inode created, ino %llu",
+			applog(LOG_DEBUG, "Root inode created, ino %llu",
 			       (unsigned long long) cldino_from_le(inode->inum));
 		free(inode);
 	} else {
