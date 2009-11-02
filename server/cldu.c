@@ -9,7 +9,7 @@
 #include <syslog.h>
 #include <string.h>
 #include <unistd.h>
-#include <event.h>
+#include <poll.h>
 #include <netdb.h>
 #include <arpa/nameser.h>
 #include <netinet/in.h>
@@ -35,7 +35,8 @@ struct cld_session {
 	int actx;		/* Active host cldv[actx] */
 	struct cld_host cldv[N_CLD];
 
-	struct event ev;	/* Associated with fd */
+	struct timer timer;
+
 	char *cfname;		/* /chunk-CELL directory */
 	struct cldc_fh *cfh;	/* /chunk-CELL directory fh */
 	char *ffname;		/* /chunk-CELL/NID */
@@ -121,14 +122,14 @@ static int cldu_setcell(struct cld_session *sp, const char *thiscell,
 	return 0;
 }
 
-static void cldu_event(int fd, short events, void *userdata)
+static bool cldu_event(int fd, short events, void *userdata)
 {
 	struct cld_session *sp = userdata;
 	int rc;
 
 	if (!sp->lib) {
 		applog(LOG_WARNING, "Stray UDP event");
-		return;
+		return true; /* continue main loop; do NOT terminate server */
 	}
 
 	rc = cldc_udp_receive_pkt(sp->lib);
@@ -144,17 +145,28 @@ static void cldu_event(int fd, short events, void *userdata)
 		if (rc == -ECONNREFUSED) {	/* ICMP tells us */
 			int newactive;
 			/* P3 */ applog(LOG_INFO, "Restarting session");
-			// evtimer_del(&sp->tm);
+			// timer_del(&sp->tm);
 			cldc_kill_sess(sp->lib->sess);
 			sp->lib->sess = NULL;
 			newactive = cldu_nextactive(sp);
 			if (cldu_set_cldc(sp, newactive))
-				return;
-			// evtimer_add(&sp->tm, &cldc_to_delay);
+				return true; /* continue main loop */
+			// timer_add(&sp->tm, &cldc_to_delay);
 		}
-		return;
+		return true; /* continue main loop; do NOT terminate server */
 #endif
 	}
+
+	return true;	/* continue main loop; do NOT terminate server */
+}
+
+static void cldu_timer_event(struct timer *timer)
+{
+	struct cld_session *sp = timer->userdata;
+	struct cldc_udp *udp = sp->lib;
+
+	if (udp->cb)
+		udp->cb(udp->sess, udp->cb_private);
 }
 
 static bool cldu_p_timer_ctl(void *priv, bool add,
@@ -162,7 +174,15 @@ static bool cldu_p_timer_ctl(void *priv, bool add,
 			     void *cb_priv, time_t secs)
 {
 	struct cld_session *sp = priv;
-	return cldc_levent_timer(sp->lib, add, cb, cb_priv, secs);
+
+	if (add) {
+		sp->lib->cb = cb;
+		sp->lib->cb_private = cb_priv;
+		timer_add(&sp->timer, time(NULL) + secs);
+	} else
+		timer_del(&sp->timer);
+
+	return true;
 }
 
 static int cldu_p_pkt_send(void *priv, const void *addr, size_t addrlen,
@@ -186,12 +206,12 @@ static void cldu_p_event(void *priv, struct cldc_session *csp,
 		else
 			applog(LOG_ERR, "Session failed, sid " SIDFMT,
 			       SIDARG(csp->sid));
-		// evtimer_del(&sp->tm);
+		// timer_del(&sp->tm);
 		sp->lib->sess = NULL;
 		newactive = cldu_nextactive(sp);
 		if (cldu_set_cldc(sp, newactive))
 			return;
-		// evtimer_add(&sp->tm, &cldc_to_delay);
+		// timer_add(&sp->tm, &cldc_to_delay);
 	} else {
 		if (csp)
 			applog(LOG_INFO, "cldc event 0x%x sid " SIDFMT,
@@ -219,9 +239,12 @@ static int cldu_set_cldc(struct cld_session *sp, int newactive)
 	struct cldc_udp *lib;
 	struct cldc_call_opts copts;
 	int rc;
+	struct server_poll spoll;
+	struct pollfd pfd;
 
 	if (sp->lib) {
-		event_del(&sp->ev);
+		if (sp->lib->fd >= 0)
+			srv_poll_del(sp->lib->fd);
 		cldc_udp_free(sp->lib);
 		sp->lib = NULL;
 	}
@@ -245,17 +268,16 @@ static int cldu_set_cldc(struct cld_session *sp, int newactive)
 		applog(LOG_INFO, "Selected CLD host %s port %u",
 		       hp->host, hp->port);
 
-	/*
-	 * This is a little iffy: we assume that it's ok to re-issue
-	 * event_set() for an event that was unregistered with event_del().
-	 * In any case, there's no other way to set the file descriptor.
-	 */
-	event_set(&sp->ev, sp->lib->fd, EV_READ | EV_PERSIST, cldu_event, sp);
+	spoll.fd = sp->lib->fd;
+	spoll.cb = cldu_event;
+	spoll.userdata = sp;
 
-	if (event_add(&sp->ev, NULL) < 0) {
-		applog(LOG_INFO, "Failed to add CLD event");
-		goto err_event;
-	}
+	pfd.fd = sp->lib->fd;
+	pfd.events = POLLIN;
+	pfd.revents = 0;
+
+	g_array_append_val(chunkd_srv.poll_data, spoll);
+	g_array_append_val(chunkd_srv.polls, pfd);
 
 	memset(&copts, 0, sizeof(struct cldc_call_opts));
 	copts.cb = cldu_new_sess;
@@ -275,7 +297,6 @@ static int cldu_set_cldc(struct cld_session *sp, int newactive)
 	return 0;
 
 err_sess:
-err_event:
 	cldc_udp_free(sp->lib);
 	sp->lib = NULL;
 err_lib_new:
@@ -582,6 +603,8 @@ int cld_begin(const char *thishost, const char *thiscell, uint32_t nid,
 	// memset(&ses, 0, sizeof(struct cld_session));
 	ses.state_cb = cb;
 
+	timer_init(&ses.timer, "chunkd_cldu_timer", cldu_timer_event, &ses);
+
 	if (cldu_setcell(&ses, thiscell, nid, thishost, locp)) {
 		/* Already logged error */
 		goto err_cell;
@@ -643,9 +666,10 @@ void cld_end(void)
 		return;
 
 	if (ses.lib) {
-		event_del(&ses.ev);
 		// if (ses.sess_open)	/* kill it always, include half-open */
 		cldc_kill_sess(ses.lib->sess);
+		if (ses.lib->fd >= 0)
+			srv_poll_del(ses.lib->fd);
 		cldc_udp_free(ses.lib);
 		ses.lib = NULL;
 	}

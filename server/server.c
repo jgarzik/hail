@@ -18,6 +18,7 @@
 #include <arpa/inet.h>
 #include <stdbool.h>
 #include <syslog.h>
+#include <poll.h>
 #include <argp.h>
 #include <errno.h>
 #include <time.h>
@@ -70,6 +71,7 @@ static bool dump_stats;
 static bool use_syslog = true;
 int debugging = 0;
 SSL_CTX *ssl_ctx = NULL;
+struct timeval current_time;
 
 struct server chunkd_srv = {
 	.config			= "/etc/chunkd.conf",
@@ -202,13 +204,11 @@ static char *get_hostname(void)
 static void term_signal(int signo)
 {
 	server_running = false;
-	event_loopbreak();
 }
 
 static void stats_signal(int signo)
 {
 	dump_stats = true;
-	event_loopbreak();
 }
 
 #define X(stat) \
@@ -223,6 +223,51 @@ static void stats_dump(void)
 }
 
 #undef X
+
+static int srv_poll_fd_idx(int fd)
+{
+	int i;
+
+	for (i = 0; i < chunkd_srv.polls->len; i++) {
+		struct pollfd *pfd;
+
+		pfd = &g_array_index(chunkd_srv.polls, struct pollfd, i);
+		if (pfd->fd == fd)
+			break;
+	}
+
+	if (i >= chunkd_srv.polls->len)
+		return -1;
+	
+	return i;
+}
+
+bool srv_poll_del(int fd)
+{
+	int idx = srv_poll_fd_idx(fd);
+	if (idx < 0)
+		return false;
+
+	g_array_remove_index_fast(chunkd_srv.polls, idx);
+	g_array_remove_index_fast(chunkd_srv.poll_data, idx);
+
+	return true;
+}
+
+static bool srv_poll_mask(int fd, short mask_set, short mask_clear)
+{
+	struct pollfd *pfd;
+	int idx;
+
+	idx = srv_poll_fd_idx(fd);
+	if (idx < 0)
+		return false;
+
+	pfd = &g_array_index(chunkd_srv.polls, struct pollfd, idx);
+	pfd->events = (pfd->events & ~mask_clear) | mask_set;
+
+	return true;
+}
 
 static bool cli_write_free(struct client *cli, struct client_write *tmp,
 			   bool done)
@@ -268,8 +313,7 @@ static void cli_free(struct client *cli)
 	if (cli->fd >= 0) {
 		if (cli->ssl)
 			SSL_shutdown(cli->ssl);
-		if (event_del(&cli->ev) < 0)
-			applog(LOG_WARNING, "TCP client event_del");
+		srv_poll_del(cli->fd);
 		close(cli->fd);
 	}
 
@@ -329,14 +373,12 @@ static bool cli_evt_recycle(struct client *cli, unsigned int events)
 
 bool cli_wr_set_poll(struct client *cli, bool writable)
 {
-	int rc;
-
 	if (writable)
-		rc = event_add(&cli->write_ev, NULL);
+		srv_poll_mask(cli->fd, POLLOUT, 0);
 	else
-		rc = event_del(&cli->write_ev);
+		srv_poll_mask(cli->fd, 0, POLLOUT);
 
-	return (rc < 0) ? false : true;
+	return true;
 }
 
 static int cli_wr_iov(struct client *cli, struct iovec *iov, int max_iov)
@@ -921,10 +963,13 @@ static void tcp_cli_wr_event(int fd, short events, void *userdata)
 		cli_writable(cli);
 }
 
-static void tcp_cli_event(int fd, short events, void *userdata)
+static bool tcp_cli_event(int fd, short events, void *userdata)
 {
 	struct client *cli = userdata;
 	bool loop = false;
+
+	if (events & POLLOUT)
+		tcp_cli_wr_event(fd, events & ~POLLIN, userdata);
 
 	if (cli->write_want_read) {
 		cli->write_want_read = false;
@@ -935,20 +980,24 @@ static void tcp_cli_event(int fd, short events, void *userdata)
 	while (loop) {
 		loop = state_funcs[cli->state](cli, events);
 	}
+
+	return true;	/* continue main loop; do NOT terminate server */
 }
 
-static void tcp_srv_event(int fd, short events, void *userdata)
+static bool tcp_srv_event(int fd, short events, void *userdata)
 {
 	struct server_socket *sock = userdata;
 	socklen_t addrlen = sizeof(struct sockaddr_in6);
 	struct client *cli;
 	char host[64];
 	int rc, on = 1;
+	struct server_poll sp;
+	struct pollfd pfd;
 
 	cli = cli_alloc(sock->cfg->encrypt);
 	if (!cli) {
 		applog(LOG_ERR, "out of memory");
-		return;
+		return false;	/* end main loop; terminate server */
 	}
 
 	/* receive TCP connection from kernel */
@@ -995,23 +1044,21 @@ static void tcp_srv_event(int fd, short events, void *userdata)
 		}
 	}
 
-	event_set(&cli->ev, cli->fd, EV_READ | EV_PERSIST, tcp_cli_event, cli);
-	event_set(&cli->write_ev, cli->fd, EV_WRITE | EV_PERSIST,
-		  tcp_cli_wr_event, cli);
+	sp.fd = cli->fd;
+	sp.cb = tcp_cli_event;
+	sp.userdata = cli;
 
-	/* add to poll watchlist */
-	if (event_add(&cli->ev, NULL) < 0) {
-		applog(LOG_WARNING, "tcp client event_add");
-		goto err_out_fd;
-	}
+	pfd.fd = cli->fd;
+	pfd.events = POLLIN;
+	pfd.revents = 0;
 
 	if (cli->read_want_write) {
 		cli->writing = true;
-		if (!cli_wr_set_poll(cli, true)) {
-			applog(LOG_WARNING, "tcp client event_add 2");
-			goto err_out_fd;
-		}
+		pfd.events |= POLLOUT;
 	}
+
+	g_array_append_val(chunkd_srv.poll_data, sp);
+	g_array_append_val(chunkd_srv.polls, pfd);
 
 	/* pretty-print incoming cxn info */
 	memset(host, 0, sizeof(host));
@@ -1023,11 +1070,12 @@ static void tcp_srv_event(int fd, short events, void *userdata)
 
 	strcpy(cli->addr_host, host);
 
-	return;
+	return true;	/* continue main loop; do NOT terminate server */
 
 err_out_fd:
 err_out:
 	cli_free(cli);
+	return true;	/* continue main loop; do NOT terminate server */
 }
 
 static int net_write_port(const char *port_file, const char *port_str)
@@ -1054,6 +1102,8 @@ static int net_open_socket(const struct listen_cfg *cfg,
 	struct server_socket *sock;
 	int fd, on;
 	int rc;
+	struct server_poll sp;
+	struct pollfd pfd;
 
 	fd = socket(addr_fam, sock_type, sock_prot);
 	if (fd < 0) {
@@ -1096,17 +1146,19 @@ static int net_open_socket(const struct listen_cfg *cfg,
 		return -ENOMEM;
 	}
 
+	sp.fd = fd;
+	sp.cb = tcp_srv_event;
+	sp.userdata = sock;
+
+	pfd.fd = fd;
+	pfd.events = POLLIN;
+	pfd.revents = 0;
+
+	g_array_append_val(chunkd_srv.poll_data, sp);
+	g_array_append_val(chunkd_srv.polls, pfd);
+
 	sock->fd = fd;
 	sock->cfg = cfg;
-
-	event_set(&sock->ev, fd, EV_READ | EV_PERSIST, tcp_srv_event, sock);
-
-	if (event_add(&sock->ev, NULL) < 0) {
-		applog(LOG_WARNING, "tcp socket event_add");
-		free(sock);
-		close(fd);
-		return -EIO;
-	}
 
 	chunkd_srv.sockets = g_list_append(chunkd_srv.sockets, sock);
 	return fd;
@@ -1255,6 +1307,74 @@ static int net_open(struct listen_cfg *cfg)
 		return net_open_known(cfg);
 }
 
+static void main_loop(void)
+{
+	time_t next_timeout;
+
+	next_timeout = timers_run();
+
+	while (server_running) {
+		struct pollfd *pfd;
+		int i, fired, rc;
+
+		/* poll for fd activity, or next timer event */
+		rc = poll(&g_array_index(chunkd_srv.polls, struct pollfd, 0),
+			  chunkd_srv.polls->len,
+			  next_timeout ? (next_timeout * 1000) : -1);
+		if (rc < 0) {
+			syslogerr("poll");
+			if (errno != EINTR)
+				break;
+		}
+
+		gettimeofday(&current_time, NULL);
+
+		/* determine which fd's fired; call their callbacks */
+		fired = 0;
+		for (i = 0; i < chunkd_srv.polls->len; i++) {
+			struct server_poll *sp;
+			bool runrunrun;
+			short revents;
+
+			/* ref pollfd struct */
+			pfd = &g_array_index(chunkd_srv.polls, struct pollfd, i);
+
+			/* if no events fired, move on to next */
+			if (!pfd->revents)
+				continue;
+
+			fired++;
+
+			revents = pfd->revents;
+			pfd->revents = 0;
+
+			/* ref 1:1 matching server_poll struct */
+			sp = &g_array_index(chunkd_srv.poll_data,
+					    struct server_poll, i);
+
+			/* call callback, shutting down server if requested */
+			runrunrun = sp->cb(sp->fd, revents, sp->userdata);
+			if (!runrunrun) {
+				server_running = false;
+				break;
+			}
+
+			/* if we reached poll(2) activity count, it is
+			 * pointless to continue looping
+			 */
+			if (fired == rc)
+				break;
+		}
+
+		if (dump_stats) {
+			dump_stats = false;
+			stats_dump();
+		}
+
+		next_timeout = timers_run();
+	}
+}
+
 int main (int argc, char *argv[])
 {
 	error_t aprc;
@@ -1336,7 +1456,14 @@ int main (int argc, char *argv[])
 	signal(SIGTERM, term_signal);
 	signal(SIGUSR1, stats_signal);
 
-	event_init();
+	chunkd_srv.poll_data = g_array_sized_new(FALSE, FALSE,
+					   sizeof(struct server_poll), 4);
+	chunkd_srv.polls = g_array_sized_new(FALSE, FALSE,
+					     sizeof(struct pollfd), 4);
+	if (!chunkd_srv.poll_data || !chunkd_srv.polls) {
+		rc = 1;
+		goto err_out_session;
+	}
 
 	INIT_LIST_HEAD(&chunkd_srv.wr_trash);
 	chunkd_srv.trash_sz = 0;
@@ -1356,14 +1483,7 @@ int main (int argc, char *argv[])
 
 	applog(LOG_INFO, "initialized");
 
-	while (server_running) {
-		event_dispatch();
-
-		if (dump_stats) {
-			dump_stats = false;
-			stats_dump();
-		}
-	}
+	main_loop();
 
 	applog(LOG_INFO, "shutting down");
 

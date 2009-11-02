@@ -6,7 +6,6 @@
 #include <openssl/sha.h>
 #include <openssl/ssl.h>
 #include <glib.h>
-#include <event.h>
 #include <elist.h>
 #include <chunk_msg.h>
 
@@ -40,6 +39,15 @@ struct server_socket;
 typedef bool (*cli_evt_func)(struct client *, unsigned int);
 typedef bool (*cli_write_func)(struct client *, struct client_write *, bool);
 
+struct timer {
+	bool			fired;
+	bool			on_list;
+	void			(*cb)(struct timer *);
+	void			*userdata;
+	time_t			expires;
+	char			name[32];
+};
+
 struct client_write {
 	const void		*buf;		/* write buffer */
 	int			len;		/* write buffer length */
@@ -66,8 +74,6 @@ struct client {
 	struct sockaddr_in6	addr;		/* inet address */
 	char			addr_host[64];	/* ASCII version of inet addr */
 	int			fd;		/* socket */
-	struct event		ev;
-	struct event		write_ev;
 
 	SSL			*ssl;
 	bool			read_want_write;
@@ -140,10 +146,15 @@ struct server_stats {
 	unsigned long		opt_write;	/* optimistic writes */
 };
 
+struct server_poll {
+	int			fd;
+	bool			(*cb)(int fd, short events, void *userdata);
+	void			*userdata;
+};
+
 struct server_socket {
 	int			fd;
 	const struct listen_cfg	*cfg;
-	struct event		ev;
 };
 
 struct server {
@@ -155,6 +166,9 @@ struct server {
 
 	GList			*listeners;
 	GList			*sockets;	/* points into listeners */
+
+	GArray			*polls;
+	GArray			*poll_data;
 
 	struct list_head	wr_trash;
 	unsigned int		trash_sz;
@@ -205,8 +219,22 @@ extern void syslogerr(const char *prefix);
 extern void strup(char *s);
 extern int write_pid_file(const char *pid_fn);
 extern int fsetflags(const char *prefix, int fd, int or_flags);
+extern void timer_add(struct timer *timer, time_t expires);
+extern void timer_del(struct timer *timer);
+extern time_t timers_run(void);
 extern char *time2str(char *strbuf, time_t time);
 extern void shastr(const unsigned char *digest, char *outstr);
+
+static inline void timer_init(struct timer *timer, const char *name,
+			      void (*cb)(struct timer *),
+			      void *userdata)
+{
+	memset(timer, 0, sizeof(*timer));
+	timer->cb = cb;
+	timer->userdata = userdata;
+	strncpy(timer->name, name, sizeof(timer->name));
+	timer->name[sizeof(timer->name) - 1] = 0;
+}
 
 /* server.c */
 extern SSL_CTX *ssl_ctx;
@@ -223,6 +251,7 @@ extern bool cli_cb_free(struct client *cli, struct client_write *wr,
 extern bool cli_write_start(struct client *cli);
 extern int cli_req_avail(struct client *cli);
 extern int cli_poll_mod(struct client *cli);
+extern bool srv_poll_del(int fd);
 
 /* config.c */
 extern void read_config(void);
