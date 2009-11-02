@@ -887,11 +887,80 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 	return 0;
 }
 
+static void main_loop(void)
+{
+	time_t next_timeout;
+
+	next_timeout = timers_run();
+
+	while (server_running) {
+		struct pollfd *pfd;
+		int i, fired, rc;
+
+		/* necessary to zero??? */
+		for (i = 0; i < cld_srv.polls->len; i++) {
+			pfd = &g_array_index(cld_srv.polls, struct pollfd, i);
+			pfd->revents = 0;
+		}
+
+		/* poll for fd activity, or next timer event */
+		rc = poll(&g_array_index(cld_srv.polls, struct pollfd, 0),
+			  cld_srv.polls->len,
+			  next_timeout ? (next_timeout * 1000) : -1);
+		if (rc < 0) {
+			syslogerr("poll");
+			if (errno != EINTR)
+				break;
+		}
+
+		gettimeofday(&current_time, NULL);
+
+		/* determine which fd's fired; call their callbacks */
+		fired = 0;
+		for (i = 0; i < cld_srv.polls->len; i++) {
+			struct server_poll *sp;
+			bool runrunrun;
+
+			/* ref pollfd struct */
+			pfd = &g_array_index(cld_srv.polls, struct pollfd, i);
+
+			/* if no events fired, move on to next */
+			if (!pfd->revents)
+				continue;
+
+			fired++;
+
+			/* ref 1:1 matching server_poll struct */
+			sp = &g_array_index(cld_srv.poll_data,
+					    struct server_poll, i);
+
+			/* call callback, shutting down server if requested */
+			runrunrun = sp->cb(sp->fd, pfd->revents, sp->userdata);
+			if (!runrunrun) {
+				server_running = false;
+				break;
+			}
+
+			/* if we reached poll(2) activity count, it is
+			 * pointless to continue looping
+			 */
+			if (fired == rc)
+				break;
+		}
+
+		if (dump_stats) {
+			dump_stats = false;
+			stats_dump();
+		}
+
+		next_timeout = timers_run();
+	}
+}
+
 int main (int argc, char *argv[])
 {
 	error_t aprc;
 	int rc = 1;
-	time_t next_timeout;
 
 	/* isspace() and strcasecmp() consistency requires this */
 	setlocale(LC_ALL, "C");
@@ -971,70 +1040,10 @@ int main (int argc, char *argv[])
 	       debugging,
 	       strict_free ? ", strict-free" : "");
 
-	next_timeout = timers_run();
-
-	while (server_running) {
-		struct pollfd *pfd;
-		int i, fired;
-
-		/* necessary to zero??? */
-		for (i = 0; i < cld_srv.polls->len; i++) {
-			pfd = &g_array_index(cld_srv.polls, struct pollfd, i);
-			pfd->revents = 0;
-		}
-
-		/* poll for fd activity, or next timer event */
-		rc = poll(&g_array_index(cld_srv.polls, struct pollfd, 0),
-			  cld_srv.polls->len,
-			  next_timeout ? (next_timeout * 1000) : -1);
-		if (rc < 0) {
-			syslogerr("poll");
-			if (errno != EINTR)
-				break;
-		}
-
-		gettimeofday(&current_time, NULL);
-
-		/* determine which fd's fired; call their callbacks */
-		fired = 0;
-		for (i = 0; i < cld_srv.polls->len; i++) {
-			struct server_poll *sp;
-			bool runrunrun;
-
-			/* ref pollfd struct */
-			pfd = &g_array_index(cld_srv.polls, struct pollfd, i);
-
-			/* if no events fired, move on to next */
-			if (!pfd->revents)
-				continue;
-
-			fired++;
-
-			/* ref 1:1 matching server_poll struct */
-			sp = &g_array_index(cld_srv.poll_data,
-					    struct server_poll, i);
-
-			/* call callback, shutting down server if requested */
-			runrunrun = sp->cb(sp->fd, pfd->revents, sp->userdata);
-			if (!runrunrun) {
-				server_running = false;
-				break;
-			}
-
-			/* if we reached poll(2) activity count, it is
-			 * pointless to continue looping
-			 */
-			if (fired == rc)
-				break;
-		}
-
-		if (dump_stats) {
-			dump_stats = false;
-			stats_dump();
-		}
-
-		next_timeout = timers_run();
-	}
+	/*
+	 * execute main loop
+	 */
+	main_loop();
 
 	cldlog(LOG_INFO, "shutting down");
 
