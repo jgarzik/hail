@@ -897,12 +897,6 @@ static void main_loop(void)
 		struct pollfd *pfd;
 		int i, fired, rc;
 
-		/* necessary to zero??? */
-		for (i = 0; i < cld_srv.polls->len; i++) {
-			pfd = &g_array_index(cld_srv.polls, struct pollfd, i);
-			pfd->revents = 0;
-		}
-
 		/* poll for fd activity, or next timer event */
 		rc = poll(&g_array_index(cld_srv.polls, struct pollfd, 0),
 			  cld_srv.polls->len,
@@ -920,6 +914,7 @@ static void main_loop(void)
 		for (i = 0; i < cld_srv.polls->len; i++) {
 			struct server_poll *sp;
 			bool runrunrun;
+			short revents;
 
 			/* ref pollfd struct */
 			pfd = &g_array_index(cld_srv.polls, struct pollfd, i);
@@ -930,12 +925,15 @@ static void main_loop(void)
 
 			fired++;
 
+			revents = pfd->revents;
+			pfd->revents = 0;
+
 			/* ref 1:1 matching server_poll struct */
 			sp = &g_array_index(cld_srv.poll_data,
 					    struct server_poll, i);
 
 			/* call callback, shutting down server if requested */
-			runrunrun = sp->cb(sp->fd, pfd->revents, sp->userdata);
+			runrunrun = sp->cb(sp->fd, revents, sp->userdata);
 			if (!runrunrun) {
 				server_running = false;
 				break;
