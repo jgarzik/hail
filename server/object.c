@@ -130,7 +130,7 @@ bool cli_evt_data_in(struct client *cli, unsigned int events)
 				return false;
 			if (rc == SSL_ERROR_WANT_WRITE) {
 				cli->read_want_write = true;
-				if (event_add(&cli->write_ev, NULL) < 0)
+				if (!cli_wr_set_poll(cli, true))
 					return cli_err(cli, InternalError, false);
 				return false;
 			}

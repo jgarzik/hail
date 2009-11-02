@@ -217,6 +217,7 @@ extern bool cli_err(struct client *cli, enum errcode code, bool recycle_ok);
 extern int cli_writeq(struct client *cli, const void *buf, unsigned int buflen,
 		     cli_write_func cb, void *cb_data);
 extern bool cli_wr_sendfile(struct client *, cli_write_func);
+extern bool cli_wr_set_poll(struct client *cli, bool writable);
 extern bool cli_cb_free(struct client *cli, struct client_write *wr,
 			bool done);
 extern bool cli_write_start(struct client *cli);

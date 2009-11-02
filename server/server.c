@@ -327,6 +327,18 @@ static bool cli_evt_recycle(struct client *cli, unsigned int events)
 	return true;
 }
 
+bool cli_wr_set_poll(struct client *cli, bool writable)
+{
+	int rc;
+
+	if (writable)
+		rc = event_add(&cli->write_ev, NULL);
+	else
+		rc = event_del(&cli->write_ev);
+
+	return (rc < 0) ? false : true;
+}
+
 static int cli_wr_iov(struct client *cli, struct iovec *iov, int max_iov)
 {
 	struct client_write *tmp;
@@ -432,7 +444,7 @@ do_write:
 	/* if we emptied the queue, clear write notification */
 	if (list_empty(&cli->write_q)) {
 		cli->writing = false;
-		if (event_del(&cli->write_ev) < 0)
+		if (!cli_wr_set_poll(cli, false))
 			goto err_out;
 	}
 
@@ -462,7 +474,7 @@ bool cli_write_start(struct client *cli)
 		return true;		/* loop, not poll */
 	}
 
-	if (event_add(&cli->write_ev, NULL) < 0)
+	if (!cli_wr_set_poll(cli, true))
 		return true;		/* loop, not poll */
 
 	cli->writing = true;
@@ -540,7 +552,7 @@ do_read:
 				return 0;
 			if (rc == SSL_ERROR_WANT_WRITE) {
 				cli->read_want_write = true;
-				if (event_add(&cli->write_ev, NULL) < 0)
+				if (!cli_wr_set_poll(cli, true))
 					return -EIO;
 				return 0;
 			}
@@ -878,7 +890,7 @@ static bool cli_evt_ssl_accept(struct client *cli, unsigned int events)
 
 	if (rc == SSL_ERROR_WANT_WRITE) {
 		cli->read_want_write = true;
-		if (event_add(&cli->write_ev, NULL) < 0)
+		if (!cli_wr_set_poll(cli, true))
 			goto out;
 		return false;
 	}
@@ -903,7 +915,7 @@ static void tcp_cli_wr_event(int fd, short events, void *userdata)
 
 	if (cli->read_want_write) {
 		cli->read_want_write = false;
-		if (event_del(&cli->write_ev) < 0)
+		if (!cli_wr_set_poll(cli, false))
 			cli->state = evt_dispose;
 	} else
 		cli_writable(cli);
@@ -995,7 +1007,7 @@ static void tcp_srv_event(int fd, short events, void *userdata)
 
 	if (cli->read_want_write) {
 		cli->writing = true;
-		if (event_add(&cli->write_ev, NULL) < 0) {
+		if (!cli_wr_set_poll(cli, true)) {
 			applog(LOG_WARNING, "tcp client event_add 2");
 			goto err_out_fd;
 		}
