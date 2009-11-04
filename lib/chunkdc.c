@@ -216,7 +216,7 @@ static size_t all_data_cb(void *ptr, size_t size, size_t nmemb, void *user_data)
 static bool stc_get_req(struct st_client *stc, const char *key, uint64_t *plen)
 {
 	struct chunksrv_req req;
-	struct chunksrv_resp_get resp;
+	struct chunksrv_resp_get get_resp;
 
 	if (stc->verbose)
 		fprintf(stderr, "libstc: GET(%s)\n", key);
@@ -230,28 +230,29 @@ static bool stc_get_req(struct st_client *stc, const char *key, uint64_t *plen)
 	strcpy(req.key, key);
 
 	/* sign request */
-	chreq_sign(&req, stc->key, req.checksum);
+	chreq_sign(&req, stc->key, req.sig);
 
 	/* write request */
-	if (!net_write(stc, &req, sizeof(req)))
+	if (!net_write(stc, &req, req_len(&req)))
 		return false;
 
 	/* read response header */
-	if (!net_read(stc, &resp, sizeof(resp.req)))
+	if (!net_read(stc, &get_resp, sizeof(get_resp.resp)))
 		return false;
 
 	/* check response code */
-	if (resp.req.resp_code != Success) {
+	if (get_resp.resp.resp_code != Success) {
 		if (stc->verbose)
-			fprintf(stderr, "GET resp code: %d\n", resp.req.resp_code);
+			fprintf(stderr, "GET resp code: %d\n", get_resp.resp.resp_code);
 		return false;
 	}
 
 	/* read rest of response header */
-	if (!net_read(stc, &resp.mtime, sizeof(resp) - sizeof(resp.req)))
+	if (!net_read(stc, &get_resp.mtime,
+		      sizeof(get_resp) - sizeof(get_resp.resp)))
 		return false;
 
-	*plen = le64_to_cpu(resp.req.data_len);
+	*plen = le64_to_cpu(get_resp.resp.data_len);
 	return true;
 }
 
@@ -330,7 +331,7 @@ bool stc_get_start(struct st_client *stc, const char *key, int *pfd,
  * return a -EPIPE (normally not possible on read in UNIX). Fortunately,
  * applications know the object lengths as reported by stc_get_start.
  */
-size_t stc_get_recv(struct st_client *stc, void *data, size_t req_len)
+size_t stc_get_recv(struct st_client *stc, void *data, size_t data_len)
 {
 	size_t xfer_len;
 	size_t done_cnt;
@@ -340,7 +341,7 @@ size_t stc_get_recv(struct st_client *stc, void *data, size_t req_len)
 	done_cnt = 0;
 	if (stc->ssl) {
 		for (;;) {
-			if (done_cnt == req_len)
+			if (done_cnt == data_len)
 				break;
 			if (ioctl(stc->fd, FIONREAD, &avail))
 				return errno;
@@ -349,8 +350,8 @@ size_t stc_get_recv(struct st_client *stc, void *data, size_t req_len)
 					break;
 			}
 
-			if ((xfer_len = avail) > req_len - done_cnt)
-				xfer_len = req_len - done_cnt;
+			if ((xfer_len = avail) > data_len - done_cnt)
+				xfer_len = data_len - done_cnt;
 
 			rc = SSL_read(stc->ssl, data + done_cnt, xfer_len);
 			if (rc <= 0) {
@@ -371,8 +372,8 @@ size_t stc_get_recv(struct st_client *stc, void *data, size_t req_len)
 		if (ioctl(stc->fd, FIONREAD, &avail))
 			return errno;
 		if (avail) {
-			if ((xfer_len = avail) > req_len)
-				xfer_len = req_len;
+			if ((xfer_len = avail) > data_len)
+				xfer_len = data_len;
 
 			rc = read(stc->fd, data, xfer_len);
 			if (rc < 0)
@@ -390,7 +391,7 @@ bool stc_put(struct st_client *stc, const char *key,
 {
 	char netbuf[4096];
 	struct chunksrv_req req;
-	struct chunksrv_req resp;
+	struct chunksrv_resp resp;
 	uint64_t content_len = len;
 
 	if (stc->verbose)
@@ -407,10 +408,10 @@ bool stc_put(struct st_client *stc, const char *key,
 	strcpy(req.key, key);
 
 	/* sign request */
-	chreq_sign(&req, stc->key, req.checksum);
+	chreq_sign(&req, stc->key, req.sig);
 
 	/* write request */
-	if (!net_write(stc, &req, sizeof(req)))
+	if (!net_write(stc, &req, req_len(&req)))
 		goto err_out;
 
 	while (content_len) {
@@ -477,10 +478,10 @@ bool stc_put_start(struct st_client *stc, const char *key, uint64_t cont_len,
 	strcpy(req.key, key);
 
 	/* sign request */
-	chreq_sign(&req, stc->key, req.checksum);
+	chreq_sign(&req, stc->key, req.sig);
 
 	/* write request */
-	if (!net_write(stc, &req, sizeof(req)))
+	if (!net_write(stc, &req, req_len(&req)))
 		goto err_out;
 
 	*pfd = stc->fd;
@@ -545,7 +546,7 @@ size_t stc_put_send(struct st_client *stc, void *data, size_t len)
  */
 bool stc_put_sync(struct st_client *stc)
 {
-	struct chunksrv_req resp;
+	struct chunksrv_resp resp;
 
 	/* read response header */
 	if (!net_read(stc, &resp, sizeof(resp)))
@@ -597,7 +598,7 @@ bool stc_put_inline(struct st_client *stc, const char *key,
 bool stc_del(struct st_client *stc, const char *key)
 {
 	struct chunksrv_req req;
-	struct chunksrv_resp_get resp;
+	struct chunksrv_resp resp;
 
 	if (stc->verbose)
 		fprintf(stderr, "libstc: DEL(%s)\n", key);
@@ -611,20 +612,20 @@ bool stc_del(struct st_client *stc, const char *key)
 	strcpy(req.key, key);
 
 	/* sign request */
-	chreq_sign(&req, stc->key, req.checksum);
+	chreq_sign(&req, stc->key, req.sig);
 
 	/* write request */
-	if (!net_write(stc, &req, sizeof(req)))
+	if (!net_write(stc, &req, req_len(&req)))
 		return false;
 
 	/* read response header */
-	if (!net_read(stc, &resp, sizeof(resp.req)))
+	if (!net_read(stc, &resp, sizeof(resp)))
 		return false;
 
 	/* check response code */
-	if (resp.req.resp_code != Success) {
+	if (resp.resp_code != Success) {
 		if (stc->verbose)
-			fprintf(stderr, "DEL resp code: %d\n", resp.req.resp_code);
+			fprintf(stderr, "DEL resp code: %d\n", resp.resp_code);
 		return false;
 	}
 
@@ -722,7 +723,7 @@ struct st_keylist *stc_keys(struct st_client *stc)
 	GByteArray *all_data;
 	char netbuf[4096];
 	struct chunksrv_req req;
-	struct chunksrv_resp_get resp;
+	struct chunksrv_resp resp;
 	uint64_t content_len;
 
 	if (stc->verbose)
@@ -736,20 +737,20 @@ struct st_keylist *stc_keys(struct st_client *stc)
 	strcpy(req.user, stc->user);
 
 	/* sign request */
-	chreq_sign(&req, stc->key, req.checksum);
+	chreq_sign(&req, stc->key, req.sig);
 
 	/* write request */
-	if (!net_write(stc, &req, sizeof(req)))
+	if (!net_write(stc, &req, req_len(&req)))
 		return false;
 
 	/* read response header */
-	if (!net_read(stc, &resp, sizeof(resp.req)))
+	if (!net_read(stc, &resp, sizeof(resp)))
 		return false;
 
 	/* check response code */
-	if (resp.req.resp_code != Success) {
+	if (resp.resp_code != Success) {
 		if (stc->verbose)
-			fprintf(stderr, "LIST resp code: %d\n", resp.req.resp_code);
+			fprintf(stderr, "LIST resp code: %d\n", resp.resp_code);
 		return false;
 	}
 
@@ -757,7 +758,7 @@ struct st_keylist *stc_keys(struct st_client *stc)
 	if (!all_data)
 		return NULL;
 
-	content_len = le64_to_cpu(resp.req.data_len);
+	content_len = le64_to_cpu(resp.data_len);
 
 	/* read response data */
 	while (content_len) {
@@ -822,7 +823,7 @@ err_out:
 bool stc_ping(struct st_client *stc)
 {
 	struct chunksrv_req req;
-	struct chunksrv_resp_get resp;
+	struct chunksrv_resp resp;
 
 	if (stc->verbose)
 		fprintf(stderr, "libstc: PING\n");
@@ -835,20 +836,20 @@ bool stc_ping(struct st_client *stc)
 	strcpy(req.user, stc->user);
 
 	/* sign request */
-	chreq_sign(&req, stc->key, req.checksum);
+	chreq_sign(&req, stc->key, req.sig);
 
 	/* write request */
-	if (!net_write(stc, &req, sizeof(req)))
+	if (!net_write(stc, &req, req_len(&req)))
 		return false;
 
 	/* read response header */
-	if (!net_read(stc, &resp, sizeof(resp.req)))
+	if (!net_read(stc, &resp, sizeof(resp)))
 		return false;
 
 	/* check response code */
-	if (resp.req.resp_code != Success) {
+	if (resp.resp_code != Success) {
 		if (stc->verbose)
-			fprintf(stderr, "NOP resp code: %d\n", resp.req.resp_code);
+			fprintf(stderr, "NOP resp code: %d\n", resp.resp_code);
 		return false;
 	}
 

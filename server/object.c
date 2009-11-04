@@ -21,7 +21,7 @@ bool object_del(struct client *cli)
 	int rc;
 	enum errcode err = InternalError;
 	bool rcb;
-	struct chunksrv_req *resp = NULL;
+	struct chunksrv_resp *resp = NULL;
 
 	resp = malloc(sizeof(*resp));
 	if (!resp) {
@@ -29,7 +29,7 @@ bool object_del(struct client *cli)
 		return true;
 	}
 
-	memcpy(resp, &cli->creq, sizeof(cli->creq));
+	resp_init_req(resp, &cli->creq);
 
 	rcb = fs_obj_delete(cli->creq.user, obj_key,
 			    strnlen(obj_key, CHD_KEY_SZ), &err);
@@ -66,7 +66,7 @@ static bool object_put_end(struct client *cli)
 	int rc;
 	enum errcode err = InternalError;
 	bool rcb;
-	struct chunksrv_req *resp = NULL;
+	struct chunksrv_resp *resp = NULL;
 
 	resp = malloc(sizeof(*resp));
 	if (!resp) {
@@ -74,7 +74,7 @@ static bool object_put_end(struct client *cli)
 		return true;
 	}
 
-	memcpy(resp, &cli->creq, sizeof(cli->creq));
+	resp_init_req(resp, &cli->creq);
 
 	cli->state = evt_recycle;
 
@@ -92,7 +92,7 @@ static bool object_put_end(struct client *cli)
 	cli_out_end(cli);
 
 	if (debugging)
-		applog(LOG_DEBUG, "REQ(write) seq %x done code %d",
+		applog(LOG_DEBUG, "REQ(data-in) seq %x done code %d",
 		       resp->nonce, resp->resp_code);
 
 	rc = cli_writeq(cli, resp, sizeof(*resp), cli_cb_free, resp);
@@ -113,13 +113,19 @@ bool cli_evt_data_in(struct client *cli, unsigned int events)
 {
 	char *p = cli->netbuf;
 	ssize_t avail, bytes;
+	size_t read_sz;
 
 	if (!cli->out_len)
 		return object_put_end(cli);
 
+	read_sz = MIN(cli->out_len, CLI_DATA_BUF_SZ);
+
+	if (debugging)
+		applog(LOG_DEBUG, "REQ(data-in) seq %x, out_len %ld, read_sz %u",
+		       cli->creq.nonce, cli->out_len, read_sz);
+
 	if (cli->ssl) {
-		int rc = SSL_read(cli->ssl, cli->netbuf,
-				  MIN(cli->out_len, CLI_DATA_BUF_SZ));
+		int rc = SSL_read(cli->ssl, cli->netbuf, read_sz);
 		if (rc <= 0) {
 			if (rc == 0) {
 				cli->state = evt_dispose;
@@ -139,8 +145,7 @@ bool cli_evt_data_in(struct client *cli, unsigned int events)
 		}
 		avail = rc;
 	} else {
-		avail = read(cli->fd, cli->netbuf,
-			     MIN(cli->out_len, CLI_DATA_BUF_SZ));
+		avail = read(cli->fd, cli->netbuf, read_sz);
 		if (avail <= 0) {
 			if (avail == 0) {
 				applog(LOG_ERR, "object read(2) unexpected EOF");
@@ -148,8 +153,11 @@ bool cli_evt_data_in(struct client *cli, unsigned int events)
 				return true;
 			}
 
-			if (errno == EAGAIN)
+			if (errno == EAGAIN) {
+				if (debugging)
+					applog(LOG_ERR, "object read(2) EAGAIN");
 				return false;
+			}
 
 			cli_out_end(cli);
 			applog(LOG_ERR, "object read(2) error: %s",
@@ -158,9 +166,8 @@ bool cli_evt_data_in(struct client *cli, unsigned int events)
 		}
 	}
 
-	if (debugging)
-		applog(LOG_DEBUG, "REQ(write) seq %x avail %ld",
-		       cli->creq.nonce, (long)avail);
+	if (debugging && (avail != read_sz))
+		applog(LOG_DEBUG, "REQ(data-in) avail %ld", (long)avail);
 
 	while (avail > 0) {
 		bytes = fs_obj_write(cli->out_bo, p, avail);
@@ -274,33 +281,33 @@ bool object_get(struct client *cli, bool want_body)
 	int rc;
 	enum errcode err = InternalError;
 	struct backend_obj *obj;
-	struct chunksrv_resp_get *resp = NULL;
+	struct chunksrv_resp_get *get_resp = NULL;
 
-	resp = malloc(sizeof(*resp));
-	if (!resp) {
+	get_resp = calloc(1, sizeof(*get_resp));
+	if (!get_resp) {
 		cli->state = evt_dispose;
 		return true;
 	}
 
-	memcpy(resp, &cli->creq, sizeof(cli->creq));
+	resp_init_req(&get_resp->resp, &cli->creq);
 
 	cli->in_obj = obj = fs_obj_open(cli->creq.user, obj_key,
 					strnlen(obj_key, CHD_KEY_SZ), &err);
 	if (!obj) {
-		free(resp);
+		free(get_resp);
 		return cli_err(cli, err, true);
 	}
 
 	cli->in_len = obj->size;
 
-	resp->req.data_len = cpu_to_le64(obj->size);
-	memcpy(resp->req.checksum, obj->hashstr, sizeof(obj->hashstr));
-	resp->req.checksum[sizeof(obj->hashstr)] = 0;
-	resp->mtime = cpu_to_le64(obj->mtime);
+	get_resp->resp.data_len = cpu_to_le64(obj->size);
+	memcpy(get_resp->resp.checksum, obj->hashstr, sizeof(obj->hashstr));
+	get_resp->resp.checksum[sizeof(obj->hashstr)] = 0;
+	get_resp->mtime = cpu_to_le64(obj->mtime);
 
-	rc = cli_writeq(cli, resp, sizeof(*resp), cli_cb_free, resp);
+	rc = cli_writeq(cli, get_resp, sizeof(*get_resp), cli_cb_free, get_resp);
 	if (rc) {
-		free(resp);
+		free(get_resp);
 		return true;
 	}
 

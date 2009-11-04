@@ -5,6 +5,11 @@
 #include <glib.h>
 #include <chunk_msg.h>
 
+size_t req_len(const struct chunksrv_req *req)
+{
+	return sizeof(*req);
+}
+
 void chreq_sign(struct chunksrv_req *req, const char *key, char *b64hmac_out)
 {
 	unsigned int len = 0;

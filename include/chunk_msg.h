@@ -10,6 +10,7 @@ enum {
 	CHD_USER_SZ		= 64,
 	CHD_KEY_SZ		= 64,
 	CHD_CSUM_SZ		= 64,
+	CHD_SIG_SZ		= 64,
 };
 
 enum chunksrv_ops {
@@ -37,6 +38,17 @@ enum errcode {
 struct chunksrv_req {
 	uint8_t			magic[CHD_MAGIC_SZ];	/* CHUNKD_MAGIC */
 	uint8_t			op;			/* CHO_xxx */
+	uint8_t			rsv1[3];
+	uint32_t		nonce;	/* random number, to stir checksum */
+	uint64_t		data_len;		/* len of addn'l data */
+	char			user[CHD_USER_SZ];	/* username */
+	char			key[CHD_KEY_SZ];	/* object id */
+	char			sig[CHD_SIG_SZ];	/* HMAC signature */
+};
+
+struct chunksrv_resp {
+	uint8_t			magic[CHD_MAGIC_SZ];	/* CHUNKD_MAGIC */
+	uint8_t			op;			/* CHO_xxx */
 	uint8_t			resp_code;		/* errcode's */
 	uint8_t			rsv1[2];
 	uint32_t		nonce;	/* random number, to stir checksum */
@@ -47,7 +59,7 @@ struct chunksrv_req {
 };
 
 struct chunksrv_resp_get {
-	struct chunksrv_req	req;
+	struct chunksrv_resp	resp;
 	uint64_t		mtime;
 };
 

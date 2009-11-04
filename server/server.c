@@ -269,6 +269,18 @@ static bool srv_poll_mask(int fd, short mask_set, short mask_clear)
 	return true;
 }
 
+void resp_init_req(struct chunksrv_resp *resp,
+		   const struct chunksrv_req *req)
+{
+	memset(resp, 0, sizeof(*resp));
+	memcpy(resp->magic, req->magic, CHD_MAGIC_SZ);
+	resp->op = req->op;
+	resp->nonce = req->nonce;
+	resp->data_len = req->data_len;
+	strncpy(resp->user, req->user, CHD_USER_SZ);
+	strncpy(resp->key, req->key, CHD_KEY_SZ);
+}
+
 static bool cli_write_free(struct client *cli, struct client_write *tmp,
 			   bool done)
 {
@@ -648,7 +660,7 @@ out:
 bool cli_err(struct client *cli, enum errcode code, bool recycle_ok)
 {
 	int rc;
-	struct chunksrv_req *resp = NULL;
+	struct chunksrv_resp *resp = NULL;
 
 	if (code != Success)
 		applog(LOG_INFO, "client %s error %s",
@@ -660,7 +672,7 @@ bool cli_err(struct client *cli, enum errcode code, bool recycle_ok)
 		return true;
 	}
 
-	memcpy(resp, &cli->creq, sizeof(cli->creq));
+	resp_init_req(resp, &cli->creq);
 
 	resp->resp_code = code;
 
@@ -683,7 +695,7 @@ static bool cli_resp_xml(struct client *cli, GList *content)
 	int rc;
 	bool rcb;
 	size_t content_len = strlist_len(content);
-	struct chunksrv_req *resp = NULL;
+	struct chunksrv_resp *resp = NULL;
 
 	resp = malloc(sizeof(*resp));
 	if (!resp) {
@@ -691,7 +703,7 @@ static bool cli_resp_xml(struct client *cli, GList *content)
 		return true;
 	}
 
-	memcpy(resp, &cli->creq, sizeof(cli->creq));
+	resp_init_req(resp, &cli->creq);
 
 	resp->data_len = cpu_to_le64(content_len);
 
@@ -787,14 +799,14 @@ static bool authcheck(const struct chunksrv_req *req)
 	char hmac[64];
 
 	memcpy(&tmpreq, req, sizeof(tmpreq));
-	memset(&tmpreq.checksum, 0, sizeof(tmpreq.checksum));
+	memset(&tmpreq.sig, 0, sizeof(tmpreq.sig));
 
 	/* for lack of a better authentication scheme, we
 	 * supply the username as the secret key
 	 */
 	chreq_sign(&tmpreq, req->user, hmac);
 
-	return strcmp(req->checksum, hmac) ? false : true;
+	return strcmp(req->sig, hmac) ? false : true;
 }
 
 static bool valid_req_hdr(const struct chunksrv_req *req)
@@ -812,8 +824,8 @@ static bool valid_req_hdr(const struct chunksrv_req *req)
 	if (len == sizeof(req->key))
 		return false;
 
-	len = strnlen(req->checksum, sizeof(req->checksum));
-	if (len < 1 || len == sizeof(req->checksum))
+	len = strnlen(req->sig, sizeof(req->sig));
+	if (len < 1 || len == sizeof(req->sig))
 		return false;
 
 	return true;
@@ -912,7 +924,8 @@ static bool cli_evt_read_req(struct client *cli, unsigned int events)
 	cli->req_ptr += rc;
 	cli->req_used += rc;
 
-	if (cli->req_used < sizeof(cli->creq))
+	/* poll for more, if fixed-length record not yet received */
+	if (cli->req_used < sizeof(struct chunksrv_req))
 		return false;
 
 	cli->state = evt_exec_req;

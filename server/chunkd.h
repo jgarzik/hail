@@ -256,6 +256,8 @@ extern bool cli_write_start(struct client *cli);
 extern int cli_req_avail(struct client *cli);
 extern int cli_poll_mod(struct client *cli);
 extern bool srv_poll_del(int fd);
+extern void resp_init_req(struct chunksrv_resp *resp,
+		   const struct chunksrv_req *req);
 
 /* config.c */
 extern void read_config(void);
