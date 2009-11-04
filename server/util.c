@@ -155,17 +155,17 @@ int fsetflags(const char *prefix, int fd, int or_flags)
 	return rc;
 }
 
-void shastr(const unsigned char *digest, char *outstr)
+void hexstr(const unsigned char *buf, size_t buf_len, char *outstr)
 {
 	static const char hex[] = "0123456789abcdef";
 	int i;
 
-	for (i = 0; i < SHA_DIGEST_LENGTH; i++) {
-		outstr[i * 2]       = hex[(digest[i] & 0xF0) >> 4];
-		outstr[(i * 2) + 1] = hex[(digest[i] & 0x0F)     ];
+	for (i = 0; i < buf_len; i++) {
+		outstr[i * 2]       = hex[(buf[i] & 0xF0) >> 4];
+		outstr[(i * 2) + 1] = hex[(buf[i] & 0x0F)     ];
 	}
 
-	outstr[SHA_DIGEST_LENGTH * 2] = 0;
+	outstr[buf_len * 2] = 0;
 }
 
 char *time2str(char *strbuf, time_t src_time)

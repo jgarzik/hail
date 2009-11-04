@@ -118,9 +118,9 @@ static struct {
 	{ "SignatureDoesNotMatch", 403,
 	  "The calculated request signature does not match your provided one" },
 
-	[InvalidCookie] =
-	{ "InvalidCookie", 400,
-	  "Cookie check failed" },
+	[InvalidKey] =
+	{ "InvalidKey", 400,
+	  "Invalid key presented" },
 };
 
 void applog(int prio, const char *fmt, ...)
@@ -738,13 +738,16 @@ static bool volume_list(struct client *cli)
 
 	tmpl = res;
 	while (tmpl) {
-		char timestr[50];
+		char timestr[50], *esc_key;
 		struct volume_entry *ve;
 
 		ve = tmpl->data;
 		tmpl = tmpl->next;
 
-		s = g_markup_printf_escaped(
+		/* copy-and-escape key into nul-terminated buffer */
+		esc_key = g_markup_escape_text(ve->key, ve->key_len);
+
+		s = g_strdup_printf(
                          "  <Contents>\r\n"
 			 "    <Name>%s</Name>\r\n"
                          "    <LastModified>%s</LastModified>\r\n"
@@ -753,7 +756,7 @@ static bool volume_list(struct client *cli)
                          "    <Owner>%s</Owner>\r\n"
                          "  </Contents>\r\n",
 
-			 ve->name,
+			 esc_key,
 			 time2str(timestr, ve->mtime),
 			 ve->hash,
 			 ve->size,
@@ -761,6 +764,8 @@ static bool volume_list(struct client *cli)
 
 		content = g_list_append(content, s);
 
+		free(esc_key);
+		free(ve->key);
 		free(ve);
 	}
 

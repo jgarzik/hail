@@ -31,7 +31,7 @@ enum errcode {
 	NoSuchKey,
 	PreconditionFailed,
 	SignatureDoesNotMatch,
-	InvalidCookie,
+	InvalidKey,
 };
 
 struct chunksrv_req {

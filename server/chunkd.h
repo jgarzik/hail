@@ -107,7 +107,8 @@ struct client {
 
 struct backend_obj {
 	void			*private;
-	char			cookie[MAX_COOKIE_LEN + 1];
+	void			*key;
+	size_t			key_len;
 
 	uint64_t		size;
 	time_t			mtime;
@@ -134,7 +135,8 @@ struct geo {
 struct volume_entry {
 	unsigned long long	size;		/* obj size */
 	time_t			mtime;		/* obj last-mod time */
-	char			*name;		/* obj id */
+	void			*key;		/* obj id */
+	int			key_len;
 	char			*hash;		/* obj SHA1 checksum */
 	char			*owner;		/* obj owner username */
 };
@@ -183,16 +185,18 @@ struct server {
 };
 
 /* be-fs.c */
-extern struct backend_obj *fs_obj_new(const char *cookie,
+extern struct backend_obj *fs_obj_new(const void *kbuf, size_t klen,
 				      enum errcode *err_code);
-extern struct backend_obj *fs_obj_open(const char *user, const char *cookie,
+extern struct backend_obj *fs_obj_open(const char *user,
+				       const void *kbuf, size_t klen,
 				       enum errcode *err_code);
 extern ssize_t fs_obj_write(struct backend_obj *bo, const void *ptr, size_t len);
 extern ssize_t fs_obj_read(struct backend_obj *bo, void *ptr, size_t len);
 extern void fs_obj_free(struct backend_obj *bo);
 extern bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 				const char *hashstr, bool sync_data);
-extern bool fs_obj_delete(const char *user, const char *cookie,
+extern bool fs_obj_delete(const char *user,
+		          const void *kbuf, size_t klen,
 			  enum errcode *err_code);
 extern GList *fs_list_objs(const char *user);
 extern ssize_t fs_obj_sendfile(struct backend_obj *bo, int out_fd, size_t len);
@@ -223,7 +227,7 @@ extern void timer_add(struct timer *timer, time_t expires);
 extern void timer_del(struct timer *timer);
 extern time_t timers_run(void);
 extern char *time2str(char *strbuf, time_t time);
-extern void shastr(const unsigned char *digest, char *outstr);
+extern void hexstr(const unsigned char *buf, size_t buf_len, char *outstr);
 
 static inline void timer_init(struct timer *timer, const char *name,
 			      void (*cb)(struct timer *),

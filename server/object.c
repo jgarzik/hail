@@ -17,7 +17,7 @@ static bool object_get_more(struct client *cli, struct client_write *wr,
 
 bool object_del(struct client *cli)
 {
-	const char *obj_name = cli->creq.key;
+	const char *obj_key = cli->creq.key;
 	int rc;
 	enum errcode err = InternalError;
 	bool rcb;
@@ -31,7 +31,8 @@ bool object_del(struct client *cli)
 
 	memcpy(resp, &cli->creq, sizeof(cli->creq));
 
-	rcb = fs_obj_delete(cli->creq.user, obj_name, &err);
+	rcb = fs_obj_delete(cli->creq.user, obj_key,
+			    strnlen(obj_key, CHD_KEY_SZ), &err);
 	if (!rcb)
 		return cli_err(cli, err, true);
 
@@ -78,7 +79,7 @@ static bool object_put_end(struct client *cli)
 	cli->state = evt_recycle;
 
 	SHA1_Final(md, &cli->out_hash);
-	shastr(md, hashstr);
+	hexstr(md, SHA_DIGEST_LENGTH, hashstr);
 
 	rcb = fs_obj_write_commit(cli->out_bo, cli->out_user,
 				  hashstr, cli->out_sync);
@@ -191,7 +192,7 @@ bool object_put(struct client *cli)
 	if (!user)
 		return cli_err(cli, AccessDenied, true);
 
-	cli->out_bo = fs_obj_new(key, &err);
+	cli->out_bo = fs_obj_new(key, strnlen(key, CHD_KEY_SZ), &err);
 	if (!cli->out_bo)
 		return cli_err(cli, err, true);
 
@@ -269,7 +270,7 @@ err_out_buf:
 
 bool object_get(struct client *cli, bool want_body)
 {
-	const char *obj_name = cli->creq.key;
+	const char *obj_key = cli->creq.key;
 	int rc;
 	enum errcode err = InternalError;
 	struct backend_obj *obj;
@@ -283,7 +284,8 @@ bool object_get(struct client *cli, bool want_body)
 
 	memcpy(resp, &cli->creq, sizeof(cli->creq));
 
-	cli->in_obj = obj = fs_obj_open(cli->creq.user, obj_name, &err);
+	cli->in_obj = obj = fs_obj_open(cli->creq.user, obj_key,
+					strnlen(obj_key, CHD_KEY_SZ), &err);
 	if (!obj) {
 		free(resp);
 		return cli_err(cli, err, true);

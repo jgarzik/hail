@@ -34,6 +34,7 @@ struct fs_obj {
 struct be_fs_obj_hdr {
 	char			checksum[128];
 	char			owner[128];
+	uint32_t		key_len;
 };
 
 static struct fs_obj *fs_obj_alloc(void)
@@ -52,17 +53,23 @@ static struct fs_obj *fs_obj_alloc(void)
 	return obj;
 }
 
-static char *fs_obj_pathname(const char *cookie)
+static char *fs_obj_pathname(const void *key, size_t key_len)
 {
 	char *s = NULL;
 	char prefix[5] = "";
 	struct stat st;
 	size_t slen;
+	unsigned char md[SHA256_DIGEST_LENGTH];
+	char mdstr[(SHA256_DIGEST_LENGTH * 2) + 1];
 
-	/* cookies are guaranteed elsewhere to be at least 7 chars */
-	memcpy(prefix, cookie, 4);
+	SHA256(key, key_len, md);
+	hexstr(md, SHA256_DIGEST_LENGTH, mdstr);
 
-	slen = strlen(chunkd_srv.vol_path) + strlen(prefix) + strlen(cookie) + 3;
+	memcpy(prefix, mdstr, 4);
+
+	slen = strlen(chunkd_srv.vol_path) + 1 + 
+	       strlen(prefix) + 1 +
+	       strlen(mdstr) + 1;
 	s = malloc(slen);
 	if (!s)
 		return NULL;
@@ -85,7 +92,7 @@ static char *fs_obj_pathname(const char *cookie)
 		goto err_out;
 	}
 
-	sprintf(s, "%s/%s/%s", chunkd_srv.vol_path, prefix, cookie);
+	sprintf(s, "%s/%s/%s", chunkd_srv.vol_path, prefix, mdstr);
 
 	return s;
 
@@ -94,35 +101,15 @@ err_out:
 	return NULL;
 }
 
-static bool cookie_valid(const char *cookie)
+static bool key_valid(const void *key, size_t key_len)
 {
-	int len = 0;
-
-	/* empty strings are not valid cookies */
-	if (!cookie || !*cookie)
+	if (!key || key_len < 1 || key_len > CHD_KEY_SZ)
 		return false;
-
-	/* cookies MUST consist of 100% lowercase hex digits */
-	while (*cookie) {
-		switch (*cookie) {
-		case '0' ... '9':
-		case 'a' ... 'f':
-			cookie++;
-			len++;
-			break;
-
-		default:
-			return false;
-		}
-	}
-
-	if (len < STD_COOKIE_MIN)
-		return false;
-
+	
 	return true;
 }
 
-struct backend_obj *fs_obj_new(const char *cookie,
+struct backend_obj *fs_obj_new(const void *key, size_t key_len,
 			       enum errcode *err_code)
 {
 	struct fs_obj *obj;
@@ -132,10 +119,8 @@ struct backend_obj *fs_obj_new(const char *cookie,
 
 	memset(&hdr, 0, sizeof(hdr));
 
-	if (!cookie_valid(cookie)) {
-		if (debugging)
-			applog(LOG_ERR, "Bad cookie '%s'", cookie);
-		*err_code = InvalidCookie;
+	if (!key_valid(key, key_len)) {
+		*err_code = InvalidKey;
 		return NULL;
 	}
 
@@ -146,7 +131,7 @@ struct backend_obj *fs_obj_new(const char *cookie,
 	}
 
 	/* build local fs pathname */
-	fn = fs_obj_pathname(cookie);
+	fn = fs_obj_pathname(key, key_len);
 	if (!fn) {
 		applog(LOG_ERR, "OOM in object_put");
 		*err_code = InternalError;
@@ -164,7 +149,7 @@ struct backend_obj *fs_obj_new(const char *cookie,
 		goto err_out;
 	}
 
-	/* write object header */
+	/* write fixed-length portion of object header */
 	wrc = write(obj->out_fd, &hdr, sizeof(hdr));
 	if (wrc != sizeof(hdr)) {
 		if (wrc < 0)
@@ -177,8 +162,22 @@ struct backend_obj *fs_obj_new(const char *cookie,
 		goto err_out;
 	}
 
+	/* write variable-length portion of object header */
+	wrc = write(obj->out_fd, key, key_len);
+	if (wrc != key_len) {
+		if (wrc < 0)
+			applog(LOG_ERR, "obj hdr key write(%s) failed: %s",
+				fn, strerror(errno));
+		else
+			applog(LOG_ERR, "obj hdr key write(%s) failed for %s",
+				fn, "unknown raisins!!!");
+		*err_code = InternalError;
+		goto err_out;
+	}
+
 	obj->out_fn = fn;
-	strcpy(obj->bo.cookie, cookie);
+	obj->bo.key = g_memdup(key, key_len);
+	obj->bo.key_len = key_len;
 
 	return &obj->bo;
 
@@ -187,18 +186,16 @@ err_out:
 	return NULL;
 }
 
-struct backend_obj *fs_obj_open(const char *user, const char *cookie,
-				enum errcode *err_code)
+struct backend_obj *fs_obj_open(const char *user, const void *key,
+				size_t key_len, enum errcode *err_code)
 {
 	struct fs_obj *obj;
 	struct stat st;
 	struct be_fs_obj_hdr hdr;
 	ssize_t rrc;
 
-	if (!cookie_valid(cookie)) {
-		if (debugging)
-			applog(LOG_ERR, "Bad cookie '%s'", cookie);
-		*err_code = InvalidCookie;
+	if (!key_valid(key, key_len)) {
+		*err_code = InvalidKey;
 		return NULL;
 	}
 
@@ -209,7 +206,7 @@ struct backend_obj *fs_obj_open(const char *user, const char *cookie,
 	}
 
 	/* build local fs pathname */
-	obj->in_fn = fs_obj_pathname(cookie);
+	obj->in_fn = fs_obj_pathname(key, key_len);
 	if (!obj->in_fn) {
 		*err_code = InternalError;
 		goto err_out;
@@ -233,7 +230,7 @@ struct backend_obj *fs_obj_open(const char *user, const char *cookie,
 		goto err_out_fd;
 	}
 
-	/* read object header */
+	/* read object fixed-length header */
 	rrc = read(obj->in_fd, &hdr, sizeof(hdr));
 	if (rrc != sizeof(hdr)) {
 		if (rrc < 0)
@@ -252,9 +249,35 @@ struct backend_obj *fs_obj_open(const char *user, const char *cookie,
 		goto err_out_fd;
 	}
 
+	/* verify object key length matches input key length */
+	if (GUINT32_FROM_LE(hdr.key_len) != key_len) {
+		*err_code = InternalError;
+		goto err_out_fd;
+	}
+
+	obj->bo.key = malloc(key_len);
+	obj->bo.key_len = key_len;
+	if (!obj->bo.key) {
+		*err_code = InternalError;
+		goto err_out_fd;
+	}
+
+	/* read object variable-length header */
+	rrc = read(obj->in_fd, obj->bo.key, key_len);
+	if ((rrc != key_len) || (memcmp(key, obj->bo.key, key_len))) {
+		if (rrc < 0)
+			applog(LOG_ERR, "read hdr key obj(%s) failed: %s",
+				obj->in_fn, strerror(errno));
+		else
+			applog(LOG_ERR, "invalid object header key for %s",
+				obj->in_fn);
+		*err_code = InternalError;
+		goto err_out_fd;
+	}
+
 	strncpy(obj->bo.hashstr, hdr.checksum, sizeof(obj->bo.hashstr));
 	obj->bo.hashstr[sizeof(obj->bo.hashstr) - 1] = 0;
-	obj->bo.size = st.st_size - sizeof(hdr);
+	obj->bo.size = st.st_size - sizeof(hdr) - key_len;
 	obj->bo.mtime = st.st_mtime;
 
 	return &obj->bo;
@@ -277,6 +300,9 @@ void fs_obj_free(struct backend_obj *bo)
 
 	obj = bo->private;
 	g_assert(obj != NULL);
+
+	if (bo->key)
+		free(bo->key);
 
 	if (obj->out_fn) {
 		unlink(obj->out_fn);
@@ -327,8 +353,10 @@ ssize_t fs_obj_sendfile(struct backend_obj *bo, int out_fd, size_t len)
 	struct fs_obj *obj = bo->private;
 	ssize_t rc;
 
-	if (obj->sendfile_ofs == 0)
+	if (obj->sendfile_ofs == 0) {
 		obj->sendfile_ofs += sizeof(struct be_fs_obj_hdr);
+		obj->sendfile_ofs += bo->key_len;
+	}
 
 	rc = sendfile(out_fd, obj->in_fd, &obj->sendfile_ofs, len);
 	if (rc < 0)
@@ -346,8 +374,10 @@ ssize_t fs_obj_sendfile(struct backend_obj *bo, int out_fd, size_t len)
 	ssize_t rc;
 	off_t sbytes = 0;
 
-	if (obj->sendfile_ofs == 0)
+	if (obj->sendfile_ofs == 0) {
 		obj->sendfile_ofs += sizeof(struct be_fs_obj_hdr);
+		obj->sendfile_ofs += bo->key_len;
+	}
 
 	rc = sendfile(obj->in_fd, out_fd, obj->sendfile_ofs, len,
 		      NULL, &sbytes, 0);
@@ -382,6 +412,7 @@ bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 	memset(&hdr, 0, sizeof(hdr));
 	strncpy(hdr.checksum, hashstr, sizeof(hdr.checksum));
 	strncpy(hdr.owner, user, sizeof(hdr.owner));
+	hdr.key_len = GUINT32_TO_LE(bo->key_len);
 
 	/* go back to beginning of file */
 	if (lseek(obj->out_fd, 0, SEEK_SET) < 0) {
@@ -418,7 +449,8 @@ bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 	return true;
 }
 
-bool fs_obj_delete(const char *user, const char *cookie, enum errcode *err_code)
+bool fs_obj_delete(const char *user, const void *key, size_t key_len,
+		   enum errcode *err_code)
 {
 	char *fn = NULL;
 	int fd;
@@ -427,10 +459,13 @@ bool fs_obj_delete(const char *user, const char *cookie, enum errcode *err_code)
 
 	*err_code = InternalError;
 
-	/* FIXME: check owner */
+	if (!key_valid(key, key_len)) {
+		*err_code = InvalidKey;
+		return false;
+	}
 
 	/* build local fs pathname */
-	fn = fs_obj_pathname(cookie);
+	fn = fs_obj_pathname(key, key_len);
 	if (!fn)
 		goto err_out;
 
@@ -528,12 +563,13 @@ GList *fs_list_objs(const char *user)
 			struct volume_entry *ve;
 			void *p;
 			size_t alloc_len;
+			void *key_in;
+			uint32_t key_len_in;
 
 			if (de->d_name[0] == '.')
 				continue;
 
-			fn = fs_obj_pathname(de->d_name);
-			if (!fn)
+			if (asprintf(&fn, "%s/%s", sub, de->d_name) < 0)
 				break;
 
 			fd = open(fn, O_RDONLY);
@@ -545,6 +581,7 @@ GList *fs_list_objs(const char *user)
 
 			if (fstat(fd, &st) < 0) {
 				syslogerr(fn);
+				close(fd);
 				free(fn);
 				break;
 			}
@@ -555,7 +592,35 @@ GList *fs_list_objs(const char *user)
 					syslogerr(fn);
 				else
 					applog(LOG_ERR, "%s hdr read failed", fn);
+				close(fd);
 				free(fn);
+				break;
+			}
+
+			key_len_in = GUINT32_FROM_LE(hdr.key_len);
+			if (key_len_in < 1 || key_len_in > CHD_KEY_SZ) {
+				applog(LOG_ERR, "%s hdr key len invalid", fn);
+				close(fd);
+				free(fn);
+				break;
+			}
+
+			key_in = malloc(key_len_in);
+			if (!key_in) {
+				close(fd);
+				free(fn);
+				break;
+			}
+
+			rrc = read(fd, key_in, key_len_in);
+			if (rrc != key_len_in) {
+				if (rrc < 0)
+					syslogerr(fn);
+				else
+					applog(LOG_ERR, "%s hdr read failed", fn);
+				close(fd);
+				free(fn);
+				free(key_in);
 				break;
 			}
 
@@ -572,7 +637,6 @@ GList *fs_list_objs(const char *user)
 
 			/* one alloc, for fixed + var length struct */
 			alloc_len = sizeof(*ve) +
-				    strlen(de->d_name) + 1 +
 				    strlen(hdr.checksum) + 1 +
 				    strlen(hdr.owner) + 1;
 
@@ -584,19 +648,19 @@ GList *fs_list_objs(const char *user)
 
 			/* store fixed-length portion of struct */
 			st.st_size -= sizeof(struct be_fs_obj_hdr);
+			st.st_size -= key_len_in;
+
 			ve->size = st.st_size;
 			ve->mtime = st.st_mtime;
+			ve->key = key_in;
+			ve->key_len = key_len_in;
 
 			/*
 			 * store variable-length portion of struct:
-			 * name, checksum, owner strings
+			 * checksum, owner strings
 			 */
 
 			p = (ve + 1);
-			ve->name = p;
-			strcpy(ve->name, de->d_name);
-
-			p += strlen(ve->name) + 1;
 			ve->hash = p;
 			strcpy(ve->hash, hdr.checksum);
 
