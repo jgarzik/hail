@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <glib.h>
+#include <chunk_msg.h>
 
 struct st_object {
 	char		*name;
@@ -30,6 +31,8 @@ struct st_client {
 
 	SSL_CTX		*ssl_ctx;
 	SSL		*ssl;
+
+	char		req_buf[sizeof(struct chunksrv_req)];
 };
 
 extern void stc_free(struct st_client *stc);

@@ -36,6 +36,23 @@ static int _strcmp(const unsigned char *a, const char *b)
 	return xmlStrcmp(a, (const unsigned char *) b);
 }
 
+static void req_init(struct st_client *stc, struct chunksrv_req *req)
+{
+	memset(req, 0, sizeof(*req));
+	memcpy(req->magic, CHUNKD_MAGIC, CHD_MAGIC_SZ);
+	req->nonce = rand();
+	strcpy(req->user, stc->user);
+}
+
+static void req_set_key(struct chunksrv_req *req, const void *key,
+			size_t key_len)
+{
+	/* length must include nul, and already be checked for range
+	 * validity
+	 */
+	memcpy(req->key, key, key_len);
+}
+
 static bool net_read(struct st_client *stc, void *data, size_t datalen)
 {
 	if (!datalen)
@@ -215,25 +232,26 @@ static size_t all_data_cb(void *ptr, size_t size, size_t nmemb, void *user_data)
  */
 static bool stc_get_req(struct st_client *stc, const char *key, uint64_t *plen)
 {
-	struct chunksrv_req req;
 	struct chunksrv_resp_get get_resp;
+	struct chunksrv_req *req = (struct chunksrv_req *) stc->req_buf;
+	size_t key_len = strlen(key) + 1;	/* string content + nul */
 
 	if (stc->verbose)
 		fprintf(stderr, "libstc: GET(%s)\n", key);
 
+	if (key_len > CHD_KEY_SZ)
+		return false;
+
 	/* initialize request */
-	memset(&req, 0, sizeof(req));
-	memcpy(req.magic, CHUNKD_MAGIC, CHD_MAGIC_SZ);
-	req.op = CHO_GET;
-	req.nonce = rand();
-	strcpy(req.user, stc->user);
-	strcpy(req.key, key);
+	req_init(stc, req);
+	req->op = CHO_GET;
+	req_set_key(req, key, key_len);
 
 	/* sign request */
-	chreq_sign(&req, stc->key, req.sig);
+	chreq_sign(req, stc->key, req->sig);
 
 	/* write request */
-	if (!net_write(stc, &req, req_len(&req)))
+	if (!net_write(stc, req, req_len(req)))
 		return false;
 
 	/* read response header */
@@ -390,28 +408,29 @@ bool stc_put(struct st_client *stc, const char *key,
 	     uint64_t len, void *user_data)
 {
 	char netbuf[4096];
-	struct chunksrv_req req;
 	struct chunksrv_resp resp;
 	uint64_t content_len = len;
+	struct chunksrv_req *req = (struct chunksrv_req *) stc->req_buf;
+	size_t key_len = strlen(key) + 1;	/* string content + nul */
 
 	if (stc->verbose)
 		fprintf(stderr, "libstc: PUT(%s, %Lu)\n", key,
 			(unsigned long long) len);
 
+	if (key_len > CHD_KEY_SZ)
+		return false;
+
 	/* initialize request */
-	memset(&req, 0, sizeof(req));
-	memcpy(req.magic, CHUNKD_MAGIC, CHD_MAGIC_SZ);
-	req.op = CHO_PUT;
-	req.nonce = rand();
-	req.data_len = cpu_to_le64(content_len);
-	strcpy(req.user, stc->user);
-	strcpy(req.key, key);
+	req_init(stc, req);
+	req->op = CHO_PUT;
+	req->data_len = cpu_to_le64(content_len);
+	req_set_key(req, key, key_len);
 
 	/* sign request */
-	chreq_sign(&req, stc->key, req.sig);
+	chreq_sign(req, stc->key, req->sig);
 
 	/* write request */
-	if (!net_write(stc, &req, req_len(&req)))
+	if (!net_write(stc, req, req_len(req)))
 		goto err_out;
 
 	while (content_len) {
@@ -456,32 +475,27 @@ err_out:
 bool stc_put_start(struct st_client *stc, const char *key, uint64_t cont_len,
 		   int *pfd)
 {
-	struct chunksrv_req req;
-
-	if (strlen(key) >= CHD_KEY_SZ) {
-		if (stc->verbose)
-			fprintf(stderr, "libstc: PUT(%s) key too long\n", key);
-		return false;
-	}
+	struct chunksrv_req *req = (struct chunksrv_req *) stc->req_buf;
+	size_t key_len = strlen(key) + 1;	/* string content + nul */
 
 	if (stc->verbose)
 		fprintf(stderr, "libstc: PUT(%s, %Lu) start\n", key,
 			(unsigned long long) cont_len);
 
+	if (key_len > CHD_KEY_SZ)
+		return false;
+
 	/* initialize request */
-	memset(&req, 0, sizeof(req));
-	memcpy(req.magic, CHUNKD_MAGIC, CHD_MAGIC_SZ);
-	req.op = CHO_PUT;
-	req.nonce = rand();
-	req.data_len = cpu_to_le64(cont_len);
-	strcpy(req.user, stc->user);
-	strcpy(req.key, key);
+	req_init(stc, req);
+	req->op = CHO_PUT;
+	req->data_len = cpu_to_le64(cont_len);
+	req_set_key(req, key, key_len);
 
 	/* sign request */
-	chreq_sign(&req, stc->key, req.sig);
+	chreq_sign(req, stc->key, req->sig);
 
 	/* write request */
-	if (!net_write(stc, &req, req_len(&req)))
+	if (!net_write(stc, req, req_len(req)))
 		goto err_out;
 
 	*pfd = stc->fd;
@@ -597,25 +611,26 @@ bool stc_put_inline(struct st_client *stc, const char *key,
 
 bool stc_del(struct st_client *stc, const char *key)
 {
-	struct chunksrv_req req;
 	struct chunksrv_resp resp;
+	struct chunksrv_req *req = (struct chunksrv_req *) stc->req_buf;
+	size_t key_len = strlen(key) + 1;	/* string content + nul */
 
 	if (stc->verbose)
 		fprintf(stderr, "libstc: DEL(%s)\n", key);
 
+	if (key_len > CHD_KEY_SZ)
+		return false;
+
 	/* initialize request */
-	memset(&req, 0, sizeof(req));
-	memcpy(req.magic, CHUNKD_MAGIC, CHD_MAGIC_SZ);
-	req.op = CHO_DEL;
-	req.nonce = rand();
-	strcpy(req.user, stc->user);
-	strcpy(req.key, key);
+	req_init(stc, req);
+	req->op = CHO_DEL;
+	req_set_key(req, key, key_len);
 
 	/* sign request */
-	chreq_sign(&req, stc->key, req.sig);
+	chreq_sign(req, stc->key, req->sig);
 
 	/* write request */
-	if (!net_write(stc, &req, req_len(&req)))
+	if (!net_write(stc, req, req_len(req)))
 		return false;
 
 	/* read response header */
@@ -722,25 +737,22 @@ struct st_keylist *stc_keys(struct st_client *stc)
 	xmlChar *xs;
 	GByteArray *all_data;
 	char netbuf[4096];
-	struct chunksrv_req req;
 	struct chunksrv_resp resp;
 	uint64_t content_len;
+	struct chunksrv_req *req = (struct chunksrv_req *) stc->req_buf;
 
 	if (stc->verbose)
 		fprintf(stderr, "libstc: LIST-KEYS\n");
 
 	/* initialize request */
-	memset(&req, 0, sizeof(req));
-	memcpy(req.magic, CHUNKD_MAGIC, CHD_MAGIC_SZ);
-	req.op = CHO_LIST;
-	req.nonce = rand();
-	strcpy(req.user, stc->user);
+	req_init(stc, req);
+	req->op = CHO_LIST;
 
 	/* sign request */
-	chreq_sign(&req, stc->key, req.sig);
+	chreq_sign(req, stc->key, req->sig);
 
 	/* write request */
-	if (!net_write(stc, &req, req_len(&req)))
+	if (!net_write(stc, req, req_len(req)))
 		return false;
 
 	/* read response header */
@@ -822,24 +834,21 @@ err_out:
 
 bool stc_ping(struct st_client *stc)
 {
-	struct chunksrv_req req;
 	struct chunksrv_resp resp;
+	struct chunksrv_req *req = (struct chunksrv_req *) stc->req_buf;
 
 	if (stc->verbose)
 		fprintf(stderr, "libstc: PING\n");
 
 	/* initialize request */
-	memset(&req, 0, sizeof(req));
-	memcpy(req.magic, CHUNKD_MAGIC, CHD_MAGIC_SZ);
-	req.op = CHO_NOP;
-	req.nonce = rand();
-	strcpy(req.user, stc->user);
+	req_init(stc, req);
+	req->op = CHO_NOP;
 
 	/* sign request */
-	chreq_sign(&req, stc->key, req.sig);
+	chreq_sign(req, stc->key, req->sig);
 
 	/* write request */
-	if (!net_write(stc, &req, req_len(&req)))
+	if (!net_write(stc, req, req_len(req)))
 		return false;
 
 	/* read response header */
