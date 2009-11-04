@@ -159,7 +159,7 @@ struct backend_obj *fs_obj_new(const void *key, size_t key_len,
 			applog(LOG_ERR, "obj hdr write(%s) failed for %s",
 				fn, "unknown raisins!!!");
 		*err_code = InternalError;
-		goto err_out;
+		goto err_out_fd;
 	}
 
 	/* write variable-length portion of object header */
@@ -172,7 +172,7 @@ struct backend_obj *fs_obj_new(const void *key, size_t key_len,
 			applog(LOG_ERR, "obj hdr key write(%s) failed for %s",
 				fn, "unknown raisins!!!");
 		*err_code = InternalError;
-		goto err_out;
+		goto err_out_fd;
 	}
 
 	obj->out_fn = fn;
@@ -181,7 +181,10 @@ struct backend_obj *fs_obj_new(const void *key, size_t key_len,
 
 	return &obj->bo;
 
+err_out_fd:
+	close(obj->out_fd);
 err_out:
+	free(fn);
 	free(obj);
 	return NULL;
 }
