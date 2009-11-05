@@ -17,7 +17,6 @@ static bool object_get_more(struct client *cli, struct client_write *wr,
 
 bool object_del(struct client *cli)
 {
-	const char *obj_key = cli->creq.key;
 	int rc;
 	enum errcode err = InternalError;
 	bool rcb;
@@ -31,8 +30,7 @@ bool object_del(struct client *cli)
 
 	resp_init_req(resp, &cli->creq);
 
-	rcb = fs_obj_delete(cli->creq.user, obj_key,
-			    strnlen(obj_key, CHD_KEY_SZ), &err);
+	rcb = fs_obj_delete(cli->creq.user, cli->key, cli->key_len, &err);
 	if (!rcb)
 		return cli_err(cli, err, true);
 
@@ -192,14 +190,13 @@ bool cli_evt_data_in(struct client *cli, unsigned int events)
 bool object_put(struct client *cli)
 {
 	const char *user = cli->creq.user;
-	const char *key = cli->creq.key;
 	uint64_t content_len = le64_to_cpu(cli->creq.data_len);
 	enum errcode err;
 
 	if (!user)
 		return cli_err(cli, AccessDenied, true);
 
-	cli->out_bo = fs_obj_new(key, strnlen(key, CHD_KEY_SZ), &err);
+	cli->out_bo = fs_obj_new(cli->key, cli->key_len, &err);
 	if (!cli->out_bo)
 		return cli_err(cli, err, true);
 
@@ -277,7 +274,6 @@ err_out_buf:
 
 bool object_get(struct client *cli, bool want_body)
 {
-	const char *obj_key = cli->creq.key;
 	int rc;
 	enum errcode err = InternalError;
 	struct backend_obj *obj;
@@ -291,8 +287,8 @@ bool object_get(struct client *cli, bool want_body)
 
 	resp_init_req(&get_resp->resp, &cli->creq);
 
-	cli->in_obj = obj = fs_obj_open(cli->creq.user, obj_key,
-					strnlen(obj_key, CHD_KEY_SZ), &err);
+	cli->in_obj = obj = fs_obj_open(cli->creq.user, cli->key,
+					cli->key_len, &err);
 	if (!obj) {
 		free(get_resp);
 		return cli_err(cli, err, true);

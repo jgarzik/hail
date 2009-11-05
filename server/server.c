@@ -274,11 +274,8 @@ void resp_init_req(struct chunksrv_resp *resp,
 {
 	memset(resp, 0, sizeof(*resp));
 	memcpy(resp->magic, req->magic, CHD_MAGIC_SZ);
-	resp->op = req->op;
 	resp->nonce = req->nonce;
 	resp->data_len = req->data_len;
-	strncpy(resp->user, req->user, CHD_USER_SZ);
-	strncpy(resp->key, req->key, CHD_KEY_SZ);
 }
 
 static bool cli_write_free(struct client *cli, struct client_write *tmp,
@@ -316,6 +313,8 @@ static void cli_write_free_all(struct client *cli)
 
 static void cli_free(struct client *cli)
 {
+	applog(LOG_INFO, "client %s disconnected", cli->addr_host);
+
 	cli_write_free_all(cli);
 
 	cli_out_end(cli);
@@ -325,8 +324,10 @@ static void cli_free(struct client *cli)
 	if (cli->fd >= 0) {
 		if (cli->ssl)
 			SSL_shutdown(cli->ssl);
-		srv_poll_del(cli->fd);
-		close(cli->fd);
+		if (!srv_poll_del(cli->fd))
+			applog(LOG_ERR, "TCP cli poll del failed");
+		if (close(cli->fd) < 0)
+			syslogerr("close(2) TCP client socket");
 	}
 
 	if (debugging)
@@ -356,7 +357,7 @@ static struct client *cli_alloc(bool use_ssl)
 		}
 	}
 
-	cli->state = evt_read_req;
+	cli->state = evt_read_fixed;
 	INIT_LIST_HEAD(&cli->write_q);
 	cli->req_ptr = &cli->creq;
 
@@ -378,7 +379,7 @@ static bool cli_evt_recycle(struct client *cli, unsigned int events)
 {
 	cli->req_ptr = &cli->creq;
 	cli->req_used = 0;
-	cli->state = evt_read_req;
+	cli->state = evt_read_fixed;
 
 	return true;
 }
@@ -793,18 +794,21 @@ static bool volume_list(struct client *cli)
 	return rcb;
 }
 
-static bool authcheck(const struct chunksrv_req *req)
+static bool authcheck(const struct chunksrv_req *req, const void *key,
+		      size_t key_len)
 {
-	struct chunksrv_req tmpreq;
+	char req_buf[sizeof(struct chunksrv_req) + CHD_KEY_SZ];
+	struct chunksrv_req *tmpreq = (struct chunksrv_req *) req_buf;
 	char hmac[64];
 
-	memcpy(&tmpreq, req, sizeof(tmpreq));
-	memset(&tmpreq.sig, 0, sizeof(tmpreq.sig));
+	memcpy(tmpreq, req, sizeof(*req));
+	memcpy((tmpreq + 1), key, key_len);
+	memset(tmpreq->sig, 0, sizeof(tmpreq->sig));
 
 	/* for lack of a better authentication scheme, we
 	 * supply the username as the secret key
 	 */
-	chreq_sign(&tmpreq, req->user, hmac);
+	chreq_sign(tmpreq, req->user, hmac);
 
 	return strcmp(req->sig, hmac) ? false : true;
 }
@@ -818,10 +822,6 @@ static bool valid_req_hdr(const struct chunksrv_req *req)
 
 	len = strnlen(req->user, sizeof(req->user));
 	if (len < 1 || len == sizeof(req->user))
-		return false;
-
-	len = strnlen(req->key, sizeof(req->key));
-	if (len == sizeof(req->key))
 		return false;
 
 	len = strnlen(req->sig, sizeof(req->sig));
@@ -862,7 +862,7 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 	}
 
 	/* check authentication */
-	if (!authcheck(req)) {
+	if (!authcheck(req, cli->key, cli->key_len)) {
 		err = SignatureDoesNotMatch;
 		goto err_out;
 	}
@@ -870,9 +870,10 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 	cli->state = evt_recycle;
 
 	if (debugging)
-		applog(LOG_DEBUG, "REQ(op %s, key %s, user %s) seq %x len %lld",
+		applog(LOG_DEBUG, "REQ(op %s, key %s (%u), user %s) seq %x len %lld",
 		       op2str(req->op),
-		       req->key,
+		       cli->key,
+		       cli->key_len,
 		       req->user,
 		       req->nonce,
 		       (long long) le64_to_cpu(req->data_len));
@@ -912,7 +913,7 @@ err_out:
 	goto out;
 }
 
-static bool cli_evt_read_req(struct client *cli, unsigned int events)
+static bool cli_evt_read_fixed(struct client *cli, unsigned int events)
 {
 	int rc = cli_read_data(cli, cli->req_ptr,
 			       sizeof(cli->creq) - cli->req_used);
@@ -928,6 +929,38 @@ static bool cli_evt_read_req(struct client *cli, unsigned int events)
 	if (cli->req_used < sizeof(struct chunksrv_req))
 		return false;
 
+	cli->key_len = GUINT16_FROM_LE(cli->creq.key_len);
+
+	/* if no key, skip to execute-request state */
+	if (cli->key_len == 0) {
+		cli->state = evt_exec_req;
+		return true;
+	}
+
+	/* otherwise, go to read-variable-len-record state */
+	cli->req_ptr = &cli->key;
+	cli->req_used = 0;
+	cli->state = evt_read_var;
+
+	return true;
+}
+
+static bool cli_evt_read_var(struct client *cli, unsigned int events)
+{
+	int rc = cli_read_data(cli, cli->req_ptr,
+			       cli->key_len - cli->req_used);
+	if (rc < 0) {
+		cli->state = evt_dispose;
+		return true;
+	}
+
+	cli->req_ptr += rc;
+	cli->req_used += rc;
+
+	/* poll for more, if variable-length record not yet received */
+	if (cli->req_used < cli->key_len)
+		return false;
+
 	cli->state = evt_exec_req;
 
 	return true;
@@ -939,7 +972,7 @@ static bool cli_evt_ssl_accept(struct client *cli, unsigned int events)
 
 	rc = SSL_accept(cli->ssl);
 	if (rc > 0) {
-		cli->state = evt_read_req;
+		cli->state = evt_read_fixed;
 		return true;
 	}
 
@@ -961,7 +994,8 @@ out:
 }
 
 static cli_evt_func state_funcs[] = {
-	[evt_read_req]		= cli_evt_read_req,
+	[evt_read_fixed]	= cli_evt_read_fixed,
+	[evt_read_var]		= cli_evt_read_var,
 	[evt_exec_req]		= cli_evt_exec_req,
 	[evt_data_in]		= cli_evt_data_in,
 	[evt_dispose]		= cli_evt_dispose,

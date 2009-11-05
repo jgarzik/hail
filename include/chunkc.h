@@ -32,7 +32,7 @@ struct st_client {
 	SSL_CTX		*ssl_ctx;
 	SSL		*ssl;
 
-	char		req_buf[sizeof(struct chunksrv_req)];
+	char		req_buf[sizeof(struct chunksrv_req) + CHD_KEY_SZ];
 };
 
 extern void stc_free(struct st_client *stc);

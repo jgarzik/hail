@@ -60,7 +60,8 @@ struct client_write {
 
 /* internal client socket state */
 enum client_state {
-	evt_read_req,				/* read request line */
+	evt_read_fixed,				/* read fixed-len rec */
+	evt_read_var,				/* read variable-len rec */
 	evt_exec_req,				/* execute request */
 	evt_data_in,				/* request's content */
 	evt_dispose,				/* dispose of client */
@@ -85,6 +86,7 @@ struct client {
 	struct chunksrv_req	creq;
 	unsigned int		req_used;	/* amount of req_buf in use */
 	void			*req_ptr;	/* start of unexamined data */
+	uint16_t		key_len;
 
 	char			*hdr_start;	/* current hdr start */
 	char			*hdr_end;	/* current hdr end (so far) */
@@ -103,6 +105,7 @@ struct client {
 
 	char			netbuf[CLI_DATA_BUF_SZ];
 	char			netbuf_out[CLI_DATA_BUF_SZ];
+	char			key[CHD_KEY_SZ];
 };
 
 struct backend_obj {

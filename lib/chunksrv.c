@@ -7,7 +7,11 @@
 
 size_t req_len(const struct chunksrv_req *req)
 {
-	return sizeof(*req);
+	size_t len;
+
+	len = sizeof(struct chunksrv_req) + GUINT16_FROM_LE(req->key_len);
+
+	return len;
 }
 
 void chreq_sign(struct chunksrv_req *req, const char *key, char *b64hmac_out)
@@ -17,7 +21,7 @@ void chreq_sign(struct chunksrv_req *req, const char *key, char *b64hmac_out)
 	int save = 0, state = 0, b64_len;
 	const void *p = req;
 
-	HMAC(EVP_sha1(), key, strlen(key), p, sizeof(*req), md, &len);
+	HMAC(EVP_sha1(), key, strlen(key), p, req_len(req), md, &len);
 
 	b64_len = g_base64_encode_step(md, len, FALSE, b64hmac_out,
 				       &state, &save);

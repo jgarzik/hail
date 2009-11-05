@@ -45,12 +45,10 @@ static void req_init(struct st_client *stc, struct chunksrv_req *req)
 }
 
 static void req_set_key(struct chunksrv_req *req, const void *key,
-			size_t key_len)
+			uint16_t key_len)
 {
-	/* length must include nul, and already be checked for range
-	 * validity
-	 */
-	memcpy(req->key, key, key_len);
+	req->key_len = GUINT16_TO_LE(key_len);
+	memcpy((req + 1), key, key_len);
 }
 
 static bool net_read(struct st_client *stc, void *data, size_t datalen)
