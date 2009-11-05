@@ -8,7 +8,7 @@
 enum {
 	CHD_MAGIC_SZ		= 8,
 	CHD_USER_SZ		= 64,
-	CHD_KEY_SZ		= 1024,
+	CHD_KEY_SZ		= 1024,	/* key size limit; max 65534 (fffe) */
 	CHD_CSUM_SZ		= 64,
 	CHD_SIG_SZ		= 64,
 };
