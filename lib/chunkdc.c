@@ -36,6 +36,14 @@ static int _strcmp(const unsigned char *a, const char *b)
 	return xmlStrcmp(a, (const unsigned char *) b);
 }
 
+static bool key_valid(const void *key, size_t key_len)
+{
+	if (!key || key_len < 1 || key_len > CHD_KEY_SZ)
+		return false;
+	
+	return true;
+}
+
 static void req_init(struct st_client *stc, struct chunksrv_req *req)
 {
 	memset(req, 0, sizeof(*req));
@@ -237,7 +245,7 @@ static bool stc_get_req(struct st_client *stc, const void *key,
 	if (stc->verbose)
 		fprintf(stderr, "libstc: GET(%u)\n", (unsigned int) key_len);
 
-	if (key_len > CHD_KEY_SZ)
+	if (!key_valid(key, key_len))
 		return false;
 
 	/* initialize request */
@@ -416,7 +424,7 @@ bool stc_put(struct st_client *stc, const void *key, size_t key_len,
 			(unsigned int) key_len,
 			(unsigned long long) len);
 
-	if (key_len > CHD_KEY_SZ)
+	if (!key_valid(key, key_len))
 		return false;
 
 	/* initialize request */
@@ -481,7 +489,7 @@ bool stc_put_start(struct st_client *stc, const void *key, size_t key_len,
 			(unsigned int) key_len,
 			(unsigned long long) cont_len);
 
-	if (key_len > CHD_KEY_SZ)
+	if (!key_valid(key, key_len))
 		return false;
 
 	/* initialize request */
@@ -617,7 +625,7 @@ bool stc_del(struct st_client *stc, const void *key, size_t key_len)
 		fprintf(stderr, "libstc: DEL(%u)\n",
 			(unsigned int) key_len);
 
-	if (key_len > CHD_KEY_SZ)
+	if (!key_valid(key, key_len))
 		return false;
 
 	/* initialize request */
