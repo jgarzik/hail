@@ -228,14 +228,14 @@ static size_t all_data_cb(void *ptr, size_t size, size_t nmemb, void *user_data)
 /*
  * Request the transfer in the chunk server.
  */
-static bool stc_get_req(struct st_client *stc, const char *key, uint64_t *plen)
+static bool stc_get_req(struct st_client *stc, const void *key,
+			size_t key_len, uint64_t *plen)
 {
 	struct chunksrv_resp_get get_resp;
 	struct chunksrv_req *req = (struct chunksrv_req *) stc->req_buf;
-	size_t key_len = strlen(key) + 1;	/* string content + nul */
 
 	if (stc->verbose)
-		fprintf(stderr, "libstc: GET(%s)\n", key);
+		fprintf(stderr, "libstc: GET(%u)\n", (unsigned int) key_len);
 
 	if (key_len > CHD_KEY_SZ)
 		return false;
@@ -272,14 +272,14 @@ static bool stc_get_req(struct st_client *stc, const char *key, uint64_t *plen)
 	return true;
 }
 
-bool stc_get(struct st_client *stc, const char *key,
+bool stc_get(struct st_client *stc, const void *key, size_t key_len,
 	     size_t (*write_cb)(void *, size_t, size_t, void *),
 	     void *user_data)
 {
 	char netbuf[4096];
 	uint64_t content_len;
 
-	if (!stc_get_req(stc, key, &content_len))
+	if (!stc_get_req(stc, key, key_len, &content_len))
 		return false;
 
 	/* read response data */
@@ -297,7 +297,8 @@ bool stc_get(struct st_client *stc, const char *key,
 	return true;
 }
 
-void *stc_get_inline(struct st_client *stc, const char *key, size_t *len)
+void *stc_get_inline(struct st_client *stc, const void *key,
+		     size_t key_len, size_t *len)
 {
 	bool rcb;
 	void *mem;
@@ -307,7 +308,7 @@ void *stc_get_inline(struct st_client *stc, const char *key, size_t *len)
 	if (!all_data)
 		return NULL;
 
-	rcb = stc_get(stc, key, all_data_cb, all_data);
+	rcb = stc_get(stc, key, key_len, all_data_cb, all_data);
 	if (!rcb) {
 		g_byte_array_free(all_data, TRUE);
 		return NULL;
@@ -327,11 +328,11 @@ void *stc_get_inline(struct st_client *stc, const char *key, size_t *len)
  * In chunkd protocol, this delivers the size of the presumed object,
  * and clients are expected to fetch exactly psize amount.
  */
-bool stc_get_start(struct st_client *stc, const char *key, int *pfd,
-		   uint64_t *psize)
+bool stc_get_start(struct st_client *stc, const void *key, size_t key_len,
+		   int *pfd, uint64_t *psize)
 {
 
-	if (!stc_get_req(stc, key, psize))
+	if (!stc_get_req(stc, key, key_len, psize))
 		return false;
 
 	*pfd = stc->fd;
@@ -401,7 +402,7 @@ size_t stc_get_recv(struct st_client *stc, void *data, size_t data_len)
 	return done_cnt;
 }
 
-bool stc_put(struct st_client *stc, const char *key,
+bool stc_put(struct st_client *stc, const void *key, size_t key_len,
 	     size_t (*read_cb)(void *, size_t, size_t, void *),
 	     uint64_t len, void *user_data)
 {
@@ -409,10 +410,10 @@ bool stc_put(struct st_client *stc, const char *key,
 	struct chunksrv_resp resp;
 	uint64_t content_len = len;
 	struct chunksrv_req *req = (struct chunksrv_req *) stc->req_buf;
-	size_t key_len = strlen(key) + 1;	/* string content + nul */
 
 	if (stc->verbose)
-		fprintf(stderr, "libstc: PUT(%s, %Lu)\n", key,
+		fprintf(stderr, "libstc: PUT(%u, %Lu)\n",
+			(unsigned int) key_len,
 			(unsigned long long) len);
 
 	if (key_len > CHD_KEY_SZ)
@@ -470,14 +471,14 @@ err_out:
  * We return the fd for the polling here because we do not like
  * library users poking around stc->fd, an implementation detail.
  */
-bool stc_put_start(struct st_client *stc, const char *key, uint64_t cont_len,
-		   int *pfd)
+bool stc_put_start(struct st_client *stc, const void *key, size_t key_len,
+		   uint64_t cont_len, int *pfd)
 {
 	struct chunksrv_req *req = (struct chunksrv_req *) stc->req_buf;
-	size_t key_len = strlen(key) + 1;	/* string content + nul */
 
 	if (stc->verbose)
-		fprintf(stderr, "libstc: PUT(%s, %Lu) start\n", key,
+		fprintf(stderr, "libstc: PUT(%u, %Lu) start\n",
+			(unsigned int) key_len,
 			(unsigned long long) cont_len);
 
 	if (key_len > CHD_KEY_SZ)
@@ -599,22 +600,22 @@ static size_t read_inline_cb(void *ptr, size_t size, size_t nmemb,
 	return len;
 }
 
-bool stc_put_inline(struct st_client *stc, const char *key,
+bool stc_put_inline(struct st_client *stc, const void *key, size_t key_len,
 	     void *data, uint64_t len)
 {
 	struct stc_put_info spi = { data, len };
 
-	return stc_put(stc, key, read_inline_cb, len, &spi);
+	return stc_put(stc, key, key_len, read_inline_cb, len, &spi);
 }
 
-bool stc_del(struct st_client *stc, const char *key)
+bool stc_del(struct st_client *stc, const void *key, size_t key_len)
 {
 	struct chunksrv_resp resp;
 	struct chunksrv_req *req = (struct chunksrv_req *) stc->req_buf;
-	size_t key_len = strlen(key) + 1;	/* string content + nul */
 
 	if (stc->verbose)
-		fprintf(stderr, "libstc: DEL(%s)\n", key);
+		fprintf(stderr, "libstc: DEL(%u)\n",
+			(unsigned int) key_len);
 
 	if (key_len > CHD_KEY_SZ)
 		return false;

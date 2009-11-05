@@ -41,7 +41,7 @@ static void test(int n_objects, bool encrypt)
 	/* store object */
 	for (i = 0; i < n_objects; i++) {
 		sprintf(key, "%x000000", i);
-		rcb = stc_put_inline(stc, key, val, strlen(val));
+		rcb = stc_put_inlinez(stc, key, val, strlen(val));
 		OK(rcb);
 
 		keys = g_list_prepend(keys, strdup(key));
@@ -88,7 +88,7 @@ static void test(int n_objects, bool encrypt)
 		k = tmpl->data;
 		len = 0;
 
-		mem = stc_get_inline(stc, k, &len);
+		mem = stc_get_inlinez(stc, k, &len);
 		OK(mem);
 		OK(len == strlen(val));
 		OK(!memcmp(val, mem, strlen(val)));
@@ -106,7 +106,7 @@ static void test(int n_objects, bool encrypt)
 	/* delete object */
 	for (tmpl = keys; tmpl; tmpl = tmpl->next) {
 		k = tmpl->data;
-		rcb = stc_del(stc, k);
+		rcb = stc_delz(stc, k);
 		OK(rcb);
 
 		free(k);

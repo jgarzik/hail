@@ -33,11 +33,11 @@ static void test(bool encrypt)
 	OK(stc2);
 
 	/* store object 1 */
-	rcb = stc_put_inline(stc1, key1, val1, strlen(val1));
+	rcb = stc_put_inlinez(stc1, key1, val1, strlen(val1));
 	OK(rcb);
 
 	/* store object 2 */
-	rcb = stc_put_inline(stc2, key2, val2, strlen(val2));
+	rcb = stc_put_inlinez(stc2, key2, val2, strlen(val2));
 	OK(rcb);
 
 	/* make sure object 1 appears in list of volume keys */
@@ -75,7 +75,7 @@ static void test(bool encrypt)
 	stc_free_keylist(klist);
 
 	/* get object 1 */
-	mem = stc_get_inline(stc1, key1, &len);
+	mem = stc_get_inlinez(stc1, key1, &len);
 	OK(mem);
 	OK(len == strlen(val1));
 	OK(!memcmp(val1, mem, strlen(val1)));
@@ -83,11 +83,11 @@ static void test(bool encrypt)
 	free(mem);
 
 	/* fail to get object 2 */
-	mem = stc_get_inline(stc1, key2, &len);
+	mem = stc_get_inlinez(stc1, key2, &len);
 	OK(mem == NULL);
 
 	/* get object 2 */
-	mem = stc_get_inline(stc2, key2, &len);
+	mem = stc_get_inlinez(stc2, key2, &len);
 	OK(mem);
 	OK(len == strlen(val2));
 	OK(!memcmp(val2, mem, strlen(val2)));
@@ -95,23 +95,23 @@ static void test(bool encrypt)
 	free(mem);
 
 	/* fail to get object 1 */
-	mem = stc_get_inline(stc2, key1, &len);
+	mem = stc_get_inlinez(stc2, key1, &len);
 	OK(mem == NULL);
 
 	/* fail to delete object 2 */
-	rcb = stc_del(stc1, key2);
+	rcb = stc_delz(stc1, key2);
 	OK(rcb == false);
 
 	/* fail to delete object 1 */
-	rcb = stc_del(stc2, key1);
+	rcb = stc_delz(stc2, key1);
 	OK(rcb == false);
 
 	/* delete object 1 */
-	rcb = stc_del(stc1, key1);
+	rcb = stc_delz(stc1, key1);
 	OK(rcb);
 
 	/* delete object 2 */
-	rcb = stc_del(stc2, key2);
+	rcb = stc_delz(stc2, key2);
 	OK(rcb);
 
 	stc_free(stc1);

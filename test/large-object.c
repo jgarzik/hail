@@ -98,7 +98,7 @@ static void test(bool encrypt)
 	gettimeofday(&ta, NULL);
 
 	/* store object */
-	rcb = stc_put_start(stc, key, N_BUFS * BUFSZ, &sfd);
+	rcb = stc_put_startz(stc, key, N_BUFS * BUFSZ, &sfd);
 	OK(rcb);
 	for (i = 0; i < N_BUFS; i++) {
 		rcb = send_buf(stc, sfd, data, BUFSZ);
@@ -132,7 +132,7 @@ static void test(bool encrypt)
 	gettimeofday(&ta, NULL);
 
 	/* initiate get object */
-	rcb = stc_get_start(stc, key, &rfd, &len);
+	rcb = stc_get_startz(stc, key, &rfd, &len);
 	OK(rcb);
 	OK(len == (N_BUFS * BUFSZ));
 
@@ -149,7 +149,7 @@ static void test(bool encrypt)
 	}
 
 	/* delete object */
-	rcb = stc_del(stc, key);
+	rcb = stc_delz(stc, key);
 	OK(rcb);
 
 	stc_free(stc);

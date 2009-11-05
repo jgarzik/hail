@@ -28,7 +28,7 @@ static void test(bool encrypt)
 	OK(stc);
 
 	/* store object */
-	rcb = stc_put_inline(stc, key, val, strlen(val));
+	rcb = stc_put_inlinez(stc, key, val, strlen(val));
 	OK(rcb);
 
 	/* make sure object appears in list of volume keys */
@@ -49,7 +49,7 @@ static void test(bool encrypt)
 	stc_free_keylist(klist);
 
 	/* get object */
-	mem = stc_get_inline(stc, key, &len);
+	mem = stc_get_inlinez(stc, key, &len);
 	OK(mem);
 	OK(len == strlen(val));
 	OK(!memcmp(val, mem, strlen(val)));
@@ -57,7 +57,7 @@ static void test(bool encrypt)
 	free(mem);
 
 	/* delete object */
-	rcb = stc_del(stc, key);
+	rcb = stc_delz(stc, key);
 	OK(rcb);
 
 	stc_free(stc);
