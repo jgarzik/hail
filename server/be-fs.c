@@ -110,7 +110,7 @@ static bool key_valid(const void *key, size_t key_len)
 }
 
 struct backend_obj *fs_obj_new(const void *key, size_t key_len,
-			       enum errcode *err_code)
+			       enum chunk_errcode *err_code)
 {
 	struct fs_obj *obj;
 	char *fn = NULL;
@@ -120,13 +120,13 @@ struct backend_obj *fs_obj_new(const void *key, size_t key_len,
 	memset(&hdr, 0, sizeof(hdr));
 
 	if (!key_valid(key, key_len)) {
-		*err_code = InvalidKey;
+		*err_code = che_InvalidKey;
 		return NULL;
 	}
 
 	obj = fs_obj_alloc();
 	if (!obj) {
-		*err_code = InternalError;
+		*err_code = che_InternalError;
 		return NULL;
 	}
 
@@ -134,7 +134,7 @@ struct backend_obj *fs_obj_new(const void *key, size_t key_len,
 	fn = fs_obj_pathname(key, key_len);
 	if (!fn) {
 		applog(LOG_ERR, "OOM in object_put");
-		*err_code = InternalError;
+		*err_code = che_InternalError;
 		goto err_out;
 	}
 
@@ -142,9 +142,9 @@ struct backend_obj *fs_obj_new(const void *key, size_t key_len,
 	if (obj->out_fd < 0) {
 		if (errno != EEXIST) {
 			syslogerr(fn);
-			*err_code = InternalError;
+			*err_code = che_InternalError;
 		} else {
-			*err_code = NoSuchKey;
+			*err_code = che_NoSuchKey;
 		}
 		goto err_out;
 	}
@@ -158,7 +158,7 @@ struct backend_obj *fs_obj_new(const void *key, size_t key_len,
 		else
 			applog(LOG_ERR, "obj hdr write(%s) failed for %s",
 				fn, "unknown raisins!!!");
-		*err_code = InternalError;
+		*err_code = che_InternalError;
 		goto err_out_fd;
 	}
 
@@ -171,7 +171,7 @@ struct backend_obj *fs_obj_new(const void *key, size_t key_len,
 		else
 			applog(LOG_ERR, "obj hdr key write(%s) failed for %s",
 				fn, "unknown raisins!!!");
-		*err_code = InternalError;
+		*err_code = che_InternalError;
 		goto err_out_fd;
 	}
 
@@ -190,7 +190,7 @@ err_out:
 }
 
 struct backend_obj *fs_obj_open(const char *user, const void *key,
-				size_t key_len, enum errcode *err_code)
+				size_t key_len, enum chunk_errcode *err_code)
 {
 	struct fs_obj *obj;
 	struct stat st;
@@ -198,20 +198,20 @@ struct backend_obj *fs_obj_open(const char *user, const void *key,
 	ssize_t rrc;
 
 	if (!key_valid(key, key_len)) {
-		*err_code = InvalidKey;
+		*err_code = che_InvalidKey;
 		return NULL;
 	}
 
 	obj = fs_obj_alloc();
 	if (!obj) {
-		*err_code = InternalError;
+		*err_code = che_InternalError;
 		return NULL;
 	}
 
 	/* build local fs pathname */
 	obj->in_fn = fs_obj_pathname(key, key_len);
 	if (!obj->in_fn) {
-		*err_code = InternalError;
+		*err_code = che_InternalError;
 		goto err_out;
 	}
 
@@ -220,16 +220,16 @@ struct backend_obj *fs_obj_open(const char *user, const void *key,
 		applog(LOG_ERR, "open obj(%s) failed: %s",
 		       obj->in_fn, strerror(errno));
 		if (errno == ENOENT)
-			*err_code = NoSuchKey;
+			*err_code = che_NoSuchKey;
 		else
-			*err_code = InternalError;
+			*err_code = che_InternalError;
 		goto err_out_fn;
 	}
 
 	if (fstat(obj->in_fd, &st) < 0) {
 		applog(LOG_ERR, "fstat obj(%s) failed: %s", obj->in_fn,
 			strerror(errno));
-		*err_code = InternalError;
+		*err_code = che_InternalError;
 		goto err_out_fd;
 	}
 
@@ -242,26 +242,26 @@ struct backend_obj *fs_obj_open(const char *user, const void *key,
 		else
 			applog(LOG_ERR, "invalid object header for %s",
 				obj->in_fn);
-		*err_code = InternalError;
+		*err_code = che_InternalError;
 		goto err_out_fd;
 	}
 
 	/* authenticated user must own this object */
 	if (strcmp(hdr.owner, user)) {
-		*err_code = AccessDenied;
+		*err_code = che_AccessDenied;
 		goto err_out_fd;
 	}
 
 	/* verify object key length matches input key length */
 	if (GUINT32_FROM_LE(hdr.key_len) != key_len) {
-		*err_code = InternalError;
+		*err_code = che_InternalError;
 		goto err_out_fd;
 	}
 
 	obj->bo.key = malloc(key_len);
 	obj->bo.key_len = key_len;
 	if (!obj->bo.key) {
-		*err_code = InternalError;
+		*err_code = che_InternalError;
 		goto err_out_fd;
 	}
 
@@ -274,7 +274,7 @@ struct backend_obj *fs_obj_open(const char *user, const void *key,
 		else
 			applog(LOG_ERR, "invalid object header key for %s",
 				obj->in_fn);
-		*err_code = InternalError;
+		*err_code = che_InternalError;
 		goto err_out_fd;
 	}
 
@@ -453,17 +453,17 @@ bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 }
 
 bool fs_obj_delete(const char *user, const void *key, size_t key_len,
-		   enum errcode *err_code)
+		   enum chunk_errcode *err_code)
 {
 	char *fn = NULL;
 	int fd;
 	ssize_t rrc;
 	struct be_fs_obj_hdr hdr;
 
-	*err_code = InternalError;
+	*err_code = che_InternalError;
 
 	if (!key_valid(key, key_len)) {
-		*err_code = InvalidKey;
+		*err_code = che_InvalidKey;
 		return false;
 	}
 
@@ -476,7 +476,7 @@ bool fs_obj_delete(const char *user, const void *key, size_t key_len,
 	fd = open(fn, O_RDONLY);
 	if (fd < 0) {
 		if (errno == ENOENT)
-			*err_code = NoSuchKey;
+			*err_code = che_NoSuchKey;
 		else
 			applog(LOG_ERR, "object data(%s) open failed: %s",
 			       fn, strerror(errno));
@@ -503,14 +503,14 @@ bool fs_obj_delete(const char *user, const void *key, size_t key_len,
 
 	/* verify authenticated user owns this object */
 	if (strcmp(user, hdr.owner)) {
-		*err_code = AccessDenied;
+		*err_code = che_AccessDenied;
 		goto err_out;
 	}
 
 	/* finally, unlink object */
 	if (unlink(fn) < 0) {
 		if (errno == ENOENT)
-			*err_code = NoSuchKey;
+			*err_code = che_NoSuchKey;
 		else
 			applog(LOG_ERR, "object data(%s) unlink failed: %s",
 			       fn, strerror(errno));

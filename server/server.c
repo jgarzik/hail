@@ -82,44 +82,36 @@ static struct {
 	int		status;
 	const char	*msg;
 } err_info[] = {
-	[Success] =
-	{ "Success", 200,
-	  "Success" },
+	[che_Success] =
+	{ "che_Success", 200,
+	  "che_Success" },
 
-	[AccessDenied] =
-	{ "AccessDenied", 403,
+	[che_AccessDenied] =
+	{ "che_AccessDenied", 403,
 	  "Access denied" },
 
-	[InternalError] =
-	{ "InternalError", 500,
+	[che_InternalError] =
+	{ "che_InternalError", 500,
 	  "We encountered an internal error. Please try again." },
 
-	[InvalidArgument] =
-	{ "InvalidArgument", 400,
+	[che_InvalidArgument] =
+	{ "che_InvalidArgument", 400,
 	  "Invalid Argument" },
 
-	[InvalidURI] =
-	{ "InvalidURI", 400,
+	[che_InvalidURI] =
+	{ "che_InvalidURI", 400,
 	  "Could not parse the specified URI" },
 
-	[MissingContentLength] =
-	{ "MissingContentLength", 411,
-	  "You must provide the Content-Length HTTP header" },
-
-	[NoSuchKey] =
-	{ "NoSuchKey", 404,
+	[che_NoSuchKey] =
+	{ "che_NoSuchKey", 404,
 	  "The resource you requested does not exist" },
 
-	[PreconditionFailed] =
-	{ "PreconditionFailed", 412,
-	  "Precondition failed" },
-
-	[SignatureDoesNotMatch] =
-	{ "SignatureDoesNotMatch", 403,
+	[che_SignatureDoesNotMatch] =
+	{ "che_SignatureDoesNotMatch", 403,
 	  "The calculated request signature does not match your provided one" },
 
-	[InvalidKey] =
-	{ "InvalidKey", 400,
+	[che_InvalidKey] =
+	{ "che_InvalidKey", 400,
 	  "Invalid key presented" },
 };
 
@@ -658,12 +650,12 @@ out:
 	return rc;
 }
 
-bool cli_err(struct client *cli, enum errcode code, bool recycle_ok)
+bool cli_err(struct client *cli, enum chunk_errcode code, bool recycle_ok)
 {
 	int rc;
 	struct chunksrv_resp *resp = NULL;
 
-	if (code != Success)
+	if (code != che_Success)
 		applog(LOG_INFO, "client %s error %s",
 		       cli->addr_host, err_info[code].code);
 
@@ -853,17 +845,17 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 {
 	struct chunksrv_req *req = &cli->creq;
 	bool rcb;
-	enum errcode err;
+	enum chunk_errcode err;
 
 	/* validate request header */
 	if (!valid_req_hdr(req)) {
-		err = InvalidArgument;
+		err = che_InvalidArgument;
 		goto err_out;
 	}
 
 	/* check authentication */
 	if (!authcheck(req, cli->key, cli->key_len)) {
-		err = SignatureDoesNotMatch;
+		err = che_SignatureDoesNotMatch;
 		goto err_out;
 	}
 
@@ -883,7 +875,7 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 	 */
 	switch (req->op) {
 	case CHO_NOP:
-		rcb = cli_err(cli, Success, true);
+		rcb = cli_err(cli, che_Success, true);
 		break;
 	case CHO_GET:
 		rcb = object_get(cli, true);
@@ -901,7 +893,7 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 		rcb = volume_list(cli);
 		break;
 	default:
-		rcb = cli_err(cli, InvalidURI, true);
+		rcb = cli_err(cli, che_InvalidURI, true);
 		break;
 	}
 

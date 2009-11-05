@@ -257,7 +257,7 @@ static bool stc_get_req(struct st_client *stc, const void *key,
 		return false;
 
 	/* check response code */
-	if (get_resp.resp.resp_code != Success) {
+	if (get_resp.resp.resp_code != che_Success) {
 		if (stc->verbose)
 			fprintf(stderr, "GET resp code: %d\n", get_resp.resp.resp_code);
 		return false;
@@ -452,7 +452,7 @@ bool stc_put(struct st_client *stc, const void *key, size_t key_len,
 		goto err_out;
 
 	/* check response code */
-	if (resp.resp_code != Success) {
+	if (resp.resp_code != che_Success) {
 		if (stc->verbose)
 			fprintf(stderr, "PUT resp code: %d\n", resp.resp_code);
 		goto err_out;
@@ -569,7 +569,7 @@ bool stc_put_sync(struct st_client *stc)
 	if (stc->verbose)
 		fprintf(stderr, "libstc: PUT sync resp code: %d\n",
 			resp.resp_code);
-	if (resp.resp_code != Success)
+	if (resp.resp_code != che_Success)
 		goto err_out;
 
 	return true;
@@ -637,7 +637,7 @@ bool stc_del(struct st_client *stc, const void *key, size_t key_len)
 		return false;
 
 	/* check response code */
-	if (resp.resp_code != Success) {
+	if (resp.resp_code != che_Success) {
 		if (stc->verbose)
 			fprintf(stderr, "DEL resp code: %d\n", resp.resp_code);
 		return false;
@@ -759,7 +759,7 @@ struct st_keylist *stc_keys(struct st_client *stc)
 		return false;
 
 	/* check response code */
-	if (resp.resp_code != Success) {
+	if (resp.resp_code != che_Success) {
 		if (stc->verbose)
 			fprintf(stderr, "LIST resp code: %d\n", resp.resp_code);
 		return false;
@@ -855,7 +855,7 @@ bool stc_ping(struct st_client *stc)
 		return false;
 
 	/* check response code */
-	if (resp.resp_code != Success) {
+	if (resp.resp_code != che_Success) {
 		if (stc->verbose)
 			fprintf(stderr, "NOP resp code: %d\n", resp.resp_code);
 		return false;

@@ -18,7 +18,7 @@ static bool object_get_more(struct client *cli, struct client_write *wr,
 bool object_del(struct client *cli)
 {
 	int rc;
-	enum errcode err = InternalError;
+	enum chunk_errcode err = che_InternalError;
 	bool rcb;
 	struct chunksrv_resp *resp = NULL;
 
@@ -62,7 +62,7 @@ static bool object_put_end(struct client *cli)
 	unsigned char md[SHA_DIGEST_LENGTH];
 	char hashstr[50];
 	int rc;
-	enum errcode err = InternalError;
+	enum chunk_errcode err = che_InternalError;
 	bool rcb;
 	struct chunksrv_resp *resp = NULL;
 
@@ -136,10 +136,10 @@ bool cli_evt_data_in(struct client *cli, unsigned int events)
 			if (rc == SSL_ERROR_WANT_WRITE) {
 				cli->read_want_write = true;
 				if (!cli_wr_set_poll(cli, true))
-					return cli_err(cli, InternalError, false);
+					return cli_err(cli, che_InternalError, false);
 				return false;
 			}
-			return cli_err(cli, InternalError, false);
+			return cli_err(cli, che_InternalError, false);
 		}
 		avail = rc;
 	} else {
@@ -160,7 +160,7 @@ bool cli_evt_data_in(struct client *cli, unsigned int events)
 			cli_out_end(cli);
 			applog(LOG_ERR, "object read(2) error: %s",
 					strerror(errno));
-			return cli_err(cli, InternalError, false);
+			return cli_err(cli, che_InternalError, false);
 		}
 	}
 
@@ -171,7 +171,7 @@ bool cli_evt_data_in(struct client *cli, unsigned int events)
 		bytes = fs_obj_write(cli->out_bo, p, avail);
 		if (bytes < 0) {
 			cli_out_end(cli);
-			return cli_err(cli, InternalError, false);
+			return cli_err(cli, che_InternalError, false);
 		}
 
 		SHA1_Update(&cli->out_hash, cli->req_ptr, bytes);
@@ -191,10 +191,10 @@ bool object_put(struct client *cli)
 {
 	const char *user = cli->creq.user;
 	uint64_t content_len = le64_to_cpu(cli->creq.data_len);
-	enum errcode err;
+	enum chunk_errcode err;
 
 	if (!user)
-		return cli_err(cli, AccessDenied, true);
+		return cli_err(cli, che_AccessDenied, true);
 
 	cli->out_bo = fs_obj_new(cli->key, cli->key_len, &err);
 	if (!cli->out_bo)
@@ -275,7 +275,7 @@ err_out_buf:
 bool object_get(struct client *cli, bool want_body)
 {
 	int rc;
-	enum errcode err = InternalError;
+	enum chunk_errcode err = che_InternalError;
 	struct backend_obj *obj;
 	struct chunksrv_resp_get *get_resp = NULL;
 

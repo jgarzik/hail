@@ -22,17 +22,15 @@ enum chunksrv_ops {
 	CHO_LIST		= 5,
 };
 
-enum errcode {
-	Success,
-	AccessDenied,
-	InternalError,
-	InvalidArgument,
-	InvalidURI,
-	MissingContentLength,
-	NoSuchKey,
-	PreconditionFailed,
-	SignatureDoesNotMatch,
-	InvalidKey,
+enum chunk_errcode {
+	che_Success			= 0,
+	che_AccessDenied		= 1,
+	che_InternalError		= 2,
+	che_InvalidArgument		= 3,
+	che_InvalidURI			= 4,
+	che_NoSuchKey			= 5,
+	che_SignatureDoesNotMatch	= 6,
+	che_InvalidKey			= 7,
 };
 
 struct chunksrv_req {
@@ -50,7 +48,7 @@ struct chunksrv_req {
 
 struct chunksrv_resp {
 	uint8_t			magic[CHD_MAGIC_SZ];	/* CHUNKD_MAGIC */
-	uint8_t			resp_code;		/* errcode's */
+	uint8_t			resp_code;		/* chunk_errcode's */
 	uint8_t			rsv1[3];
 	uint32_t		nonce;	/* txn id, copied from request */
 	uint64_t		data_len;		/* len of addn'l data */
