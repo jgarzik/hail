@@ -929,6 +929,12 @@ static bool cli_evt_read_fixed(struct client *cli, unsigned int events)
 		return true;
 	}
 
+	/* drop cxn if invalid key length */
+	if (cli->key_len > CHD_KEY_SZ) {
+		cli->state = evt_dispose;
+		return true;
+	}
+
 	/* otherwise, go to read-variable-len-record state */
 	cli->req_ptr = &cli->key;
 	cli->req_used = 0;
