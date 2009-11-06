@@ -92,7 +92,7 @@ static char *fs_obj_pathname(const void *key, size_t key_len)
 		goto err_out;
 	}
 
-	sprintf(s, "%s/%s/%s", chunkd_srv.vol_path, prefix, mdstr);
+	sprintf(s, "%s/%s/%s", chunkd_srv.vol_path, prefix, mdstr + 4);
 
 	return s;
 
