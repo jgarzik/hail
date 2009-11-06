@@ -157,6 +157,8 @@ static bool cldu_event(int fd, short events, void *userdata)
 #endif
 	}
 
+	srv_poll_ready(fd);
+
 	return true;	/* continue main loop; do NOT terminate server */
 }
 
@@ -239,8 +241,7 @@ static int cldu_set_cldc(struct cld_session *sp, int newactive)
 	struct cldc_udp *lib;
 	struct cldc_call_opts copts;
 	int rc;
-	struct server_poll spoll;
-	struct pollfd pfd;
+	struct server_poll *spoll;
 
 	if (sp->lib) {
 		if (sp->lib->fd >= 0)
@@ -268,16 +269,17 @@ static int cldu_set_cldc(struct cld_session *sp, int newactive)
 		applog(LOG_INFO, "Selected CLD host %s port %u",
 		       hp->host, hp->port);
 
-	spoll.fd = sp->lib->fd;
-	spoll.cb = cldu_event;
-	spoll.userdata = sp;
+	spoll = calloc(1, sizeof(*spoll));
+	if (!spoll)
+		goto err_sess;
 
-	pfd.fd = sp->lib->fd;
-	pfd.events = POLLIN;
-	pfd.revents = 0;
+	spoll->fd = sp->lib->fd;
+	spoll->events = POLLIN;
+	spoll->cb = cldu_event;
+	spoll->userdata = sp;
 
-	g_array_append_val(chunkd_srv.poll_data, spoll);
-	g_array_append_val(chunkd_srv.polls, pfd);
+	g_hash_table_insert(chunkd_srv.fd_info, GINT_TO_POINTER(sp->lib->fd),
+			    spoll);
 
 	memset(&copts, 0, sizeof(struct cldc_call_opts));
 	copts.cb = cldu_new_sess;

@@ -151,7 +151,11 @@ struct server_stats {
 };
 
 struct server_poll {
-	int			fd;
+	int			fd;		/* fd to poll for events */
+	short			events;		/* POLL* from poll.h */
+	bool			busy;		/* if true, do not poll us */
+
+						/* callback function, data */
 	bool			(*cb)(int fd, short events, void *userdata);
 	void			*userdata;
 };
@@ -171,8 +175,7 @@ struct server {
 	GList			*listeners;
 	GList			*sockets;	/* points into listeners */
 
-	GArray			*polls;
-	GArray			*poll_data;
+	GHashTable		*fd_info;
 
 	struct list_head	wr_trash;
 	unsigned int		trash_sz;
@@ -258,6 +261,7 @@ extern bool cli_write_start(struct client *cli);
 extern int cli_req_avail(struct client *cli);
 extern int cli_poll_mod(struct client *cli);
 extern bool srv_poll_del(int fd);
+extern bool srv_poll_ready(int fd);
 extern void resp_init_req(struct chunksrv_resp *resp,
 		   const struct chunksrv_req *req);
 
