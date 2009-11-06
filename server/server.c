@@ -54,6 +54,9 @@ static struct argp_option options[] = {
 	  "Run in foreground, do not fork" },
 	{ "pid", 'P', "FILE", 0,
 	  "Write daemon process id to FILE" },
+	{ "strict-free", 1001, NULL, 0,
+	  "For memory-checker runs.  When shutting down server, free local "
+	  "heap, rather than simply exit(2)ing and letting OS clean up." },
 	{ }
 };
 
@@ -69,6 +72,7 @@ static const struct argp argp = { options, parse_opt, NULL, doc };
 static bool server_running = true;
 static bool dump_stats;
 static bool use_syslog = true;
+static bool strict_free = false;
 int debugging = 0;
 SSL_CTX *ssl_ctx = NULL;
 struct timeval current_time;
@@ -153,6 +157,9 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 		break;
 	case 'P':
 		chunkd_srv.pid_file = strdup(arg);
+		break;
+	case 1001:			/* --strict-free */
+		strict_free = true;
 		break;
 	case ARGP_KEY_ARG:
 		argp_usage(state);	/* too many args */
@@ -1357,7 +1364,7 @@ static int net_open(struct listen_cfg *cfg)
 		return net_open_known(cfg);
 }
 
-static void main_loop(void)
+static int main_loop(void)
 {
 	time_t next_timeout;
 
@@ -1423,6 +1430,8 @@ static void main_loop(void)
 
 		next_timeout = timers_run();
 	}
+
+	return 0;
 }
 
 int main (int argc, char *argv[])
@@ -1533,11 +1542,9 @@ int main (int argc, char *argv[])
 
 	applog(LOG_INFO, "initialized");
 
-	main_loop();
+	rc = main_loop();
 
 	applog(LOG_INFO, "shutting down");
-
-	rc = 0;
 
 err_out_listen:
 	cld_end();
@@ -1546,6 +1553,10 @@ err_out_session:
 	unlink(chunkd_srv.pid_file);
 	close(chunkd_srv.pid_fd);
 err_out:
+	if (strict_free) {
+		g_array_free(chunkd_srv.poll_data, TRUE);
+		g_array_free(chunkd_srv.polls, TRUE);
+	}
 	closelog();
 	return rc;
 }
