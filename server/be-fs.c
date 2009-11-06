@@ -81,7 +81,12 @@ static char *fs_obj_pathname(const void *key, size_t key_len)
 		if (errno == ENOENT) {
 			if (mkdir(s, 0777) < 0) {
 				syslogerr(s);
-				goto err_out;
+
+				/* Directory already exists, perhaps
+				 * because we raced with another thread.
+				 */
+				if (errno != EEXIST)
+					goto err_out;
 			}
 		} else {
 			syslogerr(s);
