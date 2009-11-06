@@ -33,11 +33,11 @@ static void test(bool encrypt)
 	OK(stc2);
 
 	/* store object 1 */
-	rcb = stc_put_inlinez(stc1, key1, val1, strlen(val1));
+	rcb = stc_put_inlinez(stc1, key1, val1, strlen(val1), 0);
 	OK(rcb);
 
 	/* store object 2 */
-	rcb = stc_put_inlinez(stc2, key2, val2, strlen(val2));
+	rcb = stc_put_inlinez(stc2, key2, val2, strlen(val2), 0);
 	OK(rcb);
 
 	/* make sure object 1 appears in list of volume keys */

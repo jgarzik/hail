@@ -94,7 +94,6 @@ struct client {
 	char			*out_user;
 	SHA_CTX			out_hash;
 	long			out_len;
-	bool			out_sync;
 
 	struct backend_obj	*out_bo;
 

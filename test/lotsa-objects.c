@@ -41,7 +41,7 @@ static void test(int n_objects, bool encrypt)
 	/* store object */
 	for (i = 0; i < n_objects; i++) {
 		sprintf(key, "%x000000", i);
-		rcb = stc_put_inlinez(stc, key, val, strlen(val));
+		rcb = stc_put_inlinez(stc, key, val, strlen(val), 0);
 		OK(rcb);
 
 		keys = g_list_prepend(keys, strdup(key));

@@ -412,7 +412,7 @@ size_t stc_get_recv(struct st_client *stc, void *data, size_t data_len)
 
 bool stc_put(struct st_client *stc, const void *key, size_t key_len,
 	     size_t (*read_cb)(void *, size_t, size_t, void *),
-	     uint64_t len, void *user_data)
+	     uint64_t len, void *user_data, uint32_t flags)
 {
 	char netbuf[4096];
 	struct chunksrv_resp resp;
@@ -430,6 +430,7 @@ bool stc_put(struct st_client *stc, const void *key, size_t key_len,
 	/* initialize request */
 	req_init(stc, req);
 	req->op = CHO_PUT;
+	req->flags = (flags & CHF_SYNC);
 	req->data_len = cpu_to_le64(content_len);
 	req_set_key(req, key, key_len);
 
@@ -480,7 +481,7 @@ err_out:
  * library users poking around stc->fd, an implementation detail.
  */
 bool stc_put_start(struct st_client *stc, const void *key, size_t key_len,
-		   uint64_t cont_len, int *pfd)
+		   uint64_t cont_len, int *pfd, uint32_t flags)
 {
 	struct chunksrv_req *req = (struct chunksrv_req *) stc->req_buf;
 
@@ -495,6 +496,7 @@ bool stc_put_start(struct st_client *stc, const void *key, size_t key_len,
 	/* initialize request */
 	req_init(stc, req);
 	req->op = CHO_PUT;
+	req->flags = (flags & CHF_SYNC);
 	req->data_len = cpu_to_le64(cont_len);
 	req_set_key(req, key, key_len);
 
@@ -609,11 +611,11 @@ static size_t read_inline_cb(void *ptr, size_t size, size_t nmemb,
 }
 
 bool stc_put_inline(struct st_client *stc, const void *key, size_t key_len,
-	     void *data, uint64_t len)
+	     void *data, uint64_t len, uint32_t flags)
 {
 	struct stc_put_info spi = { data, len };
 
-	return stc_put(stc, key, key_len, read_inline_cb, len, &spi);
+	return stc_put(stc, key, key_len, read_inline_cb, len, &spi, flags);
 }
 
 bool stc_del(struct st_client *stc, const void *key, size_t key_len)

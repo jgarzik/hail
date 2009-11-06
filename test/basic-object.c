@@ -28,7 +28,7 @@ static void test(bool encrypt)
 	OK(stc);
 
 	/* store object */
-	rcb = stc_put_inlinez(stc, key, val, strlen(val));
+	rcb = stc_put_inlinez(stc, key, val, strlen(val), 0);
 	OK(rcb);
 
 	/* make sure object appears in list of volume keys */

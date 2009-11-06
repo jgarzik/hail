@@ -80,7 +80,7 @@ static bool object_put_end(struct client *cli)
 	hexstr(md, SHA_DIGEST_LENGTH, hashstr);
 
 	rcb = fs_obj_write_commit(cli->out_bo, cli->out_user,
-				  hashstr, cli->out_sync);
+				  hashstr, (cli->creq.flags & CHF_SYNC));
 	if (!rcb)
 		goto err_out;
 
@@ -203,7 +203,6 @@ bool object_put(struct client *cli)
 	SHA1_Init(&cli->out_hash);
 	cli->out_len = content_len;
 	cli->out_user = strdup(user);
-	cli->out_sync = false;
 
 	if (!cli->out_len)
 		return object_put_end(cli);

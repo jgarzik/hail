@@ -98,7 +98,7 @@ static void test(bool encrypt)
 	gettimeofday(&ta, NULL);
 
 	/* store object */
-	rcb = stc_put_startz(stc, key, N_BUFS * BUFSZ, &sfd);
+	rcb = stc_put_startz(stc, key, N_BUFS * BUFSZ, &sfd, 0);
 	OK(rcb);
 	for (i = 0; i < N_BUFS; i++) {
 		rcb = send_buf(stc, sfd, data, BUFSZ);

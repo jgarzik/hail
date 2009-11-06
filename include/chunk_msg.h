@@ -33,10 +33,14 @@ enum chunk_errcode {
 	che_InvalidKey			= 7,
 };
 
+enum chunk_flags {
+	CHF_SYNC		= (1 << 0),	/* force write to media */
+};
+
 struct chunksrv_req {
 	uint8_t			magic[CHD_MAGIC_SZ];	/* CHUNKD_MAGIC */
 	uint8_t			op;			/* CHO_xxx */
-	uint8_t			rsv1[1];
+	uint8_t			flags;			/* CHF_xxx */
 	uint16_t		key_len;
 	uint32_t		nonce;	/* random number, to stir checksum */
 	uint64_t		data_len;		/* len of addn'l data */

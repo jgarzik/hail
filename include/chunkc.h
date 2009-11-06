@@ -53,15 +53,19 @@ extern void *stc_get_inline(struct st_client *stc,
 extern bool stc_get_start(struct st_client *stc, const void *key,
 			size_t key_len,int *pfd, uint64_t *len);
 extern size_t stc_get_recv(struct st_client *stc, void *data, size_t len);
+
 extern bool stc_put(struct st_client *stc, const void *key, size_t key_len,
 	     size_t (*read_cb)(void *, size_t, size_t, void *),
-	     uint64_t len, void *user_data);
+	     uint64_t len, void *user_data, uint32_t flags);
 extern bool stc_put_start(struct st_client *stc, const void *key,
-			  size_t key_len, uint64_t cont_len, int *pfd);
+			  size_t key_len, uint64_t cont_len, int *pfd,
+			  uint32_t flags);
 extern size_t stc_put_send(struct st_client *stc, void *data, size_t len);
 extern bool stc_put_sync(struct st_client *stc);
 extern bool stc_put_inline(struct st_client *stc, const void *key,
-			   size_t key_len, void *data, uint64_t len);
+			   size_t key_len, void *data, uint64_t len,
+			   uint32_t flags);
+
 extern bool stc_del(struct st_client *stc, const void *key, size_t key_len);
 extern bool stc_ping(struct st_client *stc);
 
@@ -83,15 +87,15 @@ static inline bool stc_get_startz(struct st_client *stc, const char *key,
 }
 
 static inline bool stc_put_inlinez(struct st_client *stc, const char *key,
-				   void *data, uint64_t len)
+				   void *data, uint64_t len, uint32_t flags)
 {
-	return stc_put_inline(stc, key, strlen(key) + 1, data, len);
+	return stc_put_inline(stc, key, strlen(key) + 1, data, len, flags);
 }
 
 static inline bool stc_put_startz(struct st_client *stc, const char *key,
-				  uint64_t cont_len, int *pfd)
+				  uint64_t cont_len, int *pfd, uint32_t flags)
 {
-	return stc_put_start(stc, key, strlen(key) + 1, cont_len, pfd);
+	return stc_put_start(stc, key, strlen(key) + 1, cont_len, pfd, flags);
 }
 
 static inline bool stc_delz(struct st_client *stc, const char *key)
