@@ -887,7 +887,7 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 	return 0;
 }
 
-static void main_loop(void)
+static int main_loop(void)
 {
 	time_t next_timeout;
 
@@ -953,6 +953,8 @@ static void main_loop(void)
 
 		next_timeout = timers_run();
 	}
+
+	return 0;
 }
 
 int main (int argc, char *argv[])
@@ -1041,7 +1043,7 @@ int main (int argc, char *argv[])
 	/*
 	 * execute main loop
 	 */
-	main_loop();
+	rc = main_loop();
 
 	applog(LOG_INFO, "shutting down");
 
@@ -1051,8 +1053,6 @@ int main (int argc, char *argv[])
 	if (cld_srv.cldb.up)
 		cldb_down(&cld_srv.cldb);
 	cldb_fini(&cld_srv.cldb);
-
-	rc = 0;
 
 err_out_pid:
 	unlink(cld_srv.pid_file);
