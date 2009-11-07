@@ -640,8 +640,10 @@ GList *fs_list_objs(const char *user)
 			/* filter out results that do not match
 			 * the authenticated user
 			 */
-			if (strcmp(user, hdr.owner))
+			if (strcmp(user, hdr.owner)) {
+				free(key_in);
 				continue;
+			}
 
 			/* one alloc, for fixed + var length struct */
 			alloc_len = sizeof(*ve) +
@@ -650,6 +652,7 @@ GList *fs_list_objs(const char *user)
 
 			ve = malloc(alloc_len);
 			if (!ve) {
+				free(key_in);
 				applog(LOG_ERR, "OOM");
 				break;
 			}
