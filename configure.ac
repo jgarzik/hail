@@ -129,6 +129,7 @@ AC_CONFIG_FILES([doc/Makefile
 		 include/Makefile
 		 server/Makefile
 		 test/Makefile
+		 tools/Makefile
 		 test/start-daemon.real
 		 Makefile])
 AC_OUTPUT

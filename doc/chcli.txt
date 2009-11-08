@@ -1,0 +1,20 @@
+
+chcli is a general purpose command line interface to chunkd.
+
+Examples of usage:
+
+1) Storing a record.  Username "user", password "user", host 127.0.0.1,
+   port 38455, key "age", value "99".
+
+$ CHCLI_PASSWORD=user tools/chcli -h 127.0.0.1:38455 -u user	\
+	put name "Jeff Garzik"
+
+
+
+2) Retrieving a record, to stdout.  Username "user", password "user",
+   host 127.0.0.1, port 38455, key "age", value "99".
+
+$ CHCLI_PASSWORD=user tools/chcli -h 127.0.0.1:38455 -u user	\
+	get name
+Jeff Garzik
+
