@@ -25,12 +25,16 @@ static struct argp_option options[] = {
 	  "Set debug output to LEVEL (0 = off, 2 = max verbose)" },
 	{ "host", 'h', "HOST:PORT", 0,
 	  "Connect to remote chunkd at specified HOST:PORT" },
+	{ "key", 'k', "FILE", 0,
+	  "Read key from FILE, rather than command line" },
+	{ "output", 'o', "FILE", 0,
+	  "Send GET output to FILE, rather than stdout" },
 	{ "ssl", 'S', NULL, 0,
 	  "Enable SSL channel security" },
 	{ "user", 'u', "USER", 0,
 	  "Set username to USER" },
 	{ "verbose", 'v', NULL, 0,
-	  "Enable verbose libcldc output" },
+	  "Enable verbose libchunkdc output" },
 	{ }
 };
 
@@ -57,6 +61,9 @@ static GList *host_list;
 static struct chcli_host *host;
 static char username[CHD_USER_SZ + 1] = "";
 static char *password;
+static char *output_fn;
+static char *key_data;
+static gsize key_data_len;
 static char *password_env = "CHCLI_PASSWORD";
 static bool chcli_verbose;
 static bool use_ssl;
@@ -142,6 +149,16 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 		} else
 			strcpy(username, arg);
 		break;
+	case 'k':
+		if (!g_file_get_contents(arg, &key_data, &key_data_len,
+					 NULL)) {
+			fprintf(stderr, "failed to read key file %s\n", arg);
+			argp_usage(state);
+		}
+		break;
+	case 'o':
+		output_fn = arg;
+		break;
 	case 'v':
 		chcli_verbose = true;
 		break;
@@ -174,18 +191,30 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 
 static int cmd_put(void)
 {
-	size_t key_len;
 	struct st_client *stc;
 
-	if (n_cmd_args != 2) {
-		fprintf(stderr, "PUT requires key and value args\n");
+	/* if key data not supplied via file, absorb first cmd arg */
+	if (!key_data) {
+		if (!n_cmd_args) {
+			fprintf(stderr, "PUT requires key arg\n");
+			return 1;
+		}
+
+		key_data = cmd_args[0];
+		key_data_len = strlen(cmd_args[0]) + 1;
+
+		cmd_args++;
+		n_cmd_args--;
+	}
+
+	if (n_cmd_args != 1) {
+		fprintf(stderr, "PUT requires value arg\n");
 		return 1;
 	}
 
-	key_len = strlen(cmd_args[0]) + 1;
-	if (key_len < 1 || key_len > CHD_KEY_SZ) {
+	if (key_data_len < 1 || key_data_len > CHD_KEY_SZ) {
 		fprintf(stderr, "PUT: invalid key size %u\n",
-			(unsigned int) key_len);
+			(unsigned int) key_data_len);
 		return 1;
 	}
 
@@ -199,8 +228,8 @@ static int cmd_put(void)
 
 	stc->verbose = chcli_verbose;
 
-	if (!stc_put_inlinez(stc, cmd_args[0],
-			     cmd_args[1], strlen(cmd_args[1]), 0)) {
+	if (!stc_put_inline(stc, key_data, key_data_len,
+			    cmd_args[0], strlen(cmd_args[0]), 0)) {
 		fprintf(stderr, "PUT failed\n");
 		return 1;
 	}
@@ -248,19 +277,27 @@ static bool recv_buf(struct st_client *stc, int rfd, void *buf, size_t buf_len)
 
 static int cmd_get(void)
 {
-	size_t key_len;
 	struct st_client *stc;
 	int rfd = -1;
+	FILE *out_f;
 
-	if (n_cmd_args != 1) {
-		fprintf(stderr, "GET requires a single 'key' arg\n");
-		return 1;
+	/* if key data not supplied via file, absorb first cmd arg */
+	if (!key_data) {
+		if (!n_cmd_args) {
+			fprintf(stderr, "GET requires key arg\n");
+			return 1;
+		}
+
+		key_data = cmd_args[0];
+		key_data_len = strlen(cmd_args[0]) + 1;
+
+		cmd_args++;
+		n_cmd_args--;
 	}
 
-	key_len = strlen(cmd_args[0]) + 1;
-	if (key_len < 1 || key_len > CHD_KEY_SZ) {
-		fprintf(stderr, "GET: invalid key size %u\n",
-			(unsigned int) key_len);
+	if (key_data_len < 1 || key_data_len > CHD_KEY_SZ) {
+		fprintf(stderr, "PUT: invalid key size %u\n",
+			(unsigned int) key_data_len);
 		return 1;
 	}
 
@@ -272,9 +309,23 @@ static int cmd_get(void)
 		return 1;
 	}
 
-	if (!stc_get_startz(stc, cmd_args[0], &rfd, &get_len)) {
+	stc->verbose = chcli_verbose;
+
+	if (!stc_get_start(stc, key_data, key_data_len, &rfd, &get_len)) {
 		fprintf(stderr, "GET initiation failed\n");
 		return 1;
+	}
+
+	if (!output_fn)
+		out_f = stdout;
+	else {
+		out_f = fopen(output_fn, "w");
+		if (!out_f) {
+			fprintf(stderr, "GET output file %s open failed: %s\n",
+				output_fn,
+				strerror(errno));
+			return 1;
+		}
 	}
 
 	while (get_len > 0) {
@@ -287,14 +338,17 @@ static int cmd_get(void)
 			return 1;
 		}
 
-		fwrite(get_buf, need_len, 1, stdout);
+		fwrite(get_buf, need_len, 1, out_f);
 
 		get_len -= need_len;
 
-		if (get_len == 0 && need_len > 0 &&
+		if ((out_f == stdout) && get_len == 0 && need_len > 0 &&
 		    get_buf[need_len - 1] != '\n')
 			putchar('\n');
 	}
+
+	if (output_fn)
+		fclose(out_f);
 
 	stc_free(stc);
 
