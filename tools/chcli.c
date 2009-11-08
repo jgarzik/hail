@@ -23,6 +23,8 @@ const char *argp_program_version = PACKAGE_VERSION;
 static struct argp_option options[] = {
 	{ "debug", 'D', "LEVEL", 0,
 	  "Set debug output to LEVEL (0 = off, 2 = max verbose)" },
+	{ "config", 'c', "FILE", 0,
+	  "Load key=value configuration file" },
 	{ "host", 'h', "HOST:PORT", 0,
 	  "Connect to remote chunkd at specified HOST:PORT" },
 	{ "key", 'k', "FILE", 0,
@@ -130,6 +132,60 @@ err:
 static error_t parse_opt (int key, char *arg, struct argp_state *state)
 {
 	switch(key) {
+
+	case 'c': {
+		char *s;
+		GKeyFile *config;
+
+		config = g_key_file_new();
+		if (!config)
+			return 1;
+
+		if (!g_key_file_load_from_file(config, arg, 0, NULL)) {
+			fprintf(stderr, "failed to read config file %s\n", arg);
+			argp_usage(state);
+		}
+
+		s = g_key_file_get_string(config, "global", "host", NULL);
+		if (s) {
+			if (!push_host(s)) {
+				fprintf(stderr, "invalid config host %s\n", s);
+				argp_usage(state);
+			}
+
+			free(s);
+		}
+
+		s = g_key_file_get_string(config, "global", "username", NULL);
+		if (s) {
+			if ((!*s) || (strlen(s) >= CHD_USER_SZ)) {
+				fprintf(stderr, "invalid config user %s\n", s);
+				argp_usage(state);
+			}
+
+			strcpy(username, s);
+			free(s);
+		}
+
+		password = g_key_file_get_string(config, "global", "password",
+						 NULL);
+
+		chcli_verbose = g_key_file_get_boolean(config, "global",
+						       "verbose", NULL);
+		use_ssl = g_key_file_get_boolean(config, "global", "ssl", NULL);
+
+		debugging = g_key_file_get_integer(config, "global", "debug",
+						   NULL);
+		if (debugging < 0 || debugging > 2) {
+			fprintf(stderr, "invalid config debug %d\n", debugging);
+			argp_usage(state);
+		}
+
+		g_key_file_free(config);
+
+		break;
+	}
+
 	case 'D':
 		if (atoi(arg) >= 0 && atoi(arg) <= 2)
 			debugging = atoi(arg);
@@ -377,7 +433,8 @@ int main (int argc, char *argv[])
 		return 1;
 	}
 
-	password = getenv(password_env);
+	if (!password)
+		password = getenv(password_env);
 	if (!password) {
 		fprintf(stderr, "no password found in env variable '%s'\n",
 			password_env);
