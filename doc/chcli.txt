@@ -19,5 +19,10 @@ $ CHCLI_PASSWORD=user tools/chcli -h 127.0.0.1:38455 -u user	\
 Jeff Garzik
 
 
+Keys provided on the command line (as opposed to via -k) are stored
+with a C-style nul terminating character appended, adding 1 byte to
+each key.
+
 See chcli.cfg for an example configuration file.
+
 

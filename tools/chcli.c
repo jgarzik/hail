@@ -147,6 +147,9 @@ static void show_cmds(void)
 "GET key		Retrieve key, send to output (def: stdout)\n"
 "PUT key val	Store key\n"
 "\n"
+"Keys provided on the command line (as opposed to via -k) are stored\n"
+"with a C-style nul terminating character appended, adding 1 byte to\n"
+"each key.\n"
 		);
 
 	exit(0);
