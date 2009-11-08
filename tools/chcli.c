@@ -2,14 +2,17 @@
 #include "chunkd-config.h"
 
 #include <assert.h>
-#include <unistd.h>
-#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <unistd.h>
+#include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <stdio.h>
 #include <argp.h>
+#include <fcntl.h>
 #include <poll.h>
 #include <locale.h>
 #include <stdarg.h>
@@ -359,8 +362,7 @@ static bool recv_buf(struct st_client *stc, int rfd, void *buf, size_t buf_len)
 static int cmd_get(void)
 {
 	struct st_client *stc;
-	int rfd = -1;
-	FILE *out_f;
+	int rfd = -1, wfd;
 
 	/* if key data not supplied via file, absorb first cmd arg */
 	if (!key_data) {
@@ -397,11 +399,11 @@ static int cmd_get(void)
 		return 1;
 	}
 
-	if (!output_fn)
-		out_f = stdout;
+	if (!output_fn || !strcmp(output_fn, "-"))
+		wfd = STDOUT_FILENO;
 	else {
-		out_f = fopen(output_fn, "w");
-		if (!out_f) {
+		wfd = open(output_fn, O_CREAT | O_TRUNC | O_WRONLY, 0666);
+		if (wfd < 0) {
 			fprintf(stderr, "GET output file %s open failed: %s\n",
 				output_fn,
 				strerror(errno));
@@ -419,17 +421,18 @@ static int cmd_get(void)
 			return 1;
 		}
 
-		fwrite(get_buf, need_len, 1, out_f);
+		if (write(wfd, get_buf, need_len) != need_len) {
+			fprintf(stderr, "GET write to output failed: %s\n",
+				strerror(errno));
+			unlink(output_fn);
+			return 1;
+		}
 
 		get_len -= need_len;
-
-		if ((out_f == stdout) && get_len == 0 && need_len > 0 &&
-		    get_buf[need_len - 1] != '\n')
-			putchar('\n');
 	}
 
-	if (output_fn)
-		fclose(out_f);
+	if (wfd != STDOUT_FILENO)
+		close(wfd);
 
 	stc_free(stc);
 
