@@ -3,9 +3,9 @@ general:
 	- support multiple threads handling client activity
 	- global thread pool, shared across volumes
 	- optional private thread pool for a single volume
+		- see "thread" branch in git repo
+
 	- hook into a username/password database
-	- invalid cookie (not 100% hex digits) should return
-	  a better error than InternalError
 	- network protocol should include 'start-tls' command,
 	  and not require separate port for SSL
 

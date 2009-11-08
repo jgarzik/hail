@@ -5,8 +5,8 @@ used as a low-level piece of large-scale data storage infrastructure.
 
 The service provides operations on stored data ("objects").
 
-An object is simply an anonymous blob of any length, indexed by a string of
-length <=63 of lowercase hex digits (0-9, a-f).
+An object is simply an anonymous blob of any length, indexed by a similarly
+opaque key, 1-1024 bytes in size.
 
 When you PUT (upload) an object, you receive in return a hash value
 (currently SHA-1), that may be used for optional end-to-end integrity
@@ -14,14 +14,14 @@ checking.
 
 From this basic service interface
 
-	PUT $COOKIE
-		<- (len, data)
-		-> (sha-1 hash)
+        PUT (key, value)
+                <- (key, key len, data, data len)
+                -> (sha-1 hash)
 
-	GET $COOKIE
-		-> (sha-1 hash, len, data)
+        GET (key)
+                -> (len, sha-1 hash, data)
 
-	DELETE $COOKIE
+        DELETE (key)
 
 See include/chunk_msg.h for the full network protocol definition in C.
 

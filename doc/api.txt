@@ -1,31 +1,27 @@
 
 Interface overview, in a nutshell
 =================================
-        PUT $COOKIE
-                <- (len, data)
+        PUT (key, value)
+                <- (key, key len, data, data len)
                 -> (sha-1 hash)
 
-        GET $COOKIE
+        GET (key)
                 -> (len, sha-1 hash, data)
 
-        DELETE $COOKIE
+        DELETE (key)
 
 There are no provisions for updating objects.  An update is accomplished via
 GET+DELETE+PUT.
+
+Objects must be retrieved and stored in full.
 
 See include/chunk_msg.h for full network protocol specification in C.
 
 
 
-Special note about COOKIE strings
+Keys
 =================================
-The object key, referred to above as $COOKIE, must consist only of lowercase
-hexidecimal digits: 0 1 2 3 4 5 6 7 8 9 a b c d e f
-
-There is no internal limit on the length of the object key; however the URI
-length limit in practice limits the object key length.
-
-Each cookie must be at least 7 characters.
+Keys are opaque binary strings, from 1 byte to 1,024 bytes in size.
 
 
 
