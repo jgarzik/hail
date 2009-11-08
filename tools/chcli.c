@@ -37,11 +37,18 @@ static struct argp_option options[] = {
 	  "Set username to USER" },
 	{ "verbose", 'v', NULL, 0,
 	  "Enable verbose libchunkdc output" },
+
+	{ "list-cmds", 1001, NULL, 0,
+	  "List supported commands" },
+
 	{ }
 };
 
 static const char doc[] =
 "chcli - command line interface to chunk data obj service";
+
+static const char args_doc[] =
+"COMMAND [ARG...]";
 
 enum {
 	GET_BUFSZ	= 16 * 1024,
@@ -75,7 +82,7 @@ static int n_cmd_args;
 
 static error_t parse_opt (int key, char *arg, struct argp_state *state);
 
-static const struct argp argp = { options, parse_opt, NULL, doc };
+static const struct argp argp = { options, parse_opt, args_doc, doc };
 
 static bool push_host(const char *arg)
 {
@@ -127,6 +134,19 @@ err_out:
 	free(dr);
 err:
 	return false;
+}
+
+static void show_cmds(void)
+{
+	fprintf(stderr,
+"Supported chcli commands:\n"
+"\n"
+"GET key		Retrieve key, send to output (def: stdout)\n"
+"PUT key val	Store key\n"
+"\n"
+		);
+
+	exit(0);
 }
 
 static error_t parse_opt (int key, char *arg, struct argp_state *state)
@@ -221,13 +241,18 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 	case 'S':
 		use_ssl = true;
 		break;
+
+	case 1001:			/* --list-cmds */
+		show_cmds();
+		break;
+
 	case ARGP_KEY_ARG:
 		if (cmd_mode != CHC_NONE)
 			return ARGP_ERR_UNKNOWN; /* let next case parse it */
 
-		if (!strcmp(arg, "get"))
+		if (!strcasecmp(arg, "get"))
 			cmd_mode = CHC_GET;
-		else if (!strcmp(arg, "put"))
+		else if (!strcasecmp(arg, "put"))
 			cmd_mode = CHC_PUT;
 		else
 			argp_usage(state);	/* invalid cmd */
