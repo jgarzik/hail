@@ -76,6 +76,8 @@ struct client {
 	char			addr_host[64];	/* ASCII version of inet addr */
 	int			fd;		/* socket */
 
+	char			user[CHD_USER_SZ + 1];
+
 	SSL			*ssl;
 	bool			read_want_write;
 	bool			write_want_read;

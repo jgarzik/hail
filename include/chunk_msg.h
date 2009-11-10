@@ -20,6 +20,7 @@ enum chunksrv_ops {
 	CHO_PUT			= 3,
 	CHO_DEL			= 4,
 	CHO_LIST		= 5,
+	CHO_LOGIN		= 6,
 };
 
 enum chunk_errcode {
@@ -44,7 +45,6 @@ struct chunksrv_req {
 	uint16_t		key_len;
 	uint32_t		nonce;	/* random number, to stir checksum */
 	uint64_t		data_len;		/* len of addn'l data */
-	char			user[CHD_USER_SZ];	/* username */
 	char			sig[CHD_SIG_SZ];	/* HMAC signature */
 
 	/* variable-length key */

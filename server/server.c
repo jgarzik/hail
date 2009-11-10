@@ -728,7 +728,7 @@ static bool volume_list(struct client *cli)
 	bool rcb;
 	GList *res = NULL;
 
-	res = fs_list_objs(cli->creq.user);
+	res = fs_list_objs(cli->user);
 
 	s = g_markup_printf_escaped(
 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
@@ -785,7 +785,7 @@ static bool volume_list(struct client *cli)
 }
 
 static bool authcheck(const struct chunksrv_req *req, const void *key,
-		      size_t key_len)
+		      size_t key_len, const char *secret_key)
 {
 	char req_buf[sizeof(struct chunksrv_req) + CHD_KEY_SZ];
 	struct chunksrv_req *tmpreq = (struct chunksrv_req *) req_buf;
@@ -795,12 +795,39 @@ static bool authcheck(const struct chunksrv_req *req, const void *key,
 	memcpy((tmpreq + 1), key, key_len);
 	memset(tmpreq->sig, 0, sizeof(tmpreq->sig));
 
+	chreq_sign(tmpreq, secret_key, hmac);
+
+	return strcmp(req->sig, hmac) ? false : true;
+}
+
+static bool login_user(struct client *cli)
+{
+	struct chunksrv_req *req = &cli->creq;
+	enum chunk_errcode err;
+
+	/* validate username length */
+	if (cli->key_len < 1 || cli->key_len > CHD_USER_SZ) {
+		err = che_InvalidArgument;
+		cli->state = evt_dispose;
+		goto err_out;
+	}
+
+	memset(cli->user, 0, sizeof(cli->user));
+	memcpy(cli->user, cli->key, cli->key_len);
+
 	/* for lack of a better authentication scheme, we
 	 * supply the username as the secret key
 	 */
-	chreq_sign(tmpreq, req->user, hmac);
+	if (!authcheck(req, cli->key, cli->key_len, cli->user)) {
+		err = che_SignatureDoesNotMatch;
+		cli->state = evt_dispose;
+		goto err_out;
+	}
 
-	return strcmp(req->sig, hmac) ? false : true;
+	return cli_err(cli, che_Success, true);
+
+err_out:
+	return cli_err(cli, err, false);
 }
 
 static bool valid_req_hdr(const struct chunksrv_req *req)
@@ -808,10 +835,6 @@ static bool valid_req_hdr(const struct chunksrv_req *req)
 	size_t len;
 
 	if (memcmp(req->magic, CHUNKD_MAGIC, CHD_MAGIC_SZ))
-		return false;
-
-	len = strnlen(req->user, sizeof(req->user));
-	if (len < 1 || len == sizeof(req->user))
 		return false;
 
 	len = strnlen(req->sig, sizeof(req->sig));
@@ -830,6 +853,7 @@ static const char *op2str(enum chunksrv_ops op)
 	case CHO_PUT:		return "CHO_PUT";
 	case CHO_DEL:		return "CHO_DEL";
 	case CHO_LIST:		return "CHO_LIST";
+	case CHO_LOGIN:		return "CHO_LOGIN";
 
 	default:
 		return "BUG/UNKNOWN!";
@@ -844,6 +868,7 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 	struct chunksrv_req *req = &cli->creq;
 	bool rcb;
 	enum chunk_errcode err;
+	bool logged_in = (cli->user[0] != 0);
 
 	/* validate request header */
 	if (!valid_req_hdr(req)) {
@@ -851,27 +876,41 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 		goto err_out;
 	}
 
+	if (debugging)
+		applog(LOG_DEBUG, "REQ(op %s, key %s (%u), user %s) "
+		       "seq %x len %lld login %s",
+		       op2str(req->op),
+		       cli->key,
+		       cli->key_len,
+		       cli->user,
+		       req->nonce,
+		       (long long) le64_to_cpu(req->data_len),
+		       logged_in ? "Y" : "N");
+
 	/* check authentication */
-	if (!authcheck(req, cli->key, cli->key_len)) {
+	/* for lack of a better authentication scheme, we
+	 * supply the username as the secret key
+	 */
+	if (logged_in &&
+	    !authcheck(req, cli->key, cli->key_len, cli->user)) {
 		err = che_SignatureDoesNotMatch;
 		goto err_out;
 	}
 
 	cli->state = evt_recycle;
 
-	if (debugging)
-		applog(LOG_DEBUG, "REQ(op %s, key %s (%u), user %s) seq %x len %lld",
-		       op2str(req->op),
-		       cli->key,
-		       cli->key_len,
-		       req->user,
-		       req->nonce,
-		       (long long) le64_to_cpu(req->data_len));
+	if (G_UNLIKELY((!logged_in) && (req->op != CHO_LOGIN))) {
+		cli->state = evt_dispose;
+		return true;
+	}
 
 	/*
 	 * operations on objects
 	 */
 	switch (req->op) {
+	case CHO_LOGIN:
+		rcb = login_user(cli);
+		break;
 	case CHO_NOP:
 		rcb = cli_err(cli, che_Success, true);
 		break;

@@ -30,7 +30,7 @@ bool object_del(struct client *cli)
 
 	resp_init_req(resp, &cli->creq);
 
-	rcb = fs_obj_delete(cli->creq.user, cli->key, cli->key_len, &err);
+	rcb = fs_obj_delete(cli->user, cli->key, cli->key_len, &err);
 	if (!rcb)
 		return cli_err(cli, err, true);
 
@@ -189,7 +189,7 @@ bool cli_evt_data_in(struct client *cli, unsigned int events)
 
 bool object_put(struct client *cli)
 {
-	const char *user = cli->creq.user;
+	const char *user = cli->user;
 	uint64_t content_len = le64_to_cpu(cli->creq.data_len);
 	enum chunk_errcode err;
 
@@ -286,7 +286,7 @@ bool object_get(struct client *cli, bool want_body)
 
 	resp_init_req(&get_resp->resp, &cli->creq);
 
-	cli->in_obj = obj = fs_obj_open(cli->creq.user, cli->key,
+	cli->in_obj = obj = fs_obj_open(cli->user, cli->key,
 					cli->key_len, &err);
 	if (!obj) {
 		free(get_resp);

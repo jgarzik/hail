@@ -49,7 +49,6 @@ static void req_init(struct st_client *stc, struct chunksrv_req *req)
 	memset(req, 0, sizeof(*req));
 	memcpy(req->magic, CHUNKD_MAGIC, CHD_MAGIC_SZ);
 	req->nonce = rand();
-	strcpy(req->user, stc->user);
 }
 
 static void req_set_key(struct chunksrv_req *req, const void *key,
@@ -138,6 +137,41 @@ void stc_free(struct st_client *stc)
 	free(stc);
 }
 
+static bool stc_login(struct st_client *stc)
+{
+	struct chunksrv_resp resp;
+	struct chunksrv_req *req = (struct chunksrv_req *) stc->req_buf;
+
+	if (stc->verbose)
+		fprintf(stderr, "libstc: LOGIN\n");
+
+	/* initialize request; username is sent as key/key_len */
+	req_init(stc, req);
+	req->op = CHO_LOGIN;
+	req_set_key(req, stc->user, strlen(stc->user) + 1);
+
+	/* sign request */
+	chreq_sign(req, stc->key, req->sig);
+
+	/* write request */
+	if (!net_write(stc, req, req_len(req)))
+		return false;
+
+	/* read response header */
+	if (!net_read(stc, &resp, sizeof(resp)))
+		return false;
+
+	/* check response code */
+	if (resp.resp_code != che_Success) {
+		if (stc->verbose)
+			fprintf(stderr, "LOGIN failed, resp code: %d\n",
+				resp.resp_code);
+		return false;
+	}
+
+	return true;
+}
+
 struct st_client *stc_new(const char *service_host, int port,
 			  const char *user, const char *secret_key,
 			  bool use_ssl)
@@ -146,6 +180,12 @@ struct st_client *stc_new(const char *service_host, int port,
 	struct addrinfo hints, *res = NULL, *rp;
 	int rc, fd = -1, on = 1;
 	char port_str[32];
+
+	if (!service_host || !*service_host ||
+	    port < 1 || port > 65535 ||
+	    !user || !*user ||
+	    !secret_key || !*secret_key)
+		return NULL;
 
 	sprintf(port_str, "%d", port);
 
@@ -210,6 +250,9 @@ struct st_client *stc_new(const char *service_host, int port,
 		if (SSL_connect(stc->ssl) <= 0)
 			goto err_out_ssl;
 	}
+
+	if (!stc_login(stc))
+		goto err_out_ssl;
 
 	return stc;
 
