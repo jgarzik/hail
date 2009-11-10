@@ -61,6 +61,8 @@ enum chcli_cmd {
 	CHC_NONE,
 	CHC_GET,
 	CHC_PUT,
+	CHC_DEL,
+	CHC_PING,
 };
 
 struct chcli_host {
@@ -146,6 +148,8 @@ static void show_cmds(void)
 "\n"
 "GET key		Retrieve key, send to output (def: stdout)\n"
 "PUT key val	Store key\n"
+"DEL key	Delete key\n"
+"PING		Ping server\n"
 "\n"
 "Keys provided on the command line (as opposed to via -k) are stored\n"
 "with a C-style nul terminating character appended, adding 1 byte to\n"
@@ -260,6 +264,10 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 			cmd_mode = CHC_GET;
 		else if (!strcasecmp(arg, "put"))
 			cmd_mode = CHC_PUT;
+		else if (!strcasecmp(arg, "del"))
+			cmd_mode = CHC_DEL;
+		else if (!strcasecmp(arg, "ping"))
+			cmd_mode = CHC_PING;
 		else
 			argp_usage(state);	/* invalid cmd */
 		break;
@@ -272,6 +280,79 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 	default:
 		return ARGP_ERR_UNKNOWN;
 	}
+
+	return 0;
+}
+
+static struct st_client *chcli_stc_new(void)
+{
+	struct st_client *stc;
+
+	stc = stc_new(host->name, host->port, username, password, use_ssl);
+	if (!stc) {
+		fprintf(stderr, "%s:%u: failed to connect to storage\n",
+			host->name,
+			host->port);
+		return NULL;
+	}
+
+	stc->verbose = chcli_verbose;
+
+	return stc;
+}
+
+static int cmd_ping(void)
+{
+	struct st_client *stc;
+
+	stc = chcli_stc_new();
+	if (!stc)
+		return 1;
+
+	if (!stc_ping(stc)) {
+		fprintf(stderr, "PING failed\n");
+		return 1;
+	}
+
+	stc_free(stc);
+
+	return 0;
+}
+
+static int cmd_del(void)
+{
+	struct st_client *stc;
+
+	/* if key data not supplied via file, absorb first cmd arg */
+	if (!key_data) {
+		if (!n_cmd_args) {
+			fprintf(stderr, "DEL requires key arg\n");
+			return 1;
+		}
+
+		key_data = cmd_args[0];
+		key_data_len = strlen(cmd_args[0]) + 1;
+
+		cmd_args++;
+		n_cmd_args--;
+	}
+
+	if (key_data_len < 1 || key_data_len > CHD_KEY_SZ) {
+		fprintf(stderr, "DEL: invalid key size %u\n",
+			(unsigned int) key_data_len);
+		return 1;
+	}
+
+	stc = chcli_stc_new();
+	if (!stc)
+		return 1;
+
+	if (!stc_del(stc, key_data, key_data_len)) {
+		fprintf(stderr, "DEL failed\n");
+		return 1;
+	}
+
+	stc_free(stc);
 
 	return 0;
 }
@@ -305,15 +386,9 @@ static int cmd_put(void)
 		return 1;
 	}
 
-	stc = stc_new(host->name, host->port, username, password, use_ssl);
-	if (!stc) {
-		fprintf(stderr, "%s:%u: failed to connect to storage\n",
-			host->name,
-			host->port);
+	stc = chcli_stc_new();
+	if (!stc)
 		return 1;
-	}
-
-	stc->verbose = chcli_verbose;
 
 	if (!stc_put_inline(stc, key_data, key_data_len,
 			    cmd_args[0], strlen(cmd_args[0]), 0)) {
@@ -387,15 +462,9 @@ static int cmd_get(void)
 		return 1;
 	}
 
-	stc = stc_new(host->name, host->port, username, password, use_ssl);
-	if (!stc) {
-		fprintf(stderr, "%s:%u: failed to connect to storage\n",
-			host->name,
-			host->port);
+	stc = chcli_stc_new();
+	if (!stc)
 		return 1;
-	}
-
-	stc->verbose = chcli_verbose;
 
 	if (!stc_get_start(stc, key_data, key_data_len, &rfd, &get_len)) {
 		fprintf(stderr, "GET initiation failed\n");
@@ -483,6 +552,10 @@ int main (int argc, char *argv[])
 		return cmd_get();
 	case CHC_PUT:
 		return cmd_put();
+	case CHC_DEL:
+		return cmd_del();
+	case CHC_PING:
+		return cmd_ping();
 	}
 
 	return 0;
