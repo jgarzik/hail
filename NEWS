@@ -1,4 +1,15 @@
 
+Version 0.5 - November 13, 2009
+
+- Protocol/API: Add an upper-level key/value namespace ("tables")
+- Protocol/API: each object now indexed by opaque binary keys <= 1K in size
+- Protocol/API: new option to immediately sync data to disk
+- Protocol/API: introduce login sequence, greatly shrinking per-message size
+- API: change error code symbols to avoid clashes with other projects
+- chunkd: automatic selection of TCP listen port
+- chunkd: drop libevent use
+- Add new 'chcli' command line client
+
 Version 0.4 - August 15, 2009
 
 - chunkd: add CLD support; write contact info into CLD
