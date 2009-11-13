@@ -8,6 +8,8 @@
 
 #define TEST_HOST "localhost"
 
+#define TEST_TABLE "test"
+
 #define TEST_USER "testuser"
 #define TEST_USER_KEY "testuser"
 

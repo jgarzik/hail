@@ -78,6 +78,9 @@ struct client {
 
 	char			user[CHD_USER_SZ + 1];
 
+	size_t			table_len;
+	uint32_t		table_id;
+
 	SSL			*ssl;
 	bool			read_want_write;
 	bool			write_want_read;
@@ -107,6 +110,7 @@ struct client {
 	char			netbuf[CLI_DATA_BUF_SZ];
 	char			netbuf_out[CLI_DATA_BUF_SZ];
 	char			key[CHD_KEY_SZ];
+	char			table[CHD_KEY_SZ];
 };
 
 struct backend_obj {
@@ -192,9 +196,9 @@ struct server {
 };
 
 /* be-fs.c */
-extern struct backend_obj *fs_obj_new(const void *kbuf, size_t klen,
+extern struct backend_obj *fs_obj_new(uint32_t table_id, const void *kbuf, size_t klen,
 				      enum chunk_errcode *err_code);
-extern struct backend_obj *fs_obj_open(const char *user,
+extern struct backend_obj *fs_obj_open(uint32_t table_id, const char *user,
 				       const void *kbuf, size_t klen,
 				       enum chunk_errcode *err_code);
 extern ssize_t fs_obj_write(struct backend_obj *bo, const void *ptr, size_t len);
@@ -202,11 +206,14 @@ extern ssize_t fs_obj_read(struct backend_obj *bo, void *ptr, size_t len);
 extern void fs_obj_free(struct backend_obj *bo);
 extern bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 				const char *hashstr, bool sync_data);
-extern bool fs_obj_delete(const char *user,
+extern bool fs_obj_delete(uint32_t table_id, const char *user,
 		          const void *kbuf, size_t klen,
 			  enum chunk_errcode *err_code);
-extern GList *fs_list_objs(const char *user);
 extern ssize_t fs_obj_sendfile(struct backend_obj *bo, int out_fd, size_t len);
+extern GList *fs_list_objs(uint32_t table_id, const char *user);
+extern bool fs_table_open(const char *user, const void *kbuf, size_t klen,
+		   bool tbl_creat, bool excl_creat, uint32_t *table_id,
+		   enum chunk_errcode *err_code);
 
 /* object.c */
 extern bool object_del(struct client *cli);

@@ -21,6 +21,7 @@ enum chunksrv_ops {
 	CHO_DEL			= 4,
 	CHO_LIST		= 5,
 	CHO_LOGIN		= 6,
+	CHO_TABLE_OPEN		= 7,
 };
 
 enum chunk_errcode {
@@ -32,10 +33,13 @@ enum chunk_errcode {
 	che_NoSuchKey			= 5,
 	che_SignatureDoesNotMatch	= 6,
 	che_InvalidKey			= 7,
+	che_InvalidTable		= 8,
 };
 
 enum chunk_flags {
 	CHF_SYNC		= (1 << 0),	/* force write to media */
+	CHF_TBL_CREAT		= (1 << 1),	/* create tbl, if needed */
+	CHF_TBL_EXCL		= (1 << 2),	/* fail, if tbl exists */
 };
 
 struct chunksrv_req {

@@ -79,6 +79,7 @@ AC_CHECK_LIB(event, event_base_new, EVENT_LIBS=-levent,
 AC_CHECK_LIB(argp, argp_parse, ARGP_LIBS=-largp)
 AC_CHECK_LIB(socket, bind, SOCKET_LIBS=-lsocket)
 PKG_CHECK_MODULES(CLDC, libcldc)
+PKG_CHECK_MODULES(TOKYOCABINET, tokyocabinet)
 
 dnl -----------------------------
 dnl Check for cld program, used

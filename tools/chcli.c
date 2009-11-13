@@ -36,6 +36,8 @@ static struct argp_option options[] = {
 	  "Send GET output to FILE, rather than stdout" },
 	{ "ssl", 'S', NULL, 0,
 	  "Enable SSL channel security" },
+	{ "table", 't', "TABLE", 0,
+	  "Set table for storage and retrieval" },
 	{ "user", 'u', "USER", 0,
 	  "Set username to USER" },
 	{ "verbose", 'v', NULL, 0,
@@ -43,6 +45,8 @@ static struct argp_option options[] = {
 
 	{ "list-cmds", 1001, NULL, 0,
 	  "List supported commands" },
+	{ "create", 1002, NULL, 0,
+	  "Create new table (if table does not exist)" },
 
 	{ }
 };
@@ -78,6 +82,9 @@ static char *password;
 static char *output_fn;
 static char *key_data;
 static gsize key_data_len;
+static char *table_name;
+static size_t table_name_len;
+static bool table_create;
 static char *password_env = "CHCLI_PASSWORD";
 static bool chcli_verbose;
 static bool use_ssl;
@@ -197,6 +204,10 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 			free(s);
 		}
 
+		table_name = g_key_file_get_string(config, "global", "table",
+						   NULL);
+		if (table_name)
+			table_name_len = strlen(table_name) + 1;
 		password = g_key_file_get_string(config, "global", "password",
 						 NULL);
 
@@ -245,15 +256,22 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 	case 'o':
 		output_fn = arg;
 		break;
-	case 'v':
-		chcli_verbose = true;
-		break;
 	case 'S':
 		use_ssl = true;
+		break;
+	case 't':
+		table_name = arg;
+		table_name_len = strlen(arg) + 1;
+		break;
+	case 'v':
+		chcli_verbose = true;
 		break;
 
 	case 1001:			/* --list-cmds */
 		show_cmds();
+		break;
+	case 1002:			/* --create */
+		table_create = true;
 		break;
 
 	case ARGP_KEY_ARG:
@@ -297,6 +315,15 @@ static struct st_client *chcli_stc_new(void)
 	}
 
 	stc->verbose = chcli_verbose;
+
+	if (!stc_table_open(stc, table_name, table_name_len,
+			    table_create ? CHF_TBL_CREAT : 0)) {
+		fprintf(stderr, "%s:%u: failed to open table\n",
+			host->name,
+			host->port);
+		stc_free(stc);
+		return NULL;
+	}
 
 	return stc;
 }
@@ -527,7 +554,10 @@ int main (int argc, char *argv[])
 		fprintf(stderr, "no host specified\n");
 		return 1;
 	}
-
+	if (!table_name || !table_name_len) {
+		fprintf(stderr, "no table name specified\n");
+		return 1;
+	}
 	if (strlen(username) == 0) {
 		fprintf(stderr, "no username specified\n");
 		return 1;

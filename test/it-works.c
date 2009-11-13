@@ -21,6 +21,14 @@ static void test(bool ssl)
 	stc = stc_new(TEST_HOST, port, TEST_USER, TEST_USER_KEY, ssl);
 	OK(stc);
 
+	/*
+	 * we must supply CHF_TBL_CREAT to create the table in
+	 * this test, because we are the first test in the testsuite,
+	 * and must create the database to be used by all other tests.
+	 */
+	rcb = stc_table_openz(stc, TEST_TABLE, CHF_TBL_CREAT);
+	OK(rcb);
+
 	rcb = stc_ping(stc);
 	OK(rcb);
 

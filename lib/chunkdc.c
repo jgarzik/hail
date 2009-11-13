@@ -453,6 +453,48 @@ size_t stc_get_recv(struct st_client *stc, void *data, size_t data_len)
 	return done_cnt;
 }
 
+bool stc_table_open(struct st_client *stc, const void *key, size_t key_len,
+		    uint32_t flags)
+{
+	struct chunksrv_resp resp;
+	struct chunksrv_req *req = (struct chunksrv_req *) stc->req_buf;
+
+	if (stc->verbose)
+		fprintf(stderr, "libstc: TABLE OPEN(%u, %u)\n",
+			(unsigned int) key_len,
+			flags);
+
+	if (!key_valid(key, key_len))
+		return false;
+
+	/* initialize request */
+	req_init(stc, req);
+	req->op = CHO_TABLE_OPEN;
+	req->flags = (flags & (CHF_TBL_CREAT | CHF_TBL_EXCL));
+	req_set_key(req, key, key_len);
+
+	/* sign request */
+	chreq_sign(req, stc->key, req->sig);
+
+	/* write request */
+	if (!net_write(stc, req, req_len(req)))
+		return false;
+
+	/* read response header */
+	if (!net_read(stc, &resp, sizeof(resp)))
+		return false;
+
+	/* check response code */
+	if (resp.resp_code != che_Success) {
+		if (stc->verbose)
+			fprintf(stderr, "TABLE OPEN resp code: %d\n",
+				resp.resp_code);
+		return false;
+	}
+
+	return true;
+}
+
 bool stc_put(struct st_client *stc, const void *key, size_t key_len,
 	     size_t (*read_cb)(void *, size_t, size_t, void *),
 	     uint64_t len, void *user_data, uint32_t flags)

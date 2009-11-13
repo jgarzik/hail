@@ -16,9 +16,14 @@
 #include <string.h>
 #include <errno.h>
 #include <syslog.h>
+#include <tcutil.h>
+#include <tchdb.h>
 #include "chunkd.h"
 
 #define BE_NAME		"fs"
+
+#define MDB_TABLE_ID	"__chunkd_table_id"
+#define MDB_TPATH_FMT	"%s/%X"
 
 struct fs_obj {
 	struct backend_obj	bo;
@@ -37,6 +42,109 @@ struct be_fs_obj_hdr {
 	uint32_t		key_len;
 };
 
+bool fs_table_open(const char *user, const void *kbuf, size_t klen,
+		   bool tbl_creat, bool excl_creat, uint32_t *table_id,
+		   enum chunk_errcode *err_code)
+{
+	TCHDB *hdb;
+	char *db_fn = NULL, *table_path = NULL;
+	int omode, osize = 0, next_num;
+	bool rc = false;
+	uint32_t *val_p, table_id_le;
+
+	*err_code = che_InternalError;
+
+	if (!tbl_creat && excl_creat) {
+		*err_code = che_InvalidArgument;
+		return false;
+	}
+
+	/* validate table name */
+	if (klen < 1 || klen > CHD_KEY_SZ ||
+	    (klen >= strlen(MDB_TABLE_ID) &&
+	     !memcmp(kbuf, MDB_TABLE_ID, strlen(MDB_TABLE_ID)))) {
+		*err_code = che_InvalidArgument;
+		return false;
+	}
+
+	/*
+	 * open master database
+	 */
+	if (asprintf(&db_fn, "%s/master.tch", chunkd_srv.vol_path) < 0)
+		return false;
+
+	hdb = tchdbnew();
+	if (!hdb)
+		goto out;
+
+	omode = HDBOREADER | HDBONOLCK;
+	if (tbl_creat)
+		omode |= HDBOWRITER | HDBOCREAT | HDBOTSYNC;
+	if (!tchdbopen(hdb, db_fn, omode)) {
+		applog(LOG_ERR, "failed to open master table %s", db_fn);
+		goto out_hdb;
+	}
+
+	/*
+	 * lookup table name.  if found, return immediately
+	 */
+	val_p = tchdbget(hdb, kbuf, klen, &osize);
+	if (val_p) {
+		if (tbl_creat && excl_creat) {
+			*err_code = che_InvalidArgument;
+			goto out_close;
+		}
+
+		*table_id = GUINT32_FROM_LE(*val_p);
+		goto out_ok;
+	}
+
+	/*
+	 * otherwise, we now begin the process of table creation
+	 */
+
+	if (!tbl_creat) {
+		*err_code = che_InvalidArgument;
+		goto out_close;
+	}
+
+	/* allocate unique integer id for table */
+	next_num = tchdbaddint(hdb, MDB_TABLE_ID, strlen(MDB_TABLE_ID)+1, 1);
+	if (next_num == INT_MIN)
+		goto out_close;
+
+	*table_id = next_num;
+	table_id_le = GUINT32_TO_LE(next_num);
+
+	/*
+	 * create table directory, $BASE_PATH/table-id
+	 */
+	if (asprintf(&table_path, MDB_TPATH_FMT,
+		     chunkd_srv.vol_path, next_num) < 0)
+		goto out_close;
+
+	if ((mkdir(table_path, 0777) < 0) && (errno != EEXIST)) {
+		applog(LOG_ERR, "mkdir(%s): %s", table_path, strerror(errno));
+		goto out_close;
+	}
+
+	/* finally, store in table_name->table_id map */
+	if (!tchdbput(hdb, kbuf, klen, &table_id_le, sizeof(table_id_le)))
+		goto out_close;
+
+out_ok:
+	*err_code = che_Success;
+	rc = true;
+out_close:
+	tchdbclose(hdb);
+out_hdb:
+	tchdbdel(hdb);
+out:
+	free(db_fn);
+	free(table_path);
+	return rc;
+}
+
 static struct fs_obj *fs_obj_alloc(void)
 {
 	struct fs_obj *obj;
@@ -53,7 +161,7 @@ static struct fs_obj *fs_obj_alloc(void)
 	return obj;
 }
 
-static char *fs_obj_pathname(const void *key, size_t key_len)
+static char *fs_obj_pathname(uint32_t table_id,const void *key, size_t key_len)
 {
 	char *s = NULL;
 	char prefix[5] = "";
@@ -62,19 +170,23 @@ static char *fs_obj_pathname(const void *key, size_t key_len)
 	unsigned char md[SHA256_DIGEST_LENGTH];
 	char mdstr[(SHA256_DIGEST_LENGTH * 2) + 1];
 
+	if (!table_id || !key || !key_len)
+		return NULL;
+
 	SHA256(key, key_len, md);
 	hexstr(md, SHA256_DIGEST_LENGTH, mdstr);
 
 	memcpy(prefix, mdstr, 4);
 
-	slen = strlen(chunkd_srv.vol_path) + 1 + 
-	       strlen(prefix) + 1 +
-	       strlen(mdstr) + 1;
+	slen = strlen(chunkd_srv.vol_path) + 1 +	/* volume */
+	       16 +					/* table id */
+	       strlen(prefix) + 1 +			/* prefix */
+	       strlen(mdstr) + 1;			/* filename */
 	s = malloc(slen);
 	if (!s)
 		return NULL;
 
-	sprintf(s, "%s/%s", chunkd_srv.vol_path, prefix);
+	sprintf(s, MDB_TPATH_FMT "/%s", chunkd_srv.vol_path, table_id, prefix);
 
 	/* create subdir on the fly, if not already exists */
 	if (stat(s, &st) < 0) {
@@ -97,7 +209,8 @@ static char *fs_obj_pathname(const void *key, size_t key_len)
 		goto err_out;
 	}
 
-	sprintf(s, "%s/%s/%s", chunkd_srv.vol_path, prefix, mdstr + 4);
+	sprintf(s, MDB_TPATH_FMT "/%s/%s", chunkd_srv.vol_path, table_id,
+		prefix, mdstr + 4);
 
 	return s;
 
@@ -114,7 +227,8 @@ static bool key_valid(const void *key, size_t key_len)
 	return true;
 }
 
-struct backend_obj *fs_obj_new(const void *key, size_t key_len,
+struct backend_obj *fs_obj_new(uint32_t table_id,
+			       const void *key, size_t key_len,
 			       enum chunk_errcode *err_code)
 {
 	struct fs_obj *obj;
@@ -136,7 +250,7 @@ struct backend_obj *fs_obj_new(const void *key, size_t key_len,
 	}
 
 	/* build local fs pathname */
-	fn = fs_obj_pathname(key, key_len);
+	fn = fs_obj_pathname(table_id, key, key_len);
 	if (!fn) {
 		applog(LOG_ERR, "OOM in object_put");
 		*err_code = che_InternalError;
@@ -194,8 +308,9 @@ err_out:
 	return NULL;
 }
 
-struct backend_obj *fs_obj_open(const char *user, const void *key,
-				size_t key_len, enum chunk_errcode *err_code)
+struct backend_obj *fs_obj_open(uint32_t table_id, const char *user,
+				const void *key, size_t key_len,
+				enum chunk_errcode *err_code)
 {
 	struct fs_obj *obj;
 	struct stat st;
@@ -214,7 +329,7 @@ struct backend_obj *fs_obj_open(const char *user, const void *key,
 	}
 
 	/* build local fs pathname */
-	obj->in_fn = fs_obj_pathname(key, key_len);
+	obj->in_fn = fs_obj_pathname(table_id, key, key_len);
 	if (!obj->in_fn) {
 		*err_code = che_InternalError;
 		goto err_out;
@@ -457,7 +572,8 @@ bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 	return true;
 }
 
-bool fs_obj_delete(const char *user, const void *key, size_t key_len,
+bool fs_obj_delete(uint32_t table_id, const char *user,
+		   const void *key, size_t key_len,
 		   enum chunk_errcode *err_code)
 {
 	char *fn = NULL;
@@ -473,7 +589,7 @@ bool fs_obj_delete(const char *user, const void *key, size_t key_len,
 	}
 
 	/* build local fs pathname */
-	fn = fs_obj_pathname(key, key_len);
+	fn = fs_obj_pathname(table_id, key, key_len);
 	if (!fn)
 		goto err_out;
 
@@ -532,18 +648,23 @@ err_out:
 	return false;
 }
 
-GList *fs_list_objs(const char *user)
+GList *fs_list_objs(uint32_t table_id, const char *user)
 {
 	GList *res = NULL;
 	struct dirent *de, *root_de;
 	DIR *d, *root;
-	char *sub;
+	char *sub, *table_path = NULL;
 
-	sub = alloca(strlen(chunkd_srv.vol_path) + 1 + 4 + 1);
+	sub = alloca(strlen(chunkd_srv.vol_path) + 1 + 16 + 4 + 1);
 
-	root = opendir(chunkd_srv.vol_path);
+	if (asprintf(&table_path, MDB_TPATH_FMT,
+		     chunkd_srv.vol_path, table_id) < 0)
+		return NULL;
+
+	root = opendir(table_path);
 	if (!root) {
-		syslogerr(chunkd_srv.vol_path);
+		syslogerr(table_path);
+		free(table_path);
 		return NULL;
 	}
 
@@ -555,7 +676,7 @@ GList *fs_list_objs(const char *user)
 		if (strlen(root_de->d_name) != 4)
 			continue;
 
-		sprintf(sub, "%s/%s", chunkd_srv.vol_path, root_de->d_name);
+		sprintf(sub, "%s/%s", table_path, root_de->d_name);
 		d = opendir(sub);
 		if (!d) {
 			syslogerr(sub);
@@ -688,6 +809,7 @@ GList *fs_list_objs(const char *user)
 
 	closedir(root);
 
+	free(table_path);
 	return res;
 }
 

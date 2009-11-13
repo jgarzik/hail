@@ -117,6 +117,10 @@ static struct {
 	[che_InvalidKey] =
 	{ "che_InvalidKey", 400,
 	  "Invalid key presented" },
+
+	[che_InvalidTable] =
+	{ "che_InvalidTable", 400,
+	  "Invalid table requested, or table not open" },
 };
 
 void applog(int prio, const char *fmt, ...)
@@ -728,7 +732,7 @@ static bool volume_list(struct client *cli)
 	bool rcb;
 	GList *res = NULL;
 
-	res = fs_list_objs(cli->user);
+	res = fs_list_objs(cli->table_id, cli->user);
 
 	s = g_markup_printf_escaped(
 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
@@ -782,6 +786,24 @@ static bool volume_list(struct client *cli)
 	g_list_free(content);
 
 	return rcb;
+}
+
+static bool volume_open(struct client *cli)
+{
+	enum chunk_errcode err = che_Success;
+
+	if (!fs_table_open(cli->user, cli->key, cli->key_len,
+			   (cli->creq.flags & CHF_TBL_CREAT),
+			   (cli->creq.flags & CHF_TBL_EXCL),
+			   &cli->table_id, &err))
+		goto out;
+
+	memset(cli->table, 0, sizeof(cli->table));
+	memcpy(cli->table, cli->key, cli->key_len);
+	cli->table_len = cli->key_len;
+
+out:
+	return cli_err(cli, err, true);
 }
 
 static bool authcheck(const struct chunksrv_req *req, const void *key,
@@ -854,6 +876,7 @@ static const char *op2str(enum chunksrv_ops op)
 	case CHO_DEL:		return "CHO_DEL";
 	case CHO_LIST:		return "CHO_LIST";
 	case CHO_LOGIN:		return "CHO_LOGIN";
+	case CHO_TABLE_OPEN:	return "CHO_TABLE_OPEN";
 
 	default:
 		return "BUG/UNKNOWN!";
@@ -867,14 +890,13 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 {
 	struct chunksrv_req *req = &cli->creq;
 	bool rcb;
-	enum chunk_errcode err;
+	enum chunk_errcode err = che_InvalidArgument;
 	bool logged_in = (cli->user[0] != 0);
+	bool have_table = (cli->table_len > 0);
 
 	/* validate request header */
-	if (!valid_req_hdr(req)) {
-		err = che_InvalidArgument;
+	if (!valid_req_hdr(req))
 		goto err_out;
-	}
 
 	if (debugging)
 		applog(LOG_DEBUG, "REQ(op %s, key %s (%u), user %s) "
@@ -905,10 +927,31 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 	}
 
 	/*
+	 * verify open-table requirement, for the operations that need it
+	 */
+	switch (req->op) {
+	case CHO_GET:
+	case CHO_GET_META:
+	case CHO_PUT:
+	case CHO_DEL:
+	case CHO_LIST:
+		if (!have_table) {
+			err = che_InvalidTable;
+			goto err_out;
+		}
+		break;
+	default:
+		/* do nothing */
+		break;
+	}
+
+	/*
 	 * operations on objects
 	 */
 	switch (req->op) {
 	case CHO_LOGIN:
+		if (logged_in)
+			goto err_out;
 		rcb = login_user(cli);
 		break;
 	case CHO_NOP:
@@ -928,6 +971,9 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 		break;
 	case CHO_LIST:
 		rcb = volume_list(cli);
+		break;
+	case CHO_TABLE_OPEN:
+		rcb = volume_open(cli);
 		break;
 	default:
 		rcb = cli_err(cli, che_InvalidURI, true);

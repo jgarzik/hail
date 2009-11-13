@@ -44,6 +44,8 @@ extern void stc_init(void);
 extern struct st_client *stc_new(const char *service_host, int port,
 				 const char *user, const char *secret_key,
 				 bool encrypt);
+extern bool stc_table_open(struct st_client *stc, const void *key, size_t key_len,
+		    uint32_t flags);
 
 extern bool stc_get(struct st_client *stc, const void *key, size_t key_len,
 	     size_t (*write_cb)(void *, size_t, size_t, void *),
@@ -101,6 +103,12 @@ static inline bool stc_put_startz(struct st_client *stc, const char *key,
 static inline bool stc_delz(struct st_client *stc, const char *key)
 {
 	return stc_del(stc, key, strlen(key) + 1);
+}
+
+static inline bool stc_table_openz(struct st_client *stc, const char *key,
+				   uint32_t flags)
+{
+	return stc_table_open(stc, key, strlen(key) + 1, flags);
 }
 
 #endif /* __STC_H__ */

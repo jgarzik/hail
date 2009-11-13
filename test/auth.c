@@ -29,8 +29,14 @@ static void test(bool encrypt)
 	stc1 = stc_new(TEST_HOST, port, TEST_USER, TEST_USER_KEY, encrypt);
 	OK(stc1);
 
+	rcb = stc_table_openz(stc1, TEST_TABLE, 0);
+	OK(rcb);
+
 	stc2 = stc_new(TEST_HOST, port, TEST_USER2, TEST_USER2_KEY, encrypt);
 	OK(stc2);
+
+	rcb = stc_table_openz(stc2, TEST_TABLE, 0);
+	OK(rcb);
 
 	/* store object 1 */
 	rcb = stc_put_inlinez(stc1, key1, val1, strlen(val1), 0);
