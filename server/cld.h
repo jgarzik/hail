@@ -95,7 +95,7 @@ struct msg_params {
 };
 
 struct server_stats {
-	unsigned long		poll;		/* number polls */
+	unsigned long		poll;		/* num. polls */
 	unsigned long		event;		/* events dispatched */
 	unsigned long		garbage;	/* num. garbage pkts dropped */
 };

@@ -901,6 +901,8 @@ static int main_loop(void)
 		struct pollfd *pfd;
 		int i, fired, rc;
 
+		cld_srv.stats.poll++;
+
 		/* poll for fd activity, or next timer event */
 		rc = poll(&g_array_index(cld_srv.polls, struct pollfd, 0),
 			  cld_srv.polls->len,
@@ -935,6 +937,8 @@ static int main_loop(void)
 			/* ref 1:1 matching server_poll struct */
 			sp = &g_array_index(cld_srv.poll_data,
 					    struct server_poll, i);
+
+			cld_srv.stats.event++;
 
 			/* call callback, shutting down server if requested */
 			runrunrun = sp->cb(sp->fd, revents, sp->userdata);
