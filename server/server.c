@@ -355,11 +355,6 @@ static void udp_rx(int sock_fd,
 	uint32_t pkt_flags;
 	bool first_frag, last_frag, have_new_sess, have_ack, have_put;
 
-	/* drop all completely corrupted packets */
-	if ((pkt_len < (sizeof(*pkt) + SHA_DIGEST_LENGTH)) ||
-	    (memcmp(pkt->magic, CLD_PKT_MAGIC, sizeof(pkt->magic))))
-		return;
-
 	/* verify pkt data integrity and credentials via HMAC signature */
 	if (!authcheck(pkt, pkt_len)) {
 		resp_rc = CLE_SIG_INVAL;
@@ -500,6 +495,7 @@ static bool udp_srv_event(int fd, short events, void *userdata)
 	struct msghdr hdr;
 	struct iovec iov[2];
 	uint8_t raw_pkt[CLD_RAW_MSG_SZ], ctl_msg[CLD_RAW_MSG_SZ];
+	struct cld_packet *pkt = (struct cld_packet *) raw_pkt;
 
 	memset(&cli, 0, sizeof(cli));
 
@@ -531,11 +527,18 @@ static bool udp_srv_event(int fd, short events, void *userdata)
 		applog(LOG_DEBUG, "client %s message (%d bytes)",
 		       host, (int) rrc);
 
+	/* if it is complete garbage, drop immediately */
+	if ((rrc < (sizeof(*pkt) + SHA_DIGEST_LENGTH)) ||
+	    (memcmp(pkt->magic, CLD_PKT_MAGIC, sizeof(pkt->magic)))) {
+		cld_srv.stats.garbage++;
+		return true; /* continue main loop; do NOT terminate server */
+	}
+
 	if (cld_srv.cldb.is_master && cld_srv.cldb.up)
 		udp_rx(fd, &cli, raw_pkt, rrc);
 
 	else {
-		struct cld_packet *outpkt, *pkt = (struct cld_packet *) raw_pkt;
+		struct cld_packet *outpkt;
 		struct cld_msg_hdr *msg = (struct cld_msg_hdr *) (pkt + 1);
 		struct cld_msg_resp *resp;
 		size_t alloc_len;
@@ -825,6 +828,7 @@ static void stats_dump(void)
 {
 	X(poll);
 	X(event);
+	X(garbage);
 }
 
 #undef X
