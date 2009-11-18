@@ -115,7 +115,7 @@ struct server cld_srv = {
 
 static void ensure_root(void);
 
-void cldlog(int prio, const char *fmt, ...)
+void applog(int prio, const char *fmt, ...)
 {
 	va_list ap;
 
@@ -150,13 +150,13 @@ static char *get_hostname(void)
 	char *ret;
 
 	if (gethostname(hostb, hostsz-1) < 0) {
-		cldlog(LOG_ERR, "get_hostname: gethostname error (%d): %s",
+		applog(LOG_ERR, "get_hostname: gethostname error (%d): %s",
 		     errno, strerror(errno));
 		exit(1);
 	}
 	hostb[hostsz-1] = 0;
 	if ((ret = strdup(hostb)) == NULL) {
-		cldlog(LOG_ERR, "get_hostname: no core (%ld)",
+		applog(LOG_ERR, "get_hostname: no core (%ld)",
 		     (long)strlen(hostb));
 		exit(1);
 	}
@@ -169,11 +169,11 @@ int udp_tx(int sock_fd, struct sockaddr *addr, socklen_t addr_len,
 	ssize_t src;
 
 	if (debugging > 1)
-		cldlog(LOG_DEBUG, "udp_tx, fd %d", sock_fd);
+		applog(LOG_DEBUG, "udp_tx, fd %d", sock_fd);
 
 	src = sendto(sock_fd, data, data_len, 0, addr, addr_len);
 	if (src < 0 && errno != EAGAIN)
-		cldlog(LOG_ERR, "udp_tx sendto (fd %d, data_len %u): %s",
+		applog(LOG_ERR, "udp_tx sendto (fd %d, data_len %u): %s",
 		       sock_fd, (unsigned int) data_len,
 		       strerror(errno));
 
@@ -201,7 +201,7 @@ void resp_err(struct session *sess,
 	resp.code = cpu_to_le32(errcode);
 
 	if (sess->sock_fd <= 0) {
-		cldlog(LOG_ERR, "Nul sock in response");
+		applog(LOG_ERR, "Nul sock in response");
 		return;
 	}
 
@@ -263,7 +263,7 @@ bool authsign(struct cld_packet *pkt, size_t pkt_len)
 	     md, &md_len);
 
 	if (md_len != SHA_DIGEST_LENGTH)
-		cldlog(LOG_ERR, "authsign BUG: md_len != SHA_DIGEST_LENGTH");
+		applog(LOG_ERR, "authsign BUG: md_len != SHA_DIGEST_LENGTH");
 
 	memcpy(buf + pkt_len - SHA_DIGEST_LENGTH, md, SHA_DIGEST_LENGTH);
 
@@ -314,7 +314,7 @@ static void show_msg(const struct cld_msg_hdr *msg)
 	case cmo_not_master:
 	case cmo_event:
 	case cmo_ack_frag:
-		cldlog(LOG_DEBUG, "msg: op %s, xid %llu",
+		applog(LOG_DEBUG, "msg: op %s, xid %llu",
 		       opstr(msg->op),
 		       (unsigned long long) le64_to_cpu(msg->xid));
 		break;
@@ -376,7 +376,7 @@ static void pkt_ack_frag(int sock_fd,
 	authsign(outpkt, alloc_len);
 
 	if (debugging)
-		cldlog(LOG_DEBUG, "ack-partial-msg: "
+		applog(LOG_DEBUG, "ack-partial-msg: "
 		       "sid " SIDFMT ", op %s, seqid %llu",
 		       SIDARG(outpkt->sid),
 		       opstr(ack_msg->hdr.op),
@@ -401,11 +401,6 @@ static void udp_rx(int sock_fd,
 	size_t alloc_len;
 	uint32_t pkt_flags;
 	bool first_frag, last_frag, have_new_sess, have_ack, have_put;
-
-	/* drop all completely corrupted packets */
-	if ((pkt_len < (sizeof(*pkt) + SHA_DIGEST_LENGTH)) ||
-	    (memcmp(pkt->magic, CLD_PKT_MAGIC, sizeof(pkt->magic))))
-		return;
 
 	/* verify pkt data integrity and credentials via HMAC signature */
 	if (!authcheck(pkt, pkt_len)) {
@@ -439,7 +434,7 @@ static void udp_rx(int sock_fd,
 	mp.msg_len = pkt_len - sizeof(*pkt) - SHA_DIGEST_LENGTH;
 
 	if (debugging > 1)
-		cldlog(LOG_DEBUG, "pkt: len %zu, seqid %llu, sid " SIDFMT ", "
+		applog(LOG_DEBUG, "pkt: len %zu, seqid %llu, sid " SIDFMT ", "
 		       "flags %s%s, user %s",
 		       pkt_len,
 		       (unsigned long long) le64_to_cpu(pkt->seqid),
@@ -462,7 +457,7 @@ static void udp_rx(int sock_fd,
 			/* eliminate duplicates; do not return any response */
 			if (le64_to_cpu(pkt->seqid) != sess->next_seqid_in) {
 				if (debugging)
-					cldlog(LOG_DEBUG, "dropping dup");
+					applog(LOG_DEBUG, "dropping dup");
 				return;
 			}
 
@@ -474,7 +469,7 @@ static void udp_rx(int sock_fd,
 			/* eliminate duplicates; do not return any response */
 			if (le64_to_cpu(pkt->seqid) != sess->next_seqid_in) {
 				if (debugging)
-					cldlog(LOG_DEBUG, "dropping dup");
+					applog(LOG_DEBUG, "dropping dup");
 				return;
 			}
 
@@ -505,7 +500,7 @@ static void udp_rx(int sock_fd,
 		mp.msg_len = sess->msg_buf_len;
 
 		if ((debugging > 1) && !first_frag)
-			cldlog(LOG_DEBUG, "    final message size %u",
+			applog(LOG_DEBUG, "    final message size %u",
 			       sess->msg_buf_len);
 	}
 
@@ -528,7 +523,7 @@ err_out:
 	authsign(outpkt, alloc_len);
 
 	if (debugging)
-		cldlog(LOG_DEBUG, "udp_rx err: "
+		applog(LOG_DEBUG, "udp_rx err: "
 		       "sid " SIDFMT ", op %s, seqid %llu, code %d",
 		       SIDARG(outpkt->sid),
 		       opstr(resp->hdr.op),
@@ -547,6 +542,7 @@ static bool udp_srv_event(int fd, short events, void *userdata)
 	struct msghdr hdr;
 	struct iovec iov[2];
 	uint8_t raw_pkt[CLD_RAW_MSG_SZ], ctl_msg[CLD_RAW_MSG_SZ];
+	struct cld_packet *pkt = (struct cld_packet *) raw_pkt;
 
 	memset(&cli, 0, sizeof(cli));
 
@@ -575,14 +571,21 @@ static bool udp_srv_event(int fd, short events, void *userdata)
 	strcpy(cli.addr_host, host);
 
 	if (debugging)
-		cldlog(LOG_DEBUG, "client %s message (%d bytes)",
+		applog(LOG_DEBUG, "client %s message (%d bytes)",
 		       host, (int) rrc);
+
+	/* if it is complete garbage, drop immediately */
+	if ((rrc < (sizeof(*pkt) + SHA_DIGEST_LENGTH)) ||
+	    (memcmp(pkt->magic, CLD_PKT_MAGIC, sizeof(pkt->magic)))) {
+		cld_srv.stats.garbage++;
+		return true; /* continue main loop; do NOT terminate server */
+	}
 
 	if (cld_srv.cldb.is_master && cld_srv.cldb.up)
 		udp_rx(fd, &cli, raw_pkt, rrc);
 
 	else {
-		struct cld_packet *outpkt, *pkt = (struct cld_packet *) raw_pkt;
+		struct cld_packet *outpkt;
 		struct cld_msg_hdr *msg = (struct cld_msg_hdr *) (pkt + 1);
 		struct cld_msg_resp *resp;
 		size_t alloc_len;
@@ -620,7 +623,7 @@ static void cldb_checkpoint(struct timer *timer)
 	gettimeofday(&current_time, NULL);
 
 	if (debugging)
-		cldlog(LOG_INFO, "db4 checkpoint");
+		applog(LOG_INFO, "db4 checkpoint");
 
 	/* flush logs to db, if log files >= 1MB */
 	rc = dbenv->txn_checkpoint(dbenv, 1024, 0, 0);
@@ -639,7 +642,7 @@ static int net_write_port(const char *port_file, const char *port_str)
 	portf = fopen(port_file, "w");
 	if (portf == NULL) {
 		rc = errno;
-		cldlog(LOG_INFO, "Cannot create port file %s: %s",
+		applog(LOG_INFO, "Cannot create port file %s: %s",
 		       port_file, strerror(rc));
 		return -rc;
 	}
@@ -660,7 +663,7 @@ static void net_close(void)
 		pfd = &g_array_index(cld_srv.polls, struct pollfd, i);
 		if (pfd->fd >= 0) {
 			if (close(pfd->fd) < 0)
-				cldlog(LOG_WARNING, "net_close(%d): %s",
+				applog(LOG_WARNING, "net_close(%d): %s",
 				       pfd->fd, strerror(errno));
 			pfd->fd = -1;
 		}
@@ -696,7 +699,7 @@ static void cldb_state_cb(enum db_event event)
 			else
 				cld_srv.state_cldb_new = ST_CLDB_SLAVE;
 			if (debugging) {
-				cldlog(LOG_DEBUG, "CLDB state > %s",
+				applog(LOG_DEBUG, "CLDB state > %s",
 				       state_name_cldb[cld_srv.state_cldb_new]);
 			}
 
@@ -705,7 +708,7 @@ static void cldb_state_cb(enum db_event event)
 		}
 		break;
 	default:
-		cldlog(LOG_WARNING, "API confusion with CLDB, event 0x%x", event);
+		applog(LOG_WARNING, "API confusion with CLDB, event 0x%x", event);
 		cld_srv.state_cldb = ST_CLDB_OPEN;  /* wrong, stub for now */
 		cld_srv.state_cldb_new = ST_CLDB_INIT;
 	}
@@ -784,7 +787,7 @@ static int net_open_any(void)
 		addr_len = sizeof(addr6);
 		if (getsockname(fd6, &addr6, &addr_len) != 0) {
 			rc = errno;
-			cldlog(LOG_ERR, "getsockname failed: %s", strerror(rc));
+			applog(LOG_ERR, "getsockname failed: %s", strerror(rc));
 			return -rc;
 		}
 		port = ntohs(addr6.sin6_port);
@@ -805,13 +808,13 @@ static int net_open_any(void)
 		addr_len = sizeof(addr4);
 		if (getsockname(fd4, &addr4, &addr_len) != 0) {
 			rc = errno;
-			cldlog(LOG_ERR, "getsockname failed: %s", strerror(rc));
+			applog(LOG_ERR, "getsockname failed: %s", strerror(rc));
 			return -rc;
 		}
 		port = ntohs(addr4.sin_port);
 	}
 
-	cldlog(LOG_INFO, "Listening on port %u", port);
+	applog(LOG_INFO, "Listening on port %u", port);
 
 	if (cld_srv.port_file) {
 		char portstr[7];
@@ -834,7 +837,7 @@ static int net_open_known(const char *portstr)
 
 	rc = getaddrinfo(NULL, portstr, &hints, &res0);
 	if (rc) {
-		cldlog(LOG_ERR, "getaddrinfo(*:%s) failed: %s",
+		applog(LOG_ERR, "getaddrinfo(*:%s) failed: %s",
 		       portstr, gai_strerror(rc));
 		rc = -EINVAL;
 		goto err_addr;
@@ -864,7 +867,7 @@ static int net_open_known(const char *portstr)
 			continue;
 
 		rc = net_open_socket(res->ai_family, res->ai_socktype,
-				     res->ai_protocol, 
+				     res->ai_protocol,
 				     res->ai_addrlen, res->ai_addr);
 		if (rc < 0)
 			goto err_out;
@@ -874,7 +877,7 @@ static int net_open_known(const char *portstr)
 			    listen_serv, sizeof(listen_serv),
 			    NI_NUMERICHOST | NI_NUMERICSERV);
 
-		cldlog(LOG_INFO, "Listening on %s port %s",
+		applog(LOG_INFO, "Listening on %s port %s",
 		       listen_host, listen_serv);
 	}
 
@@ -912,7 +915,7 @@ static void cldb_state_process(enum st_cldb new_state)
 		ensure_root();
 
 		if (sess_load(cld_srv.sessions) != 0) {
-			cldlog(LOG_ERR, "session load failed. "
+			applog(LOG_ERR, "session load failed. "
 			       "FIXME: I want error handling");
 			return;
 		}
@@ -920,14 +923,14 @@ static void cldb_state_process(enum st_cldb new_state)
 		add_chkpt_timer();
 	} else {
 		if (debugging)
-		      cldlog(LOG_DEBUG, "unhandled state transition %d -> %d",
+		      applog(LOG_DEBUG, "unhandled state transition %d -> %d",
 			     cld_srv.state_cldb, new_state);
       }
 }
 
 static void segv_signal(int signo)
 {
-	cldlog(LOG_ERR, "SIGSEGV");
+	applog(LOG_ERR, "SIGSEGV");
 	exit(1);
 }
 
@@ -942,13 +945,15 @@ static void stats_signal(int signo)
 }
 
 #define X(stat) \
-	cldlog(LOG_INFO, "STAT %s %lu", #stat, cld_srv.stats.stat)
+	applog(LOG_INFO, "STAT %s %lu", #stat, cld_srv.stats.stat)
 
 static void stats_dump(void)
 {
 	X(poll);
 	X(event);
-	cldlog(LOG_INFO, "State: CLDB %s",
+	X(garbage);
+
+	applog(LOG_INFO, "State: CLDB %s",
 	       state_name_cldb[cld_srv.state_cldb]);
 }
 
@@ -1093,7 +1098,7 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 	return 0;
 }
 
-static void main_loop(void)
+static int main_loop(void)
 {
 	time_t next_timeout;
 
@@ -1103,11 +1108,7 @@ static void main_loop(void)
 		struct pollfd *pfd;
 		int i, fired, rc;
 
-		/* necessary to zero??? */
-		for (i = 0; i < cld_srv.polls->len; i++) {
-			pfd = &g_array_index(cld_srv.polls, struct pollfd, i);
-			pfd->revents = 0;
-		}
+		cld_srv.stats.poll++;
 
 		/* poll for fd activity, or next timer event */
 		rc = poll(&g_array_index(cld_srv.polls, struct pollfd, 0),
@@ -1126,6 +1127,7 @@ static void main_loop(void)
 		for (i = 0; i < cld_srv.polls->len; i++) {
 			struct server_poll *sp;
 			bool runrunrun;
+			short revents;
 
 			/* ref pollfd struct */
 			pfd = &g_array_index(cld_srv.polls, struct pollfd, i);
@@ -1136,12 +1138,17 @@ static void main_loop(void)
 
 			fired++;
 
+			revents = pfd->revents;
+			pfd->revents = 0;
+
 			/* ref 1:1 matching server_poll struct */
 			sp = &g_array_index(cld_srv.poll_data,
 					    struct server_poll, i);
 
+			cld_srv.stats.event++;
+
 			/* call callback, shutting down server if requested */
-			runrunrun = sp->cb(sp->fd, pfd->revents, sp->userdata);
+			runrunrun = sp->cb(sp->fd, revents, sp->userdata);
 			if (!runrunrun) {
 				server_running = false;
 				break;
@@ -1167,6 +1174,8 @@ static void main_loop(void)
 			cld_srv.state_cldb = cld_srv.state_cldb_new;
 		}
 	}
+
+	return 0;
 }
 
 int main (int argc, char *argv[])
@@ -1206,11 +1215,11 @@ int main (int argc, char *argv[])
 		cld_srv.myhost = get_hostname();
 
 	if (debugging)
-		cldlog(LOG_DEBUG, "our hostname: %s", cld_srv.myhost);
+		applog(LOG_DEBUG, "our hostname: %s", cld_srv.myhost);
 
 	/* remotes file should list all in peer group, except for us */
 	if ((cld_srv.n_peers - 1) != g_list_length(cld_srv.rep_remotes)) {
-		cldlog(LOG_ERR, "n_peers does not match remotes file loaded");
+		applog(LOG_ERR, "n_peers does not match remotes file loaded");
 		goto err_out;
 	}
 
@@ -1282,25 +1291,25 @@ int main (int argc, char *argv[])
 		    cld_srv.rep_remotes,
 		    cld_srv.myhost, cld_srv.rep_port,
 		    cld_srv.n_peers, cldb_state_cb)) {
-		cldlog(LOG_ERR, "Failed to open CLDB, limping");
+		applog(LOG_ERR, "Failed to open CLDB, limping");
 	} else {
 		cld_srv.state_cldb =
 		cld_srv.state_cldb_new = ST_CLDB_OPEN;
 	}
 
-	cldlog(LOG_INFO, "initialized: dbg %u%s",
+	applog(LOG_INFO, "initialized: dbg %u%s",
 	       debugging,
 	       strict_free ? ", strict-free" : "");
-	cldlog(LOG_INFO, "replication: %s:%u",
+	applog(LOG_INFO, "replication: %s:%u",
 		cld_srv.myhost,
 		cld_srv.rep_port);
 
 	/*
 	 * execute main loop
 	 */
-	main_loop();
+	rc = main_loop();
 
-	cldlog(LOG_INFO, "shutting down");
+	applog(LOG_INFO, "shutting down");
 
 	if (strict_free)
 		timer_del(&cld_srv.chkpt_timer);
@@ -1309,8 +1318,6 @@ int main (int argc, char *argv[])
 		cldb_down(&cld_srv.cldb);
 	if (cld_srv.state_cldb >= ST_CLDB_OPEN)
 		cldb_fini(&cld_srv.cldb);
-
-	rc = 0;
 
 err_out_pid:
 	unlink(cld_srv.pid_file);
@@ -1349,12 +1356,12 @@ static void ensure_root()
 	rc = cldb_inode_get_byname(txn, "/", sizeof("/")-1, &inode, false, 0);
 	if (rc == 0) {
 		if (debugging)
-			cldlog(LOG_DEBUG, "Root inode found, ino %llu",
+			applog(LOG_DEBUG, "Root inode found, ino %llu",
 			       (unsigned long long) cldino_from_le(inode->inum));
 	} else if (rc == DB_NOTFOUND) {
 		inode = cldb_inode_mem("/", sizeof("/")-1, CIFL_DIR, CLD_INO_ROOT);
 		if (!inode) {
-			cldlog(LOG_CRIT, "Cannot allocate new root inode");
+			applog(LOG_CRIT, "Cannot allocate new root inode");
 			goto err_;
 		}
 
@@ -1365,12 +1372,12 @@ static void ensure_root()
 		rc = cldb_inode_put(txn, inode, 0);
 		if (rc) {
 			free(inode);
-			cldlog(LOG_CRIT, "Cannot allocate new root inode");
+			applog(LOG_CRIT, "Cannot allocate new root inode");
 			goto err_;
 		}
 
 		if (debugging)
-			cldlog(LOG_DEBUG, "Root inode created, ino %llu",
+			applog(LOG_DEBUG, "Root inode created, ino %llu",
 			       (unsigned long long) cldino_from_le(inode->inum));
 		free(inode);
 	} else {

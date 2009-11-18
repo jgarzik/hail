@@ -169,7 +169,7 @@ static bool dirdata_append(void **data, size_t *data_len,
 
 	mem = realloc(*data, new_len);
 	if (!mem) {
-		cldlog(LOG_CRIT, "out of memory for data [%lu]", (long)new_len);
+		applog(LOG_CRIT, "out of memory for data [%lu]", (long)new_len);
 		return false;
 	}
 
@@ -238,13 +238,13 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 
 		sess = g_hash_table_lookup(cld_srv.sessions, h.sid);
 		if (!sess) {
-			cldlog(LOG_WARNING, "inode_notify BUG");
+			applog(LOG_WARNING, "inode_notify BUG");
 			continue;
 		}
 
 		if (!sess->sock_fd) {		/* Freshly recovered session */
 			if (debugging)
-				cldlog(LOG_DEBUG,
+				applog(LOG_DEBUG,
 				       "Lost notify sid " SIDFMT " ino %lld",
 				       SIDARG(sess->sid), (long long) inum);
 			continue;
@@ -363,7 +363,7 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 
 		sess = g_hash_table_lookup(cld_srv.sessions, lock.sid);
 		if (!sess) {
-			cldlog(LOG_WARNING, "inode_lock_rescan BUG");
+			applog(LOG_WARNING, "inode_lock_rescan BUG");
 			break;
 		}
 
@@ -373,7 +373,7 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 
 		if (!sess->sock_fd) {		/* Freshly recovered session */
 			if (debugging)
-				cldlog(LOG_DEBUG,
+				applog(LOG_DEBUG,
 				       "Lost success sid " SIDFMT " ino %lld",
 				       SIDARG(sess->sid), (long long) inum);
 			continue;
@@ -456,7 +456,7 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 	}
 
 	if (debugging)
-		cldlog(LOG_DEBUG, "GET-DEBUG: sizeof(resp) %u, name_len %u, "
+		applog(LOG_DEBUG, "GET-DEBUG: sizeof(resp) %u, name_len %u, "
 		       "inode->size %u, resp_len %u",
 		       sizeof(*resp),
 		       name_len,
@@ -610,7 +610,7 @@ void msg_open(struct msg_params *mp)
 		/* create new in-memory inode */
 		inode = cldb_inode_new(txn, name, name_len, 0);
 		if (!inode) {
-			cldlog(LOG_CRIT, "cannot allocate new inode");
+			applog(LOG_CRIT, "cannot allocate new inode");
 			resp_rc = CLE_OOM;
 			goto err_out;
 		}
@@ -667,7 +667,7 @@ void msg_open(struct msg_params *mp)
 	/* alloc & init new handle; updates session's next_fh */
 	h = cldb_handle_new(mp->sess, inum, msg_mode, msg_events);
 	if (!h) {
-		cldlog(LOG_CRIT, "cannot allocate handle");
+		applog(LOG_CRIT, "cannot allocate handle");
 		resp_rc = CLE_OOM;
 		goto err_out;
 	}
@@ -695,7 +695,7 @@ void msg_open(struct msg_params *mp)
 	raw_sess = session_new_raw(mp->sess);
 
 	if (!raw_sess) {
-		cldlog(LOG_CRIT, "cannot allocate session");
+		applog(LOG_CRIT, "cannot allocate session");
 		resp_rc = CLE_OOM;
 		goto err_out;
 	}
@@ -762,7 +762,7 @@ void msg_put(struct msg_params *mp)
 	/* make sure additional input data as large as expected */
 	data_size = le32_to_cpu(msg->data_size);
 	if (mp->msg_len != (data_size + sizeof(*msg))) {
-		cldlog(LOG_INFO, "PUT len mismatch: msg len %zu, "
+		applog(LOG_INFO, "PUT len mismatch: msg len %zu, "
 		       "wanted %zu + %u (== %u)",
 		       mp->msg_len,
 		       sizeof(*msg),
@@ -1067,7 +1067,7 @@ void msg_del(struct msg_params *mp)
 	/* remove record from inode's directory data */
 	if (!dirdata_delete(parent_data, &parent_len,
 			    pinfo.base, pinfo.base_len)) {
-		cldlog(LOG_WARNING, "dirent del failed");
+		applog(LOG_WARNING, "dirent del failed");
 		resp_rc = CLE_DB_ERR;
 		goto err_out;
 	}
