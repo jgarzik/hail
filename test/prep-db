@@ -2,13 +2,16 @@
 
 DATADIR=data
 
-mkdir -p $DATADIR
+for n in 1 2 3
+do
+	mkdir -p $DATADIR/n$n/data
 
-if [ ! -d $DATADIR ]
-then
-	rm -rf $DATADIR
-	echo "test database dir not found."
-	exit 1
-fi
+	if [ ! -d $DATADIR/n$n/data ]
+	then
+		rm -rf $DATADIR
+		echo "test database dir for node $n not found."
+		exit 1
+	fi
+done
 
 exit 0

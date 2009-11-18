@@ -94,6 +94,15 @@ struct msg_params {
 	size_t			msg_len;
 };
 
+enum st_cldb {
+	ST_CLDB_INIT,
+	ST_CLDB_OPEN,
+	ST_CLDB_ACTIVE,
+	ST_CLDB_MASTER,
+	ST_CLDB_SLAVE,
+	ST_CLDBNUM
+};
+
 struct server_stats {
 	unsigned long		poll;		/* number polls */
 	unsigned long		event;		/* events dispatched */
@@ -113,6 +122,17 @@ struct server {
 	int			pid_fd;
 
 	char			*port;		/* bind port */
+	unsigned short		rep_port;	/* db4 replication port */
+
+	char			*myhost;
+	char			*force_myhost;
+	GList			*rep_remotes;
+
+	unsigned int		n_peers;	/* total peers in cell */
+
+	int			rep_pipe[2];
+
+	enum st_cldb		state_cldb, state_cldb_new;
 
 	struct cldb		cldb;		/* database info */
 

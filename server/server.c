@@ -29,6 +29,7 @@
 #include <errno.h>
 #include <syslog.h>
 #include <locale.h>
+#include <ctype.h>
 #include <argp.h>
 #include <netdb.h>
 #include <signal.h>
@@ -47,6 +48,12 @@ const char *argp_program_version = PACKAGE_VERSION;
 
 enum {
 	CLD_RAW_MSG_SZ		= 4096,
+
+	CLD_DEF_REP_PORT	= 9081,
+
+	CLD_DEF_PEERS		= 5,
+	CLD_MIN_PEERS		= 3,
+	CLD_MAX_PEERS		= 400,		/* arbitrary "sanity" limit */
 };
 
 static struct argp_option options[] = {
@@ -59,10 +66,18 @@ static struct argp_option options[] = {
 	  "Switch the log to standard error" },
 	{ "foreground", 'F', NULL, 0,
 	  "Run in foreground, do not fork" },
+	{ "myhost", 'm', "HOST", 0,
+	  "Force local hostname to HOST (def: autodetect)" },
 	{ "port", 'p', "PORT", 0,
 	  "bind to UDP port PORT.  Default: " CLD_DEF_PORT },
 	{ "pid", 'P', "FILE", 0,
 	  "Write daemon process id to FILE.  Default: " CLD_DEF_PIDFN },
+	{ "rep-port", 'r', "PORT", 0,
+	  "bind replication engine to port PORT (def: 9081)" },
+	{ "remote", 'R', "HOST:PORT", 0,
+	  "Add a HOST:PORT pair to list of remote hosts.  Use this argument multiple times to build cell's peer list." },
+	{ "cell-size", 'S', "PEERS", 0,
+	  "Total number of PEERS in cell. (PEERS/2)+1 required for quorum.  Must be an odd number (def: 5)" },
 	{ "strict-free", 1001, NULL, 0,
 	  "For memory-checker runs.  When shutting down server, free local "
 	  "heap, rather than simply exit(2)ing and letting OS clean up." },
@@ -84,10 +99,15 @@ static bool strict_free = false;
 int debugging = 0;
 struct timeval current_time;
 
+static const char *state_name_cldb[ST_CLDBNUM] = {
+	"Init", "Open", "Active", "Master", "Slave"
+};
 struct server cld_srv = {
-	.data_dir		= CLD_DEF_DATADIR,
-	.pid_file		= CLD_DEF_PIDFN,
+	.data_dir		= "/spare/tmp/cld/lib",
+	.pid_file		= "/var/run/cld.pid",
 	.port			= CLD_DEF_PORT,
+	.rep_port		= CLD_DEF_REP_PORT,
+	.n_peers		= CLD_DEF_PEERS,
 };
 
 static void ensure_root(void);
@@ -111,6 +131,33 @@ void cldlog(int prio, const char *fmt, ...)
 		vfprintf(stderr, f, ap);	/* atomic write to stderr */
 	}
 	va_end(ap);
+}
+
+/*
+ * Find out own hostname.
+ * This is needed for:
+ *  - finding the local domain and its SRV records
+ * Do this before our state machines start ticking, so we can quit with
+ * a meaningful message easily.
+ */
+static char *get_hostname(void)
+{
+	enum { hostsz = 64 };
+	char hostb[hostsz];
+	char *ret;
+
+	if (gethostname(hostb, hostsz-1) < 0) {
+		cldlog(LOG_ERR, "get_hostname: gethostname error (%d): %s",
+		     errno, strerror(errno));
+		exit(1);
+	}
+	hostb[hostsz-1] = 0;
+	if ((ret = strdup(hostb)) == NULL) {
+		cldlog(LOG_ERR, "get_hostname: no core (%ld)",
+		     (long)strlen(hostb));
+		exit(1);
+	}
+	return ret;
 }
 
 int udp_tx(int sock_fd, struct sockaddr *addr, socklen_t addr_len,
@@ -600,6 +647,55 @@ static void net_close(void)
 	}
 }
 
+static void cldb_state_cb(enum db_event event)
+{
+
+	switch (event) {
+	case CLDB_EV_ELECTED:
+		/*
+		 * Safe to stop ignoring bogus client indication,
+		 * so unmute us by advancing the state.
+		 */
+		if (cld_srv.state_cldb == ST_CLDB_OPEN)
+			cld_srv.state_cldb = ST_CLDB_ACTIVE;
+		break;
+	case CLDB_EV_CLIENT:
+	case CLDB_EV_MASTER:
+		/*
+		 * This callback runs on the context of the replication
+		 * manager thread, and calling any of our functions thus
+		 * turns our program into a multi-threaded one. Instead
+		 * we do a loopbreak and postpone the processing.
+		 */
+		if (cld_srv.state_cldb != ST_CLDB_INIT &&
+		    cld_srv.state_cldb != ST_CLDB_OPEN) {
+			char c = 0x42;
+
+			if (event == CLDB_EV_MASTER)
+				cld_srv.state_cldb_new = ST_CLDB_MASTER;
+			else
+				cld_srv.state_cldb_new = ST_CLDB_SLAVE;
+			if (debugging) {
+				cldlog(LOG_DEBUG, "CLDB state > %s",
+				       state_name_cldb[cld_srv.state_cldb_new]);
+			}
+
+			/* wake up main loop */
+			write(cld_srv.rep_pipe[1], &c, 1);
+		}
+		break;
+	default:
+		cldlog(LOG_WARNING, "API confusion with CLDB, event 0x%x", event);
+		cld_srv.state_cldb = ST_CLDB_OPEN;  /* wrong, stub for now */
+		cld_srv.state_cldb_new = ST_CLDB_INIT;
+	}
+}
+
+static bool noop_event(int fd, short events, void *userdata)
+{
+	return true;	/* continue main loop; do NOT terminate server */
+}
+
 static int net_open(void)
 {
 	int ipv6_found = 0;
@@ -701,6 +797,33 @@ err_addr:
 	return rc;
 }
 
+static void cldb_state_process(enum st_cldb new_state)
+{
+	unsigned int db_flags;
+
+	if ((new_state == ST_CLDB_MASTER || new_state == ST_CLDB_SLAVE) &&
+	    cld_srv.state_cldb == ST_CLDB_ACTIVE) {
+
+		db_flags = DB_CREATE | DB_THREAD;
+		if (cldb_up(&cld_srv.cldb, db_flags))
+			return;
+
+		ensure_root();
+
+		if (sess_load(cld_srv.sessions) != 0) {
+			cldlog(LOG_ERR, "session load failed. "
+			       "FIXME: I want error handling");
+			return;
+		}
+
+		add_chkpt_timer();
+	} else {
+		if (debugging)
+		      cldlog(LOG_DEBUG, "unhandled state transition %d -> %d",
+			     cld_srv.state_cldb, new_state);
+      }
+}
+
 static void segv_signal(int signo)
 {
 	cldlog(LOG_ERR, "SIGSEGV");
@@ -724,9 +847,58 @@ static void stats_dump(void)
 {
 	X(poll);
 	X(event);
+	cldlog(LOG_INFO, "State: CLDB %s",
+	       state_name_cldb[cld_srv.state_cldb]);
 }
 
 #undef X
+
+static bool add_remote(const char *arg)
+{
+	size_t arg_len = strlen(arg);
+	int i, port;
+	struct db_remote *rp;
+	char *s_port, *colon;
+
+	if (!arg_len)
+		return false;
+
+	/* verify no whitespace in input */
+	for (i = 0; i < arg_len; i++)
+		if (isspace(arg[i]))
+			return false;
+
+	/* find colon delimiter */
+	colon = strchr(arg, ':');
+	if (!colon || (colon == arg))
+		return false;
+	s_port = colon + 1;
+
+	/* parse replication port number */
+	port = atoi(s_port);
+	if (port < 1 || port > 65535)
+		return false;
+
+	/* alloc and fill in remote-host record */
+	rp = malloc(sizeof(*rp));
+	if (!rp)
+		return false;
+	
+	rp->port = port;
+	rp->host = strdup(arg);
+	if (!rp->host) {
+		free(rp);
+		return false;
+	}
+
+	/* truncate string down to simply hostname portion */
+	rp->host[colon - arg] = 0;
+
+	/* add remote host to global list */
+	cld_srv.rep_remotes = g_list_append(cld_srv.rep_remotes, rp);
+
+	return true;
+}
 
 static error_t parse_opt (int key, char *arg, struct argp_state *state)
 {
@@ -748,6 +920,15 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 	case 'F':
 		cld_srv.flags |= SFL_FOREGROUND;
 		break;
+	case 'm':
+		if ((strlen(arg) > 3) && (strlen(arg) < 64) &&
+		    (strchr(arg, '.')))
+			cld_srv.force_myhost = arg;
+		else {
+			fprintf(stderr, "invalid myhost: '%s'\n", arg);
+			argp_usage(state);
+		}
+		break;
 	case 'p':
 		if (atoi(arg) > 0 && atoi(arg) < 65536)
 			cld_srv.port = arg;
@@ -759,6 +940,31 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 	case 'P':
 		cld_srv.pid_file = arg;
 		break;
+	case 'r':
+		if (atoi(arg) > 0 && atoi(arg) < 65536)
+			cld_srv.rep_port = atoi(arg);
+		else {
+			fprintf(stderr, "invalid rep-port: '%s'\n", arg);
+			argp_usage(state);
+		}
+		break;
+	case 'R':
+		if (!add_remote(arg)) {
+			fprintf(stderr, "invalid remote host:port: '%s'\n", arg);
+			argp_usage(state);
+		}
+		break;
+	case 'S': {
+		int n_peers = atoi(arg);
+		if ((n_peers >= CLD_MIN_PEERS) && (n_peers < CLD_MAX_PEERS) &&
+		    (n_peers & 0x01))
+			cld_srv.n_peers = atoi(arg);
+		else {
+			fprintf(stderr, "invalid peer count: '%s'\n", arg);
+			argp_usage(state);
+		}
+		break;
+		}
 
 	case 1001:			/* --strict-free */
 		strict_free = true;
@@ -779,8 +985,11 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 int main (int argc, char *argv[])
 {
 	error_t aprc;
-	int rc = 1;
+	int rc = 1, env_flags;
 	time_t next_timeout;
+
+	cld_srv.state_cldb =
+	cld_srv.state_cldb_new = ST_CLDB_INIT;
 
 	/* isspace() and strcasecmp() consistency requires this */
 	setlocale(LC_ALL, "C");
@@ -805,6 +1014,20 @@ int main (int argc, char *argv[])
 	if (use_syslog)
 		openlog(PROGRAM_NAME, LOG_PID, LOG_LOCAL3);
 
+	if (cld_srv.force_myhost)
+		cld_srv.myhost = strdup(cld_srv.force_myhost);
+	else
+		cld_srv.myhost = get_hostname();
+
+	if (debugging)
+		cldlog(LOG_DEBUG, "our hostname: %s", cld_srv.myhost);
+
+	/* remotes file should list all in peer group, except for us */
+	if ((cld_srv.n_peers - 1) != g_list_length(cld_srv.rep_remotes)) {
+		cldlog(LOG_ERR, "n_peers does not match remotes file loaded");
+		goto err_out;
+	}
+
 	if (!(cld_srv.flags & SFL_FOREGROUND) && (daemon(1, !use_syslog) < 0)) {
 		syslogerr("daemon");
 		goto err_out;
@@ -825,17 +1048,8 @@ int main (int argc, char *argv[])
 	signal(SIGTERM, term_signal);
 	signal(SIGUSR1, stats_signal);
 
-	if (cldb_init(&cld_srv.cldb, cld_srv.data_dir, NULL,
-		      DB_CREATE | DB_THREAD | DB_RECOVER,
-		      "cld", use_syslog,
-		      DB_CREATE | DB_THREAD, NULL))
-		exit(1);
-
-	ensure_root();
-
 	timer_init(&cld_srv.chkpt_timer, "db4-checkpoint",
 		   cldb_checkpoint, NULL);
-	add_chkpt_timer();
 
 	rc = 1;
 
@@ -848,17 +1062,52 @@ int main (int argc, char *argv[])
 	    !cld_srv.polls)
 		goto err_out_pid;
 
-	if (sess_load(cld_srv.sessions) != 0)
-		goto err_out_pid;
+	if (pipe(cld_srv.rep_pipe) < 0) {
+		syslogerr("pipe");
+		goto err_out;
+	}
 
 	/* set up server networking */
 	rc = net_open();
 	if (rc)
 		goto err_out_pid;
 
+	{
+		struct pollfd pfd;
+		struct server_poll sp;
+
+		/*
+		 * add pipe to poll list, after doing so with our net sockets
+		 */
+		sp.fd = cld_srv.rep_pipe[0];
+		sp.cb = noop_event;
+		sp.userdata = NULL;
+		g_array_append_val(cld_srv.poll_data, sp);
+
+		pfd.fd = cld_srv.rep_pipe[0];
+		pfd.events = POLLIN;
+		pfd.revents = 0;
+		g_array_append_val(cld_srv.polls, pfd);
+	}
+
+	env_flags = DB_RECOVER | DB_CREATE | DB_THREAD;
+	if (cldb_init(&cld_srv.cldb, cld_srv.data_dir, NULL,
+		    env_flags, "cld", true,
+		    cld_srv.rep_remotes,
+		    cld_srv.myhost, cld_srv.rep_port,
+		    cld_srv.n_peers, cldb_state_cb)) {
+		cldlog(LOG_ERR, "Failed to open CLDB, limping");
+	} else {
+		cld_srv.state_cldb =
+		cld_srv.state_cldb_new = ST_CLDB_OPEN;
+	}
+
 	cldlog(LOG_INFO, "initialized: dbg %u%s",
 	       debugging,
 	       strict_free ? ", strict-free" : "");
+	cldlog(LOG_INFO, "replication: %s:%u",
+		cld_srv.myhost,
+		cld_srv.rep_port);
 
 	next_timeout = timers_run();
 
@@ -923,6 +1172,12 @@ int main (int argc, char *argv[])
 		}
 
 		next_timeout = timers_run();
+
+		if (cld_srv.state_cldb_new != ST_CLDB_INIT &&
+		    cld_srv.state_cldb_new != cld_srv.state_cldb) {
+			cldb_state_process(cld_srv.state_cldb_new);
+			cld_srv.state_cldb = cld_srv.state_cldb_new;
+		}
 	}
 
 	cldlog(LOG_INFO, "shutting down");
@@ -932,7 +1187,8 @@ int main (int argc, char *argv[])
 
 	if (cld_srv.cldb.up)
 		cldb_down(&cld_srv.cldb);
-	cldb_fini(&cld_srv.cldb);
+	if (cld_srv.state_cldb >= ST_CLDB_OPEN)
+		cldb_fini(&cld_srv.cldb);
 
 	rc = 0;
 

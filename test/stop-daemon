@@ -1,23 +1,23 @@
 #!/bin/sh
 
-if [ ! -f cld.pid ]
+if [ ! -f cld1.pid -o ! -f cld2.pid -o ! -f cld3.pid ]
 then
-	echo no daemon pid file found.
+	echo at least one daemon pid file missing.
 	exit 1
 fi
 
-kill `cat cld.pid`
+kill `cat cld*.pid`
 
 for n in 0 1 2 3 4 5 6 7 8 9
 do
-	if [ ! -f cld.pid ]
+	if [ -f cld1.pid -o -f cld2.pid -o -f cld3.pid ]
 	then
+		sleep 1
+	else
 		exit 0
 	fi
-
-	sleep 1
 done
 
-echo "PID file not removed, after signal sent."
-rm -f cld.pid
+echo "PID file(s) not removed, after signal sent."
+rm -f cld*.pid
 exit 1

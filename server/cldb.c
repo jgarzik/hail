@@ -26,8 +26,6 @@
 #include <cld-private.h>
 #include "cld.h"
 
-static int cldb_up(struct cldb *cldb, unsigned int flags);
-
 /*
  * db4 page sizes for our various databases.  Filesystem block size
  * is recommended, so 4096 was chosen (default ext3 block size).
@@ -203,6 +201,30 @@ err_out:
 	return -EIO;
 }
 
+static int add_remote_sites(DB_ENV *dbenv, GList *remotes, int *nsites)
+{
+	int rc;
+	struct db_remote *rp;
+	GList *tmp;
+
+	*nsites = 0;
+	for (tmp = remotes; tmp; tmp = tmp->next) {
+		rp = tmp->data;
+
+		rc = dbenv->repmgr_add_remote_site(dbenv, rp->host, rp->port,
+						   NULL, 0);
+		if (rc) {
+			dbenv->err(dbenv, rc,
+				   "dbenv->add.remote.site host %s port %u",
+				   rp->host, rp->port);
+			return rc;
+		}
+		(*nsites)++;
+	}
+
+	return 0;
+}
+
 static void db4_event(DB_ENV *dbenv, u_int32_t event, void *event_info)
 {
 	struct cldb *cldb = dbenv->app_private;
@@ -230,12 +252,13 @@ static void db4_event(DB_ENV *dbenv, u_int32_t event, void *event_info)
 
 int cldb_init(struct cldb *cldb, const char *db_home, const char *db_password,
 	      unsigned int env_flags, const char *errpfx, bool do_syslog,
-	      unsigned int flags, void (*cb)(enum db_event))
+	      GList *remotes, char *rep_host, unsigned short rep_port,
+	      int n_peers, void (*cb)(enum db_event))
 {
-	int rc;
+	int rc, nsites = 0;
 	DB_ENV *dbenv;
 
-	cldb->is_master = true;
+	cldb->is_master = false;
 	cldb->home = db_home;
 	cldb->state_cb = cb;
 
@@ -282,24 +305,54 @@ int cldb_init(struct cldb *cldb, const char *db_home, const char *db_password,
 		cldb->keyed = true;
 	}
 
+	rc = dbenv->repmgr_set_local_site(dbenv, rep_host, rep_port, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "dbenv->set_local_site");
+		goto err_out;
+	}
+
 	rc = dbenv->set_event_notify(dbenv, db4_event);
 	if (rc) {
 		dbenv->err(dbenv, rc, "dbenv->set_event_notify");
 		goto err_out;
 	}
 
+	rc = dbenv->rep_set_priority(dbenv, 100);
+	if (rc) {
+		dbenv->err(dbenv, rc, "dbenv->rep_set_priority");
+		goto err_out;
+	}
+
+	rc = dbenv->rep_set_nsites(dbenv, n_peers);
+	if (rc) {
+		dbenv->err(dbenv, rc, "dbenv->rep_set_nsites");
+		goto err_out;
+	}
+
+	rc = dbenv->repmgr_set_ack_policy(dbenv, DB_REPMGR_ACKS_QUORUM);
+	if (rc) {
+		dbenv->err(dbenv, rc, "dbenv->rep_ack_policy");
+		goto err_out;
+	}
+
 	/* init DB transactional environment, stored in directory db_home */
 	env_flags |= DB_INIT_LOG | DB_INIT_LOCK | DB_INIT_MPOOL;
-	env_flags |= DB_INIT_TXN;
+	env_flags |= DB_INIT_TXN | DB_INIT_REP;
 	rc = dbenv->open(dbenv, db_home, env_flags, S_IRUSR | S_IWUSR);
 	if (rc) {
 		dbenv->err(dbenv, rc, "dbenv->open");
 		goto err_out;
 	}
 
-	rc = cldb_up(cldb, flags);
+	rc = add_remote_sites(dbenv, remotes, &nsites);
 	if (rc)
 		goto err_out;
+
+	rc = dbenv->repmgr_start(dbenv, 2, DB_REP_ELECTION);
+	if (rc) {
+		dbenv->err(dbenv, rc, "dbenv->repmgr_start");
+		goto err_out;
+	}
 
 	return 0;
 
@@ -311,7 +364,7 @@ err_out:
 /*
  * open databases
  */
-static int cldb_up(struct cldb *cldb, unsigned int flags)
+int cldb_up(struct cldb *cldb, unsigned int flags)
 {
 	DB_ENV *dbenv = cldb->env;
 	int rc;

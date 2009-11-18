@@ -1,13 +1,31 @@
 #!/bin/sh
 
-if [ -f cld.pid ]
+if [ -f cld1.pid -o -f cld2.pid -o -f cld3.pid ]
 then
-	echo "pid file found.  daemon still running?"
+	echo "pid file found.  daemons still running?"
 	exit 1
 fi
 
-../server/cld -P cld.pid -d "$PWD/data" -p 18181 -E
+../server/cld -d "$PWD/data/n1/data" -p 18181 -r 19181 -P cld1.pid -E	\
+	-D 2 -S 3			\
+	-m localhost.localdomain	\
+	-R localhost.localdomain:19182	\
+	-R localhost.localdomain:19183
 
-sleep 3
+../server/cld -d "$PWD/data/n2/data" -p 18182 -r 19182 -P cld2.pid -E	\
+	-D 2 -S 3			\
+	-m localhost.localdomain	\
+	-R localhost.localdomain:19181	\
+	-R localhost.localdomain:19183
+
+../server/cld -d "$PWD/data/n3/data" -p 18183 -r 19183 -P cld3.pid -E	\
+	-D 2 -S 3			\
+	-m localhost.localdomain	\
+	-R localhost.localdomain:19181	\
+	-R localhost.localdomain:19182
+sleep 1
+
+echo "      start-daemon: Waiting 20s, for daemons to start up..."
+sleep 20
 
 exit 0

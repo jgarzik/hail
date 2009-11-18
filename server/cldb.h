@@ -108,6 +108,11 @@ enum db_event {
 	CLDB_EV_NONE, CLDB_EV_CLIENT, CLDB_EV_MASTER, CLDB_EV_ELECTED
 };
 
+struct db_remote {	/* remotes for cldb_init */
+	char		*host;
+	unsigned short	port;
+};
+
 struct cldb {
 	bool		is_master;
 	bool		keyed;			/* using encryption? */
@@ -134,7 +139,9 @@ struct cldb {
 
 extern int cldb_init(struct cldb *cldb, const char *db_home, const char *db_password,
 	      unsigned int env_flags, const char *errpfx, bool do_syslog,
-	      unsigned int flags, void (*cb)(enum db_event));
+	      GList *remotes, char *rep_host, unsigned short rep_port,
+	      int n_peers, void (*cb)(enum db_event));
+extern int cldb_up(struct cldb *cldb, unsigned int flags);
 extern void cldb_down(struct cldb *cldb);
 extern void cldb_fini(struct cldb *cldb);
 
