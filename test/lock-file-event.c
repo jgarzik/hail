@@ -208,11 +208,18 @@ static struct cldc_ops ops = {
 static int init(void)
 {
 	int rc;
+	int port;
 	struct cldc_call_opts copts;
 
 	memcpy(run.buf, TESTSTR, TESTLEN);
 
-	rc = cldc_udp_new("localhost", 18181, &run.udp);
+	port = cld_readport("cld.port");	/* FIXME need test.h */
+	if (port < 0)
+		return port;
+	if (port == 0)
+		return -1;
+
+	rc = cldc_udp_new("localhost", port, &run.udp);
 	if (rc)
 		return rc;
 

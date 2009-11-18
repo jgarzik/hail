@@ -4,7 +4,12 @@ for n in 1 2 3
 do
 	if [ ! -f cld$n.pid ]
 	then
-		echo "cld$n.pid not found."
+		echo "cld$n.pid not found." >&2
+		exit 1
+	fi
+	if [ ! -f cld$n.port ]
+	then
+		echo "cld$n.port file not found." >&2
 		exit 1
 	fi
 done

@@ -1,5 +1,7 @@
 #!/bin/sh
 
+rm -f cld?.port
+
 if [ ! -f cld1.pid -o ! -f cld2.pid -o ! -f cld3.pid ]
 then
 	echo at least one daemon pid file missing.
