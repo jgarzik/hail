@@ -247,6 +247,7 @@ static int init(void)
 
 int main (int argc, char *argv[])
 {
+	g_thread_init(NULL);
 	cldc_init();
 	event_init();
 	if (init())

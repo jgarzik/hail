@@ -243,6 +243,7 @@ int main(int argc, char *argv[])
 	}
 #endif
 
+	g_thread_init(NULL);
 	cldc_init();
 	event_init();
 #if 0
