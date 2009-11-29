@@ -6,5 +6,7 @@ libcldc.la
 libcldc-uninstalled.pc
 libcldc.pc
 
+libtimer.a
+
 .libs
 

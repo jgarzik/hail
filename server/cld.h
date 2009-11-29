@@ -26,8 +26,8 @@
 #include <glib.h>
 #include "cldb.h"
 #include <cld_msg.h>
+#include <libtimer.h>
 
-struct timer;
 struct client;
 struct session_outpkt;
 
@@ -38,15 +38,6 @@ enum {
 	CLD_RETRY_START		= 2,		/* initial retry after 2sec */
 	CLD_CHKPT_SEC		= 60 * 5,	/* secs between db4 chkpt */
 	SFL_FOREGROUND		= (1 << 0),	/* run in foreground */
-};
-
-struct timer {
-	bool			fired;
-	bool			on_list;
-	void			(*cb)(struct timer *);
-	void			*userdata;
-	time_t			expires;
-	char			name[32];
 };
 
 struct client {
@@ -176,20 +167,6 @@ extern void applog(int prio, const char *fmt, ...);
 extern int write_pid_file(const char *pid_fn);
 extern void syslogerr(const char *prefix);
 extern int fsetflags(const char *prefix, int fd, int or_flags);
-extern void timer_add(struct timer *timer, time_t expires);
-extern void timer_del(struct timer *timer);
-extern time_t timers_run(void);
-
-static inline void timer_init(struct timer *timer, const char *name,
-			      void (*cb)(struct timer *),
-			      void *userdata)
-{
-	memset(timer, 0, sizeof(*timer));
-	timer->cb = cb;
-	timer->userdata = userdata;
-	strncpy(timer->name, name, sizeof(timer->name));
-	timer->name[sizeof(timer->name) - 1] = 0;
-}
 
 #ifndef HAVE_STRNLEN
 extern size_t strnlen(const char *s, size_t maxlen);
