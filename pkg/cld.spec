@@ -15,7 +15,7 @@ BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 Requires(post):		chkconfig
 Requires(preun):	chkconfig initscripts
 
-BuildRequires:	db4-devel libevent-devel glib2-devel doxygen openssl-devel
+BuildRequires:	db4-devel glib2-devel doxygen openssl-devel
 BuildRequires:	texlive-latex
 
 %description

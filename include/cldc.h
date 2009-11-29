@@ -3,7 +3,6 @@
 
 #include <sys/types.h>
 #include <stdbool.h>
-#include <event.h>
 #include <glib.h>
 #include <cld_msg.h>
 
@@ -130,8 +129,6 @@ struct cldc_udp {
 
 	int		fd;
 
-	struct event	timer_ev;
-
 	struct cldc_session *sess;
 
 	int		(*cb)(struct cldc_session *, void *);
@@ -202,10 +199,6 @@ extern int cldc_udp_receive_pkt(struct cldc_udp *udp);
 extern int cldc_udp_pkt_send(void *private,
 			  const void *addr, size_t addrlen,
 			  const void *buf, size_t buflen);
-extern bool cldc_levent_timer(void *private, bool add,
-		       int (*cb)(struct cldc_session *, void *),
-		       void *cb_private,
-		       time_t secs);
 
 /* cldc-dns */
 extern int cldc_getaddr(GList **host_list, const char *thishost, bool verbose,

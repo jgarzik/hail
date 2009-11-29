@@ -20,8 +20,7 @@ extern void timer_del(struct timer *timer);
 extern time_t timers_run(void);
 
 static inline void timer_init(struct timer *timer, const char *name,
-			      void (*cb)(struct timer *),
-			      void *userdata)
+			      void (*cb)(struct timer *), void *userdata)
 {
 	memset(timer, 0, sizeof(*timer));
 	timer->cb = cb;

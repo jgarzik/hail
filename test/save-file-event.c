@@ -1,7 +1,6 @@
 
 /*
  * Create a file in CLD.
- * This version uses libevent.
  */
 #include <sys/types.h>
 #include <unistd.h>
@@ -9,19 +8,15 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <event.h>
 #include <cldc.h>
-
-#define TESTSTR          "longertestdata\n"
-#define TESTLEN  (sizeof("longertestdata\n")-1)
-
-#define TFNAME     "/cld-test-inst"
+#include <libtimer.h>
+#include "test.h"
 
 #define DATAMAX  10000
 
 struct run {
 	struct cldc_udp *udp;
-	struct event udp_ev;
+	struct timer tmr_udp;
 	struct cldc_fh *fh;
 	char *fname;
 	char *buf;
@@ -35,22 +30,43 @@ static void call_close(struct run *rp);
 static int close_1_cb(struct cldc_call_opts *coptarg, enum cle_err_codes errc);
 static int end_sess_cb(struct cldc_call_opts *copts, enum cle_err_codes errc);
 
+static bool do_timer_ctl(void *priv, bool add,
+			 int (*cb)(struct cldc_session *, void *),
+			 void *cb_priv, time_t secs)
+{
+	struct run *rp = priv;
+
+	if (add) {
+		rp->udp->cb = cb;
+		rp->udp->cb_private = cb_priv;
+		timer_add(&rp->tmr_udp, time(NULL) + secs);
+	} else {
+		timer_del(&rp->tmr_udp);
+	}
+	return true;
+}
+
+static int do_pkt_send(void *priv, const void *addr, size_t addrlen,
+		       const void *buf, size_t buflen)
+{
+	struct run *rp = priv;
+	return cldc_udp_pkt_send(rp->udp, addr, addrlen, buf, buflen);
+}
+
+static void timer_udp_event(struct timer *timer)
+{
+	struct run *rp = timer->userdata;
+	struct cldc_udp *udp;
+
+	udp = rp->udp;
+	if (udp->cb)
+		udp->cb(udp->sess, udp->cb_private);
+}
+
 static void do_event(void *private, struct cldc_session *sess,
 		     struct cldc_fh *fh, uint32_t event_mask)
 {
 	fprintf(stderr, "EVENT(0x%x)\n", event_mask);
-}
-
-static void udp_event(int fd, short events, void *userdata)
-{
-	struct run *rp = userdata;
-	int rc;
-
-	rc = cldc_udp_receive_pkt(rp->udp);
-	if (rc) {
-		fprintf(stderr, "cldc_udp_receive_pkt failed: %d\n", rc);
-		exit(1);
-	}
 }
 
 static int new_sess_cb(struct cldc_call_opts *coptarg, enum cle_err_codes errc)
@@ -172,19 +188,15 @@ static int end_sess_cb(struct cldc_call_opts *copts, enum cle_err_codes errc)
 	}
 
 	/* session ended; success */
-	event_loopbreak();
-
+	exit(0);
 	return 0;
 }
 
 static struct run run;
-#if 0
-static char databuf[DATAMAX];
-#endif
 
 static struct cldc_ops ops = {
-	.timer_ctl		= cldc_levent_timer,
-	.pkt_send		= cldc_udp_pkt_send,
+	.timer_ctl		= do_timer_ctl,
+	.pkt_send		= do_pkt_send,
 	.event			= do_event,
 };
 
@@ -195,27 +207,18 @@ static int init(char *name)
 	struct cldc_call_opts copts;
 
 	run.fname = name;
-#if 0
-	run.buf = databuf;
-
-	rc = read(0, databuf, DATAMAX);
-	if (rc < 0) {
-		fprintf(stderr, "read error: %s\n", strerror(errno));
-		return -1;
-	}
-	run.len = rc;
-#else
 	run.buf = TESTSTR;
 	run.len = TESTLEN;
-#endif
 
-	port = cld_readport("cld.port");	/* FIXME need test.h */
+	port = cld_readport(TEST_PORTFILE_CLD);
 	if (port < 0)
 		return port;
 	if (port == 0)
 		return -1;
 
-	rc = cldc_udp_new("localhost", port, &run.udp);
+	timer_init(&run.tmr_udp, "udp-timer", timer_udp_event, &run);
+
+	rc = cldc_udp_new(TEST_HOST, port, &run.udp);
 	if (rc)
 		return rc;
 
@@ -223,43 +226,22 @@ static int init(char *name)
 	copts.cb = new_sess_cb;
 	copts.private = &run;
 	rc = cldc_new_sess(&ops, &copts, run.udp->addr, run.udp->addr_len,
-			   "testuser", "testuser", run.udp, &run.udp->sess);
+			   TEST_USER, TEST_USER_KEY, &run, &run.udp->sess);
 	if (rc)
 		return rc;
 
 	// run.udp->sess->verbose = true;
-
-	event_set(&run.udp_ev, run.udp->fd, EV_READ | EV_PERSIST,
-		  udp_event, &run);
-
-	if (event_add(&run.udp_ev, NULL) < 0) {
-		fprintf(stderr, "event_add failed\n");
-		return 1;
-	}
 
 	return 0;
 }
 
 int main(int argc, char *argv[])
 {
-#if 0
-	if (argc != 2) {
-		fprintf(stderr, "Usage: save-file-event {filename}\n");
-		return 1;
-	}
-#endif
-
 	g_thread_init(NULL);
 	cldc_init();
-	event_init();
-#if 0
-	if (init(argv[1]))
-		return 1;
-#else
 	if (init(TFNAME))
 		return 1;
-#endif
-	event_dispatch();
+	test_loop(run.udp);
 	return 0;
 }
 
