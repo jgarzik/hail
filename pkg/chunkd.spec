@@ -1,24 +1,26 @@
 Name:		chunkd
-Version:	0.4
-Release:	2%{?dist}
+Version:	0.6
+Release:	0.1.gcf9b95c8%{?dist}
 Summary:	Data storage daemon for cloud computing
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-Source0:	chunkd-%{version}.tar.gz
+# pulled from upstream git, commit cf9b95c883437690793976564936c1ef0b249368
+# to recreate tarball, check out commit, then run "make dist"
+Source0:	chunkd-%{version}git.tar.gz
 Source2:	chunkd.init
 Source3:	chunkd.sysconf
 BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 # N.B. We need cld to build, because our "make check" spawns a private copy.
 BuildRequires:	libevent-devel glib2-devel openssl-devel zlib-devel
-BuildRequires:	libxml2-devel procps
-BuildRequires:	cld >= 0.2
-BuildRequires:	cld-devel >= 0.2
+BuildRequires:	libxml2-devel procps tokyocabinet-devel
+BuildRequires:	cld >= 0.2.1
+BuildRequires:	cld-devel >= 0.2.1
 
-Requires:	cld >= 0.2
+Requires:	cld >= 0.2.1
 
 %description
 Single-node data storage daemon for cloud computing.
@@ -39,8 +41,7 @@ The %{name}-devel package contains libraries and header files for
 developing applications that use %{name}.
 
 %prep
-%setup -q
-
+%setup -q -n chunkd-0.6git
 
 %build
 %configure --disable-static
@@ -86,6 +87,7 @@ fi
 %defattr(-,root,root,-)
 %doc AUTHORS COPYING LICENSE README NEWS doc/*.txt
 %{_sbindir}/chunkd
+%{_bindir}/chcli
 %{_libdir}/*.so.*
 %attr(0755,root,root)	%{_initddir}/chunkd
 %config(noreplace)	%{_sysconfdir}/sysconfig/chunkd
@@ -97,8 +99,40 @@ fi
 %{_includedir}/*
 
 %changelog
-* Fri Aug 21 2009 Tomas Mraz <tmraz@redhat.com> - 0.4-2
+* Mon Nov 30 2009 Jeff Garzik <jgarzik@redhat.com> - 0.6-0.1.gcf9b95c8
+- update source to commit cf9b95c883437690793976564936c1ef0b249368
+
+* Fri Nov 13 2009 Jeff Garzik <jgarzik@redhat.com> - 0.5-1
+- update source to release version 0.5
+- BuildRequires tokyocabinet
+
+* Sun Nov  8 2009 Jeff Garzik <jgarzik@redhat.com> - 0.5-0.6.g9183dc91
+- update source to commit 9183dc916a48b037eaa1eabaff4ab03ef24284b5
+- add bin/chcli util
+
+* Thu Nov  5 2009 Jeff Garzik <jgarzik@redhat.com> - 0.5-0.5.g3b02f749
+- update source to commit 3b02f749df2cb1288f345a689d85e7061f507e54
+
+* Thu Nov  5 2009 Jeff Garzik <jgarzik@redhat.com> - 0.5-0.4.ge7d4f936
+- update source to commit e7d4f936e4c0f450317e1c6728f72cb5b43d029c
+
+* Wed Sep 30 2009 Jeff Garzik <jgarzik@redhat.com> - 0.5-0.3.gefef1eaf
+- update source to commit efef1eaf3a81ece54a761478cb8a72780556e97e
+
+* Wed Sep 30 2009 Jeff Garzik <jgarzik@redhat.com> - 0.5-0.2.g2d9d37d9
+- update source to commit 2d9d37d9379e23d8bd696b9c3fd650d7e0f9b022
+
+* Tue Sep 29 2009 Jeff Garzik <jgarzik@redhat.com> - 0.5-0.1.gfa9dd039
+- update source to commit fa9dd039a2b0e73c564c069dedf0764d160225a0
+
+* Sun Aug 30 2009 Pete Zaitcev <zaitcev@redhat.com> - 0.4-5
+- rebuilt with new openssl, again (for libssl.so.9 now)
+
+* Thu Aug 27 2009 Tomas Mraz <tmraz@redhat.com> - 0.4-4
 - rebuilt with new openssl
+
+* Wed Aug 26 2009 Jeff Garzik <jgarzik@redhat.com> - 0.4-3
+- Require/rebuild for cld version 0.2.1.
 
 * Sat Aug 15 2009 Jeff Garzik <jgarzik@redhat.com> - 0.4-1
 - Update to release version 0.4.
