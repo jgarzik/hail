@@ -28,6 +28,7 @@ static bool send_buf(struct st_client *stc, int sfd, void *buf, size_t buf_len)
 	while (buf_len) {
 		FD_ZERO(&wset);
 		FD_SET(sfd, &wset);
+		FD_ZERO(&rset);
 		FD_SET(sfd, &rset);
 		rc = select(sfd + 1, &rset, &wset, NULL, NULL);
 		OK(rc >= 0);
