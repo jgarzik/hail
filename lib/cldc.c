@@ -43,9 +43,6 @@ enum {
 	CLDC_MSG_RETRY		= 5,
 	CLDC_MSG_REMEMBER	= 25,
 	CLDC_SESS_EXPIRE	= 2 * 60,
-	CLDC_MAX_DATA_SZ	= 256 * 1024,
-	CLDC_MAX_DATA_PKT_SZ	= 1024,
-	CLDC_MAX_DATA_PKTS	= (CLDC_MAX_DATA_SZ / CLDC_MAX_DATA_PKT_SZ) + 2,
 };
 
 static bool authsign(struct cldc_session *, struct cld_packet *, size_t);
@@ -1174,7 +1171,7 @@ int cldc_put(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 	struct cldc_msg *msg;
 	struct cld_msg_put *put;
 
-	if (!data || !data_len || data_len > CLDC_MAX_DATA_SZ)
+	if (!data || !data_len || data_len > CLD_MAX_MSG_SZ)
 		return -EINVAL;
 
 	if (!fh->valid)
