@@ -6,6 +6,7 @@
 #include <glib.h>
 #include <cld_msg.h>
 #include <cld_common.h>
+#include <hail_log.h>
 
 struct cldc_session;
 
@@ -85,10 +86,8 @@ struct cldc_ops {
 struct cldc_session {
 	uint8_t		sid[CLD_SID_SZ];	/* client id */
 
-	bool		verbose;
-
 	const struct cldc_ops *ops;
-	void		(*act_log)(int prio, const char *fmt, ...);
+	struct		hail_log log;
 	void		*private;
 
 	uint8_t		addr[64];		/* server address */

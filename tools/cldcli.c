@@ -823,7 +823,7 @@ static gpointer cld_thread(gpointer dummy)
 		return NULL;
 	}
 
-	thr_udp->sess->verbose = cldcli_verbose;
+	thr_udp->sess->log.verbose = cldcli_verbose;
 
 	pfd[0].fd = thr_udp->fd;
 	pfd[0].events = POLLIN;
