@@ -46,7 +46,7 @@ int cldc_saveaddr(struct cldc_host *hp,
 
 	rc = getaddrinfo(hostname, portstr, &hints, &res0);
 	if (rc) {
-		HAIL_INFO(log, "getaddrinfo(%s,%s) failed: %s",
+		HAIL_ERR(log, "getaddrinfo(%s,%s) failed: %s",
 		       hostname, portstr, gai_strerror(rc));
 		rc = -EINVAL;
 		goto err_addr;
@@ -65,7 +65,7 @@ int cldc_saveaddr(struct cldc_host *hp,
 	}
 
 	if (!something_suitable) {
-		HAIL_INFO(log, "Host %s port %u has no addresses",
+		HAIL_ERR(log, "Host %s port %u has no addresses",
 		       hostname, port);
 		rc = -EINVAL;
 		goto err_suitable;
@@ -195,8 +195,8 @@ do_try_again:
 			/* fall through */
 		case NO_RECOVERY:
 		default:
-			HAIL_INFO(log, "cldc_getaddr: res_search error (%d): %s",
-				h_errno, hstrerror(h_errno));
+			HAIL_ERR(log, "cldc_getaddr: res_search error "
+				"(%d): %s", h_errno, hstrerror(h_errno));
 			return -1;
 		}
 	}
@@ -209,7 +209,7 @@ do_try_again:
 	}
 
 	if (ns_initparse(resp, rlen, &nsb) < 0) {
-		HAIL_INFO(log, "cldc_getaddr: ns_initparse error");
+		HAIL_ERR(log, "cldc_getaddr: ns_initparse error");
 		return -1;
 	}
 
