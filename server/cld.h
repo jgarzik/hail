@@ -28,6 +28,7 @@
 #include <cld_msg.h>
 #include <cld_common.h>
 #include <libtimer.h>
+#include <hail_log.h>
 
 struct client;
 struct session_outpkt;
@@ -153,7 +154,7 @@ extern int sess_load(GHashTable *ss);
 /* server.c */
 extern const char *opstr(enum cld_msg_ops op);
 extern struct server cld_srv;
-extern int debugging;
+extern struct hail_log srv_log;
 extern struct timeval current_time;
 extern int udp_tx(int sock_fd, struct sockaddr *, socklen_t,
 	    const void *, size_t);
@@ -162,7 +163,6 @@ extern void resp_err(struct session *sess,
 	      const struct cld_msg_hdr *src, enum cle_err_codes errcode);
 extern void resp_ok(struct session *sess, const struct cld_msg_hdr *src);
 extern bool authsign(struct cld_packet *pkt, size_t pkt_len);
-extern void applog(int prio, const char *fmt, ...);
 
 /* util.c */
 extern int write_pid_file(const char *pid_fn);

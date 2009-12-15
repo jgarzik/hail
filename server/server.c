@@ -84,7 +84,6 @@ static bool server_running = true;
 static bool dump_stats;
 static bool use_syslog = true;
 static bool strict_free = false;
-int debugging = 0;
 struct timeval current_time;
 
 struct server cld_srv = {
@@ -95,7 +94,7 @@ struct server cld_srv = {
 
 static void ensure_root(void);
 
-void applog(int prio, const char *fmt, ...)
+static void applog(int prio, const char *fmt, ...)
 {
 	va_list ap;
 
@@ -116,13 +115,17 @@ void applog(int prio, const char *fmt, ...)
 	va_end(ap);
 }
 
+struct hail_log srv_log = {
+	.func = applog,
+	.verbose = 0,
+};
+
 int udp_tx(int sock_fd, struct sockaddr *addr, socklen_t addr_len,
 	   const void *data, size_t data_len)
 {
 	ssize_t src;
 
-	if (debugging > 1)
-		applog(LOG_DEBUG, "udp_tx, fd %d", sock_fd);
+	HAIL_DEBUG(&srv_log, "udp_tx, fd %d", sock_fd);
 
 	src = sendto(sock_fd, data, data_len, 0, addr, addr_len);
 	if (src < 0 && errno != EAGAIN)
@@ -267,7 +270,7 @@ static void show_msg(const struct cld_msg_hdr *msg)
 	case cmo_not_master:
 	case cmo_event:
 	case cmo_ack_frag:
-		applog(LOG_DEBUG, "msg: op %s, xid %llu",
+		HAIL_DEBUG(&srv_log, "msg: op %s, xid %llu",
 		       opstr(msg->op),
 		       (unsigned long long) le64_to_cpu(msg->xid));
 		break;
@@ -279,7 +282,7 @@ static void udp_rx_msg(const struct client *cli, const struct cld_packet *pkt,
 {
 	struct session *sess = mp->sess;
 
-	if (debugging)
+	if (srv_log.verbose)
 		show_msg(msg);
 
 	switch(msg->op) {
@@ -328,12 +331,10 @@ static void pkt_ack_frag(int sock_fd,
 
 	authsign(outpkt, alloc_len);
 
-	if (debugging)
-		applog(LOG_DEBUG, "ack-partial-msg: "
-		       "sid " SIDFMT ", op %s, seqid %llu",
-		       SIDARG(outpkt->sid),
-		       opstr(ack_msg->hdr.op),
-		       (unsigned long long) le64_to_cpu(outpkt->seqid));
+	HAIL_DEBUG(&srv_log, "ack-partial-msg: "
+		"sid " SIDFMT ", op %s, seqid %llu",
+		SIDARG(outpkt->sid), opstr(ack_msg->hdr.op),
+		(unsigned long long) le64_to_cpu(outpkt->seqid));
 
 	/* transmit ack-partial-msg response (once, without retries) */
 	udp_tx(sock_fd, (struct sockaddr *) &cli->addr, cli->addr_len,
@@ -386,15 +387,12 @@ static void udp_rx(int sock_fd,
 	mp.msg = msg;
 	mp.msg_len = pkt_len - sizeof(*pkt) - SHA_DIGEST_LENGTH;
 
-	if (debugging > 1)
-		applog(LOG_DEBUG, "pkt: len %zu, seqid %llu, sid " SIDFMT ", "
-		       "flags %s%s, user %s",
-		       pkt_len,
-		       (unsigned long long) le64_to_cpu(pkt->seqid),
-		       SIDARG(pkt->sid),
-		       first_frag ? "F" : "",
-		       last_frag ? "L" : "",
-		       pkt->user);
+	HAIL_DEBUG(&srv_log, "pkt: len %zu, seqid %llu, sid " SIDFMT ", "
+		"flags %s%s, user %s",
+		pkt_len, (unsigned long long) le64_to_cpu(pkt->seqid),
+		SIDARG(pkt->sid),
+		first_frag ? "F" : "", last_frag ? "L" : "",
+		pkt->user);
 
 	/* advance sequence id's and update last-contact timestamp */
 	if (!have_new_sess) {
@@ -409,8 +407,7 @@ static void udp_rx(int sock_fd,
 		if (!have_ack) {
 			/* eliminate duplicates; do not return any response */
 			if (le64_to_cpu(pkt->seqid) != sess->next_seqid_in) {
-				if (debugging)
-					applog(LOG_DEBUG, "dropping dup");
+				HAIL_DEBUG(&srv_log, "dropping dup");
 				return;
 			}
 
@@ -421,8 +418,7 @@ static void udp_rx(int sock_fd,
 		if (sess) {
 			/* eliminate duplicates; do not return any response */
 			if (le64_to_cpu(pkt->seqid) != sess->next_seqid_in) {
-				if (debugging)
-					applog(LOG_DEBUG, "dropping dup");
+				HAIL_DEBUG(&srv_log, "dropping dup");
 				return;
 			}
 
@@ -452,8 +448,8 @@ static void udp_rx(int sock_fd,
 		mp.msg = msg = (struct cld_msg_hdr *) sess->msg_buf;
 		mp.msg_len = sess->msg_buf_len;
 
-		if ((debugging > 1) && !first_frag)
-			applog(LOG_DEBUG, "    final message size %u",
+		if ((srv_log.verbose > 1) && !first_frag)
+			HAIL_DEBUG(&srv_log, "    final message size %u",
 			       sess->msg_buf_len);
 	}
 
@@ -475,13 +471,11 @@ err_out:
 
 	authsign(outpkt, alloc_len);
 
-	if (debugging)
-		applog(LOG_DEBUG, "udp_rx err: "
-		       "sid " SIDFMT ", op %s, seqid %llu, code %d",
-		       SIDARG(outpkt->sid),
-		       opstr(resp->hdr.op),
-		       (unsigned long long) le64_to_cpu(outpkt->seqid),
-		       resp_rc);
+	HAIL_DEBUG(&srv_log, "udp_rx err: "
+		"sid " SIDFMT ", op %s, seqid %llu, code %d",
+		SIDARG(outpkt->sid), opstr(resp->hdr.op),
+		(unsigned long long) le64_to_cpu(outpkt->seqid),
+		resp_rc);
 
 	udp_tx(sock_fd, (struct sockaddr *) &cli->addr, cli->addr_len,
 	       outpkt, alloc_len);
@@ -523,9 +517,7 @@ static bool udp_srv_event(int fd, short events, void *userdata)
 
 	strcpy(cli.addr_host, host);
 
-	if (debugging)
-		applog(LOG_DEBUG, "client %s message (%d bytes)",
-		       host, (int) rrc);
+	HAIL_DEBUG(&srv_log, "client %s message (%d bytes)", host, (int) rrc);
 
 	/* if it is complete garbage, drop immediately */
 	if ((rrc < (sizeof(*pkt) + SHA_DIGEST_LENGTH)) ||
@@ -575,8 +567,7 @@ static void cldb_checkpoint(struct timer *timer)
 
 	gettimeofday(&current_time, NULL);
 
-	if (debugging)
-		applog(LOG_INFO, "db4 checkpoint");
+	HAIL_DEBUG(&srv_log, "db4 checkpoint");
 
 	/* flush logs to db, if log files >= 1MB */
 	rc = dbenv->txn_checkpoint(dbenv, 1024, 0, 0);
@@ -841,7 +832,7 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 		break;
 	case 'D':
 		if (atoi(arg) >= 0 && atoi(arg) <= 2)
-			debugging = atoi(arg);
+			srv_log.verbose = atoi(arg);
 		else {
 			fprintf(stderr, "invalid debug level: '%s'\n", arg);
 			argp_usage(state);
@@ -1044,8 +1035,8 @@ int main (int argc, char *argv[])
 	if (rc)
 		goto err_out_pid;
 
-	applog(LOG_INFO, "initialized: dbg %u%s",
-	       debugging,
+	HAIL_INFO(&srv_log, "initialized: verbose %u%s",
+	       srv_log.verbose,
 	       strict_free ? ", strict-free" : "");
 
 	/*
@@ -1098,9 +1089,8 @@ static void ensure_root()
 
 	rc = cldb_inode_get_byname(txn, "/", sizeof("/")-1, &inode, false, 0);
 	if (rc == 0) {
-		if (debugging)
-			applog(LOG_DEBUG, "Root inode found, ino %llu",
-			       (unsigned long long) cldino_from_le(inode->inum));
+		HAIL_DEBUG(&srv_log, "Root inode found, ino %llu",
+			(unsigned long long) cldino_from_le(inode->inum));
 	} else if (rc == DB_NOTFOUND) {
 		inode = cldb_inode_mem("/", sizeof("/")-1, CIFL_DIR, CLD_INO_ROOT);
 		if (!inode) {
@@ -1119,9 +1109,8 @@ static void ensure_root()
 			goto err_;
 		}
 
-		if (debugging)
-			applog(LOG_DEBUG, "Root inode created, ino %llu",
-			       (unsigned long long) cldino_from_le(inode->inum));
+		HAIL_DEBUG(&srv_log, "Root inode created, ino %llu",
+			(unsigned long long) cldino_from_le(inode->inum));
 		free(inode);
 	} else {
 		dbenv->err(dbenv, rc, "Root inode lookup");
