@@ -1579,6 +1579,8 @@ int main (int argc, char *argv[])
 	if (debugging)
 		applog(LOG_INFO, "Verbose debug output enabled");
 
+	cldu_hail_log.verbose = debugging;
+
 	g_thread_init(NULL);
 	SSL_library_init();
 

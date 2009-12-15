@@ -8,6 +8,7 @@
 #include <glib.h>
 #include <elist.h>
 #include <chunk_msg.h>
+#include <hail_log.h>
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
@@ -194,6 +195,8 @@ struct server {
 
 	struct server_stats	stats;		/* global statistics */
 };
+
+extern struct hail_log cldu_hail_log;
 
 /* be-fs.c */
 extern struct backend_obj *fs_obj_new(uint32_t table_id, const void *kbuf, size_t klen,
