@@ -250,14 +250,4 @@ struct cld_msg_event {
 	uint8_t			res[4];
 };
 
-/*
- * function prototypes for lib/common.c;
- * ideally these should not be in cld_msg.h
- */
-
-extern unsigned long long cld_sid2llu(const uint8_t *sid);
-extern void __cld_rand64(void *p);
-extern const char *cld_errstr(enum cle_err_codes ecode);
-extern int cld_readport(const char *fname);
-
 #endif /* __CLD_MSG_H__ */

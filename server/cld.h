@@ -26,6 +26,7 @@
 #include <glib.h>
 #include "cldb.h"
 #include <cld_msg.h>
+#include <cld_common.h>
 #include <libtimer.h>
 
 struct client;

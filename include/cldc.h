@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <glib.h>
 #include <cld_msg.h>
+#include <cld_common.h>
 
 struct cldc_session;
 
