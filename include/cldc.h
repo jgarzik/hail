@@ -201,14 +201,13 @@ extern int cldc_udp_pkt_send(void *private,
 			  const void *buf, size_t buflen);
 
 /* cldc-dns */
-extern int cldc_getaddr(GList **host_list, const char *thishost, bool verbose,
-		 void (*act_log)(int prio, const char *fmt, ...));
+extern int cldc_getaddr(GList **host_list, const char *thishost,
+			struct hail_log *log);
 extern int cldc_saveaddr(struct cldc_host *hp,
 			 unsigned int priority,
 			 unsigned int weight, unsigned int port,
 			 unsigned int nlen, const char *name,
-			 bool verbose,
-			 void (*act_log)(int prio, const char *fmt, ...));
+			 struct hail_log *log);
 
 static inline bool seqid_after_eq(uint64_t a_, uint64_t b_)
 {
