@@ -671,7 +671,8 @@ static int net_open_any(void)
 
 	if (fd6 >= 0) {
 		addr_len = sizeof(addr6);
-		if (getsockname(fd6, &addr6, &addr_len) != 0) {
+		if (getsockname(fd6, (struct sockaddr *) &addr6,
+				&addr_len) != 0) {
 			rc = errno;
 			applog(LOG_ERR, "getsockname failed: %s", strerror(rc));
 			return -rc;
@@ -692,7 +693,8 @@ static int net_open_any(void)
 			return fd4;
 
 		addr_len = sizeof(addr4);
-		if (getsockname(fd4, &addr4, &addr_len) != 0) {
+		if (getsockname(fd4, (struct sockaddr *) &addr4,
+				&addr_len) != 0) {
 			rc = errno;
 			applog(LOG_ERR, "getsockname failed: %s", strerror(rc));
 			return -rc;
