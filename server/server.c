@@ -619,25 +619,16 @@ static int net_open_socket(int addr_fam, int sock_type, int sock_prot,
 {
 	struct server_poll sp;
 	struct pollfd pfd;
-	int fd, on;
-	int rc;
+	int fd, rc;
 
 	fd = socket(addr_fam, sock_type, sock_prot);
 	if (fd < 0) {
-		syslogerr("tcp socket");
+		syslogerr("udp socket");
 		return -errno;
 	}
 
-	on = 1;
-	if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) < 0) {
-		rc = errno;
-		syslogerr("setsockopt(SO_REUSEADDR)");
-		close(fd);
-		return -rc;
-	}
-
 	if (bind(fd, addr_ptr, addr_len) < 0) {
-		syslogerr("tcp bind");
+		syslogerr("udp bind");
 		close(fd);
 		return -errno;
 	}
