@@ -76,8 +76,8 @@ AC_CHECK_LIB(crypto, MD5_Init, CRYPTO_LIBS=-lcrypto)
 AC_CHECK_LIB(ssl, SSL_new, SSL_LIBS=-lssl)
 AC_CHECK_LIB(event, event_base_new, EVENT_LIBS=-levent,
    [AC_MSG_ERROR([Missing required libevent])])
-AC_CHECK_LIB(argp, argp_parse, ARGP_LIBS=-largp)
-AC_CHECK_LIB(socket, bind, SOCKET_LIBS=-lsocket)
+AC_SEARCH_LIBS(argp_parse, argp)
+AC_SEARCH_LIBS(bind, socket)
 PKG_CHECK_MODULES(CLDC, libcldc)
 PKG_CHECK_MODULES(TOKYOCABINET, tokyocabinet)
 
@@ -120,8 +120,6 @@ AM_PATH_XML2(2.6.0, , exit 1)
 AC_SUBST(CRYPTO_LIBS)
 AC_SUBST(SSL_LIBS)
 AC_SUBST(EVENT_LIBS)
-AC_SUBST(ARGP_LIBS)
-AC_SUBST(SOCKET_LIBS)
 
 AC_CONFIG_FILES([doc/Makefile
 		 lib/Makefile
