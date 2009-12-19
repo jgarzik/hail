@@ -1,5 +1,7 @@
 
+#define _GNU_SOURCE
 #include "chunkd-config.h"
+
 #include <sys/types.h>
 #include <sys/time.h>
 #include <stdlib.h>
@@ -14,7 +16,7 @@ enum {
 	N_NOPS			= 50000,
 };
 
-static void test(int n_nops, bool encrypt)
+static void test(int n_nops, bool do_encrypt)
 {
 	struct st_client *stc;
 	int port;
@@ -22,10 +24,10 @@ static void test(int n_nops, bool encrypt)
 	int i;
 	struct timeval ta, tb;
 
-	port = stc_readport(encrypt ? TEST_PORTFILE_SSL : TEST_PORTFILE);
+	port = stc_readport(do_encrypt ? TEST_PORTFILE_SSL : TEST_PORTFILE);
 	OK(port > 0);
 
-	stc = stc_new(TEST_HOST, port, TEST_USER, TEST_USER_KEY, encrypt);
+	stc = stc_new(TEST_HOST, port, TEST_USER, TEST_USER_KEY, do_encrypt);
 	OK(stc);
 
 	rcb = stc_table_openz(stc, TEST_TABLE, 0);
@@ -42,7 +44,7 @@ static void test(int n_nops, bool encrypt)
 	gettimeofday(&tb, NULL);
 
 	printdiff(&ta, &tb, n_nops,
-		  encrypt ? "nop SSL NOP": "nop NOP", "nops");
+		  do_encrypt ? "nop SSL NOP": "nop NOP", "nops");
 
 	stc_free(stc);
 }

@@ -1,5 +1,7 @@
 
+#define _GNU_SOURCE
 #include "chunkd-config.h"
+
 #include <sys/types.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -9,7 +11,7 @@
 #include <chunkc.h>
 #include "test.h"
 
-static void test(bool encrypt)
+static void test(bool do_encrypt)
 {
 	struct st_object *obj;
 	struct st_keylist *klist;
@@ -23,16 +25,16 @@ static void test(bool encrypt)
 	size_t len = 0;
 	void *mem;
 
-	port = stc_readport(encrypt ? TEST_PORTFILE_SSL : TEST_PORTFILE);
+	port = stc_readport(do_encrypt ? TEST_PORTFILE_SSL : TEST_PORTFILE);
 	OK(port > 0);
 
-	stc1 = stc_new(TEST_HOST, port, TEST_USER, TEST_USER_KEY, encrypt);
+	stc1 = stc_new(TEST_HOST, port, TEST_USER, TEST_USER_KEY, do_encrypt);
 	OK(stc1);
 
 	rcb = stc_table_openz(stc1, TEST_TABLE, 0);
 	OK(rcb);
 
-	stc2 = stc_new(TEST_HOST, port, TEST_USER2, TEST_USER2_KEY, encrypt);
+	stc2 = stc_new(TEST_HOST, port, TEST_USER2, TEST_USER2_KEY, do_encrypt);
 	OK(stc2);
 
 	rcb = stc_table_openz(stc2, TEST_TABLE, 0);

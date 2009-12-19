@@ -1,5 +1,7 @@
 
+#define _GNU_SOURCE
 #include "chunkd-config.h"
+
 #include <sys/types.h>
 #include <sys/time.h>
 #include <stdlib.h>
@@ -14,7 +16,7 @@ enum {
 	N_TEST_OBJS		= 10000,
 };
 
-static void test(int n_objects, bool encrypt)
+static void test(int n_objects, bool do_encrypt)
 {
 	struct st_keylist *klist;
 	struct st_client *stc;
@@ -27,10 +29,10 @@ static void test(int n_objects, bool encrypt)
 	char *k;
 	struct timeval ta, tb;
 
-	port = stc_readport(encrypt ? TEST_PORTFILE_SSL : TEST_PORTFILE);
+	port = stc_readport(do_encrypt ? TEST_PORTFILE_SSL : TEST_PORTFILE);
 	OK(port > 0);
 
-	stc = stc_new(TEST_HOST, port, TEST_USER, TEST_USER_KEY, encrypt);
+	stc = stc_new(TEST_HOST, port, TEST_USER, TEST_USER_KEY, do_encrypt);
 	OK(stc);
 
 	rcb = stc_table_openz(stc, TEST_TABLE, 0);
@@ -53,7 +55,7 @@ static void test(int n_objects, bool encrypt)
 	gettimeofday(&tb, NULL);
 
 	printdiff(&ta, &tb, n_objects,
-		  encrypt ? "lotsa-objects SSL PUT": "lotsa-objects PUT", "ops");
+		  do_encrypt ? "lotsa-objects SSL PUT": "lotsa-objects PUT", "ops");
 
 	fprintf(stderr, "      lotsa-objects syncing...\n");
 	sync();
@@ -68,7 +70,7 @@ static void test(int n_objects, bool encrypt)
 	gettimeofday(&tb, NULL);
 
 	printdiff(&ta, &tb, n_objects,
-		  encrypt ? "lotsa-objects SSL Key list": "lotsa-objects Key list", "entries");
+		  do_encrypt ? "lotsa-objects SSL Key list": "lotsa-objects Key list", "entries");
 
 	i = 0;
 	tmpl = klist->contents;
@@ -102,7 +104,7 @@ static void test(int n_objects, bool encrypt)
 	gettimeofday(&tb, NULL);
 
 	printdiff(&ta, &tb, n_objects,
-		  encrypt ? "lotsa-objects SSL GET": "lotsa-objects GET", "ops");
+		  do_encrypt ? "lotsa-objects SSL GET": "lotsa-objects GET", "ops");
 
 	gettimeofday(&ta, NULL);
 
@@ -118,7 +120,7 @@ static void test(int n_objects, bool encrypt)
 	gettimeofday(&tb, NULL);
 
 	printdiff(&ta, &tb, n_objects,
-		  encrypt ? "lotsa-objects SSL DELETE": "lotsa-objects DELETE", "ops");
+		  do_encrypt ? "lotsa-objects SSL DELETE": "lotsa-objects DELETE", "ops");
 
 	fprintf(stderr, "      lotsa-objects syncing...\n");
 	sync();

@@ -1,5 +1,7 @@
 
+#define _GNU_SOURCE
 #include "chunkd-config.h"
+
 #include <string.h>
 #include <openssl/hmac.h>
 #include <glib.h>

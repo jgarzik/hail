@@ -1,4 +1,5 @@
 
+#define _GNU_SOURCE
 #include "chunkd-config.h"
 
 #include <assert.h>

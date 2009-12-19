@@ -1,5 +1,7 @@
 
+#define _GNU_SOURCE
 #include "chunkd-config.h"
+
 #include <stdio.h>
 #include "test.h"
 
