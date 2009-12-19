@@ -80,9 +80,11 @@ AC_CHECK_LIB(db-4.8, db_create, DB4_LIBS=-ldb-4.8,
 	AC_CHECK_LIB(db-4.4, db_create, DB4_LIBS=-ldb-4.4,
 	AC_CHECK_LIB(db-4.3, db_create, DB4_LIBS=-ldb-4.3,
   [AC_MSG_ERROR([Missing required libdb 4.x])]))))))
-AC_CHECK_LIB(argp, argp_parse, ARGP_LIBS=-largp)
 AC_CHECK_LIB(crypto, MD5_Init, CRYPTO_LIBS=-lcrypto)
-AC_CHECK_LIB(resolv, ns_initparse, RESOLV_LIBS=-lresolv)
+AC_SEARCH_LIBS(argp_parse, argp)
+AC_SEARCH_LIBS(recv, socket)
+AC_SEARCH_LIBS(dn_expand, resolv)
+AC_SEARCH_LIBS(ns_initparse, resolv)
 
 dnl -------------------------------------
 dnl Checks for optional library functions
@@ -110,9 +112,7 @@ PKG_PROG_PKG_CONFIG()
 AM_PATH_GLIB_2_0(2.0.0,,,gthread)
 
 AC_SUBST(DB4_LIBS)
-AC_SUBST(ARGP_LIBS)
 AC_SUBST(CRYPTO_LIBS)
-AC_SUBST(RESOLV_LIBS)
 
 AC_CONFIG_FILES([
 	Makefile

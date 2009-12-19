@@ -27,7 +27,7 @@ check_PROGRAMS		= it-works \
 TESTLDADD		= ../lib/libcldc.la	\
 			  ../lib/libtimer.a	\
 			  libtest.a		\
-			  @GLIB_LIBS@ @CRYPTO_LIBS@ @RESOLV_LIBS@
+			  @GLIB_LIBS@ @CRYPTO_LIBS@
 it_works_LDADD		= $(TESTLDADD)
 save_file_event_LDADD	= $(TESTLDADD)
 load_file_event_LDADD	= $(TESTLDADD)

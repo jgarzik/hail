@@ -5,5 +5,5 @@ INCLUDES	= -I$(top_srcdir)/include	\
 bin_PROGRAMS	= cldcli
 
 cldcli_LDADD	= ../lib/libcldc.la		\
-		  @GLIB_LIBS@ @CRYPTO_LIBS@ @ARGP_LIBS@ @RESOLV_LIBS@
+		  @GLIB_LIBS@ @CRYPTO_LIBS@
 
