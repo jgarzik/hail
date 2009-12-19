@@ -19,7 +19,6 @@
  *
  */
 
-
 #include <stdint.h>
 
 #define CLD_PKT_MAGIC	"CLDc1pkt"
