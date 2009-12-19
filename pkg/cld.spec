@@ -1,13 +1,15 @@
 Name:		cld
-Version:	0.2
-Release:	2%{?dist}
+Version:	0.3
+Release:	0.6.g50fcd615%{?dist}
 Summary:	Coarse locking daemon
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-Source0:	cld-%{version}.tar.gz
+# pulled from upstream git, commit 50fcd61590984c3c12f5584069da98bc8f4aec0f
+# to recreate tarball, check out commit, then run "make dist"
+Source0:	cld-%{version}git.tar.gz
 Source2:	cld.init
 Source3:	cld.sysconf
 BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
@@ -15,7 +17,7 @@ BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 Requires(post):		chkconfig
 Requires(preun):	chkconfig initscripts
 
-BuildRequires:	db4-devel libevent-devel glib2-devel doxygen openssl-devel
+BuildRequires:	db4-devel glib2-devel doxygen openssl-devel
 BuildRequires:	texlive-latex
 
 %description
@@ -38,7 +40,7 @@ The %{name}-devel package contains libraries and header files for
 developing applications that use %{name}.
 
 %prep
-%setup -q
+%setup -q -n cld-0.3git
 
 %build
 %configure --disable-static
@@ -99,8 +101,29 @@ fi
 %{_includedir}/*
 
 %changelog
-* Fri Aug 21 2009 Tomas Mraz <tmraz@redhat.com> - 0.2-2
+* Mon Nov 30 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.6.g50fcd615
+- update to 0.3git commit 50fcd61590984c3c12f5584069da98bc8f4aec0f
+
+* Sun Nov 29 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.5.g70268c35
+- update to 0.3git commit 70268c3568db1e024f8adcdc399cbe235832ea17
+
+* Sun Nov 15 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.4.g3cbe645c
+- update to 0.3git commit 3cbe645cba84ca39973b85889d49de908b4536be
+
+* Wed Nov  5 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.3.g3fc1d60a
+- update to 0.3git commit 3fc1d60ab0791cdfa0c31df486aa9e33e952bd6a
+
+* Wed Sep 30 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.2.gaaa8fb15
+- update to 0.3git commit aaa8fb15a4345cb1da65869e51691ff33549639c
+
+* Tue Sep 29 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.1.g232df337
+- update to 0.3git commit 232df337e0063a64315aff67073e1fd69db2b19a
+
+* Thu Aug 27 2009 Tomas Mraz <tmraz@redhat.com> - 0.2.1-2
 - rebuilt with new openssl
+
+* Wed Aug 26 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2.1-1
+- Upstream version 0.2.1 release (== many bug fixes).
 
 * Sat Aug 15 2009 Jeff Garzik <jgarzik@redhat.com> - 0.2-1
 - Upstream version 0.2 release.

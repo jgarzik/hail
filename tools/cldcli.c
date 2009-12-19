@@ -1,4 +1,23 @@
 
+/*
+ * Copyright 2009 Red Hat, Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; see the file COPYING.  If not, write to
+ * the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
+ *
+ */
+
+#define _GNU_SOURCE
 #include "cld-config.h"
 
 #include <unistd.h>
@@ -97,7 +116,6 @@ struct timer {
 };
 
 static unsigned long thread_running = 1;
-static int debugging;
 static GList *host_list;
 static char clicwd[CLD_PATH_MAX + 1] = "/";
 static int to_thread[2], from_thread[2];
@@ -135,6 +153,11 @@ static void applog(int prio, const char *fmt, ...)
 	vfprintf(stderr, buf, ap);
 	va_end(ap);
 }
+
+static struct hail_log cli_log = {
+	.func = applog,
+	.verbose = 0,
+};
 
 static gint timer_cmp(gconstpointer a_, gconstpointer b_)
 {
@@ -531,7 +554,7 @@ static void handle_user_command(void)
 
 	read_to_thread(&creq, sizeof(creq));
 
-	if (debugging)
+	if (cli_log.verbose)
 		switch (creq.cmd) {
 		case CREQ_CD:
 		case CREQ_CAT:
@@ -823,7 +846,7 @@ static gpointer cld_thread(gpointer dummy)
 		return NULL;
 	}
 
-	thr_udp->sess->verbose = cldcli_verbose;
+	thr_udp->sess->log.verbose = cldcli_verbose;
 
 	pfd[0].fd = thr_udp->fd;
 	pfd[0].events = POLLIN;
@@ -1236,7 +1259,7 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 	switch(key) {
 	case 'D':
 		if (atoi(arg) >= 0 && atoi(arg) <= 2)
-			debugging = atoi(arg);
+			cli_log.verbose = atoi(arg);
 		else {
 			fprintf(stderr, "invalid debug level: '%s'\n", arg);
 			argp_usage(state);
@@ -1304,7 +1327,7 @@ int main (int argc, char *argv[])
 			return 1;
 		}
 		hostb[hostsz-1] = 0;
-		if (cldc_getaddr(&host_list, hostb, debugging, applog)) {
+		if (cldc_getaddr(&host_list, hostb, &cli_log)) {
 			fprintf(stderr, "Unable to find a CLD host\n");
 			return 1;
 		}

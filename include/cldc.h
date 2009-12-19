@@ -1,11 +1,30 @@
 #ifndef __CLDC_H__
 #define __CLDC_H__
 
+/*
+ * Copyright 2009 Red Hat, Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; see the file COPYING.  If not, write to
+ * the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
+ *
+ */
+
 #include <sys/types.h>
 #include <stdbool.h>
-#include <event.h>
 #include <glib.h>
 #include <cld_msg.h>
+#include <cld_common.h>
+#include <hail_log.h>
 
 struct cldc_session;
 
@@ -85,10 +104,8 @@ struct cldc_ops {
 struct cldc_session {
 	uint8_t		sid[CLD_SID_SZ];	/* client id */
 
-	bool		verbose;
-
 	const struct cldc_ops *ops;
-	void		(*act_log)(int prio, const char *fmt, ...);
+	struct		hail_log log;
 	void		*private;
 
 	uint8_t		addr[64];		/* server address */
@@ -129,8 +146,6 @@ struct cldc_udp {
 	size_t		addr_len;
 
 	int		fd;
-
-	struct event	timer_ev;
 
 	struct cldc_session *sess;
 
@@ -202,20 +217,15 @@ extern int cldc_udp_receive_pkt(struct cldc_udp *udp);
 extern int cldc_udp_pkt_send(void *private,
 			  const void *addr, size_t addrlen,
 			  const void *buf, size_t buflen);
-extern bool cldc_levent_timer(void *private, bool add,
-		       int (*cb)(struct cldc_session *, void *),
-		       void *cb_private,
-		       time_t secs);
 
 /* cldc-dns */
-extern int cldc_getaddr(GList **host_list, const char *thishost, bool verbose,
-		 void (*act_log)(int prio, const char *fmt, ...));
+extern int cldc_getaddr(GList **host_list, const char *thishost,
+			struct hail_log *log);
 extern int cldc_saveaddr(struct cldc_host *hp,
 			 unsigned int priority,
 			 unsigned int weight, unsigned int port,
 			 unsigned int nlen, const char *name,
-			 bool verbose,
-			 void (*act_log)(int prio, const char *fmt, ...));
+			 struct hail_log *log);
 
 static inline bool seqid_after_eq(uint64_t a_, uint64_t b_)
 {

@@ -1,31 +1,73 @@
 
+/*
+ * Copyright 2009 Red Hat, Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; see the file COPYING.  If not, write to
+ * the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
+ *
+ */
+
+#define _GNU_SOURCE
+#include "cld-config.h"
+
 #include <sys/types.h>
 #include <unistd.h>
 #include <time.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <libtimer.h>
 #include <cldc.h>
+#include "test.h"
 
 static struct cldc_udp *udp;
-static struct event udp_ev;
-static int final_rc;
+static struct timer udp_tm;
+
+static bool do_timer_ctl(void *priv, bool add,
+			 int (*cb)(struct cldc_session *, void *),
+			 void *cb_priv, time_t secs)
+{
+	if (priv != udp) {
+		fprintf(stderr, "IE0: misuse of timer\n");
+		exit(1);
+	}
+
+	if (add) {
+		udp->cb = cb;
+		udp->cb_private = cb_priv;
+		timer_add(&udp_tm, time(NULL) + secs);
+	} else {
+		timer_del(&udp_tm);
+	}
+
+	return true;
+}
+
+static void timer_udp_event(struct timer *timer)
+{
+	if (timer->userdata != udp) {
+		fprintf(stderr, "IE1: misuse of timer\n");
+		exit(1);
+	}
+
+	if (udp->cb)
+		udp->cb(udp->sess, udp->cb_private);
+}
 
 static void do_event(void *private, struct cldc_session *sess,
 		     struct cldc_fh *fh, uint32_t event_mask)
 {
 	fprintf(stderr, "EVENT(%x)\n", event_mask);
-}
-
-static void udp_event(int fd, short events, void *userdata)
-{
-	int rc;
-
-	rc = cldc_udp_receive_pkt(udp);
-	if (rc) {
-		fprintf(stderr, "cldc_udp_receive_pkt failed: %d\n", rc);
-		exit(1);
-	}
 }
 
 static int end_sess_cb(struct cldc_call_opts *copts, enum cle_err_codes errc)
@@ -36,8 +78,7 @@ static int end_sess_cb(struct cldc_call_opts *copts, enum cle_err_codes errc)
 	}
 
 	/* session ended; success */
-	event_loopbreak();
-
+	exit(0);
 	return 0;
 }
 
@@ -64,7 +105,7 @@ static int new_sess_cb(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 }
 
 static struct cldc_ops ops = {
-	.timer_ctl		= cldc_levent_timer,
+	.timer_ctl		= do_timer_ctl,
 	.pkt_send		= cldc_udp_pkt_send,
 	.event			= do_event,
 };
@@ -85,6 +126,8 @@ static int init(void)
 	if (rc)
 		return rc;
 
+	timer_init(&udp_tm, "udp-timer", timer_udp_event, udp);
+
 	memset(&copts, 0, sizeof(copts));
 	copts.cb = new_sess_cb;
 
@@ -95,23 +138,16 @@ static int init(void)
 
 	// udp->sess->verbose = true;
 
-	event_set(&udp_ev, udp->fd, EV_READ | EV_PERSIST, udp_event, udp);
-
-	if (event_add(&udp_ev, NULL) < 0) {
-		fprintf(stderr, "event_add failed\n");
-		return 1;
-	}
-
 	return 0;
 }
 
 int main (int argc, char *argv[])
 {
+	g_thread_init(NULL);
 	cldc_init();
-	event_init();
 	if (init())
 		return 1;
-	event_dispatch();
-	return final_rc;
+	test_loop(udp);
+	return 0;
 }
 

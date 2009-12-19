@@ -1,4 +1,25 @@
 
+/*
+ * Copyright 2009 Red Hat, Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; see the file COPYING.  If not, write to
+ * the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
+ *
+ */
+
+#define _GNU_SOURCE
+#include "cld-config.h"
+
 #include <stdlib.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -61,26 +82,25 @@ const char *cld_errstr(enum cle_err_codes ecode)
  */
 int cld_readport(const char *fname)
 {
-	enum { LEN = 11 };
-	char buf[LEN+1];
 	long port;
-	int fd;
-	int rc;
+	gchar *buf;
+	GError *err = NULL;
+	gsize len;
 
-	if ((fd = open(fname, O_RDONLY)) == -1)
-		return -errno;
-	rc = read(fd, buf, LEN);
-	close(fd);
-	if (rc < 0)
-		return -errno;
-	if (rc == 0)
+	if (!g_file_get_contents(fname, &buf, &len, &err)) {
+		int ret = -1000 - err->code;
+		g_error_free(err);
+		return ret;
+	}
+
+	if (len == 0) {
+		g_free(buf);
 		return -EPIPE;
-	buf[rc] = 0;
-
+	}
 	port = strtol(buf, NULL, 10);
+	g_free(buf);
 	if (port <= 0 || port >= 65636)
 		return -EDOM;
 
 	return (int)port;
 }
-

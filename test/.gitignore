@@ -1,5 +1,6 @@
 
 .libs
+libtest.a
 it-works
 save-file-event
 load-file-event

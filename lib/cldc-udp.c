@@ -42,14 +42,6 @@ void cldc_udp_free(struct cldc_udp *udp)
 	free(udp);
 }
 
-static void cldc_udp_timer(int fd, short events, void *userdata)
-{
-	struct cldc_udp *udp = userdata;
-
-	if (udp->cb)
-		udp->cb(udp->sess, udp->cb_private);
-}
-
 int cldc_udp_new(const char *hostname, int port,
 		 struct cldc_udp **udp_out)
 {
@@ -100,8 +92,6 @@ int cldc_udp_new(const char *hostname, int port,
 
 	udp->fd = fd;
 
-	evtimer_set(&udp->timer_ev, cldc_udp_timer, udp);
-
 	freeaddrinfo(res);
 
 	*udp_out = udp;
@@ -147,22 +137,5 @@ int cldc_udp_pkt_send(void *private,
 		return -EILSEQ;
 
 	return 0;
-}
-
-bool cldc_levent_timer(void *private, bool add,
-		       int (*cb)(struct cldc_session *, void *),
-		       void *cb_private,
-		       time_t secs)
-{
-	struct cldc_udp *udp = private;
-	struct timeval tv = { secs, 0 };
-
-	if (add) {
-		udp->cb = cb;
-		udp->cb_private = cb_private;
-		return evtimer_add(&udp->timer_ev, &tv) == 0;
-	} else {
-		return evtimer_del(&udp->timer_ev) == 0;
-	}
 }
 

@@ -18,7 +18,6 @@
  */
 
 #define _GNU_SOURCE
-
 #include "cld-config.h"
 
 #include <sys/socket.h>
@@ -158,8 +157,7 @@ void sessions_free(void)
 
 static void session_trash(struct session *sess)
 {
-	if (debugging)
-		applog(LOG_DEBUG, "session " SIDFMT " sent to garbage",
+	HAIL_DEBUG(&srv_log, "session " SIDFMT " sent to garbage",
 		       SIDARG(sess->sid));
 	sess->dead = true;
 }
@@ -391,7 +389,7 @@ int session_dispose(DB_TXN *txn, struct session *sess)
 	session_free(sess, true);
 
 	if (rc)
-		applog(LOG_WARNING, "failed to remove session");
+		HAIL_WARN(&srv_log, "failed to remove session");
 
 	return rc;
 }
@@ -435,9 +433,9 @@ static void session_timeout(struct timer *timer)
 		return;	/* timer added; do not time out session */
 	}
 
-	applog(LOG_INFO, "session %s, addr %s sid " SIDFMT,
-	       sess->dead ? "gc'd" : "timeout",
-	       sess->ipaddr, SIDARG(sess->sid));
+	HAIL_INFO(&srv_log, "session %s, addr %s sid " SIDFMT,
+		sess->dead ? "gc'd" : "timeout",
+		sess->ipaddr, SIDARG(sess->sid));
 
 	/* open transaction */
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
@@ -576,13 +574,9 @@ static int sess_retry_output(struct session *sess, time_t *next_retry_out)
 		if (current_time.tv_sec < op->next_retry)
 			continue;
 
-		if (debugging)
-			applog(LOG_DEBUG,
-			       "retry: sid " SIDFMT ", op %s, seqid %llu",
-			       SIDARG(outpkt->sid),
-			       opstr(outmsg->op),
-			       (unsigned long long)
-					le64_to_cpu(outpkt->seqid));
+		HAIL_DEBUG(&srv_log, "retry: sid " SIDFMT ", op %s, seqid %llu",
+			SIDARG(outpkt->sid), opstr(outmsg->op),
+			(unsigned long long) le64_to_cpu(outpkt->seqid));
 
 		rc = udp_tx(sess->sock_fd, (struct sockaddr *) &sess->addr,
 			    sess->addr_len, op->pkt, op->pkt_len);
@@ -632,7 +626,7 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
 	n_pkts = (msglen / CLD_MAX_PKT_MSG_SZ);
 	n_pkts += (msglen % CLD_MAX_PKT_MSG_SZ) ? 1 : 0;
 
-	if (debugging) {
+	if (srv_log.verbose) {
 		const struct cld_msg_hdr *hdr = msg_;
 		const struct cld_msg_resp *rsp;
 
@@ -651,7 +645,7 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
 		case cmo_get_meta:
 		case cmo_get:
 			rsp = (struct cld_msg_resp *) msg_;
-			applog(LOG_DEBUG, "sendmsg: "
+			HAIL_DEBUG(&srv_log, "sendmsg: "
 			       "sid " SIDFMT ", op %s, msglen %u, code %u, "
 			       "xid %llu, xid_in %llu",
 			       SIDARG(sess->sid),
@@ -662,7 +656,7 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
 			       (unsigned long long) le64_to_cpu(rsp->xid_in));
 			break;
 		default:
-			applog(LOG_DEBUG, "sendmsg: "
+			HAIL_DEBUG(&srv_log, "sendmsg: "
 			       "sid " SIDFMT ", op %s, msglen %u",
 			       SIDARG(sess->sid),
 			       opstr(hdr->op),
@@ -771,9 +765,8 @@ void msg_ack(struct msg_params *mp)
 		if (mp->pkt->seqid != outpkt->seqid)
 			continue;
 
-		if (debugging)
-			applog(LOG_DEBUG, "    expiring seqid %llu",
-		           (unsigned long long) le64_to_cpu(outpkt->seqid));
+		HAIL_DEBUG(&srv_log, "    expiring seqid %llu",
+			(unsigned long long) le64_to_cpu(outpkt->seqid));
 
 		/* remove and delete the ack'd msg; call ack'd callback */
 		sess->out_q = g_list_delete_link(sess->out_q, tmp1);
@@ -865,18 +858,14 @@ err_out:
 
 	authsign(outpkt, alloc_len);
 
-	if (debugging)
-		applog(LOG_DEBUG,
-		       "new_sess err: sid " SIDFMT ", op %s, seqid %llu",
-		       SIDARG(outpkt->sid),
-		       opstr(resp->hdr.op),
-		       (unsigned long long) le64_to_cpu(outpkt->seqid));
+	HAIL_DEBUG(&srv_log, "new_sess err: sid " SIDFMT ", op %s, seqid %llu",
+		SIDARG(outpkt->sid), opstr(resp->hdr.op),
+		(unsigned long long) le64_to_cpu(outpkt->seqid));
 
 	udp_tx(mp->sock_fd, (struct sockaddr *) &mp->cli->addr,
 	       mp->cli->addr_len, outpkt, alloc_len);
 
-	if (debugging)
-		applog(LOG_DEBUG, "NEW-SESS failed: %d", resp_rc);
+	HAIL_DEBUG(&srv_log, "NEW-SESS failed: %d", resp_rc);
 }
 
 static void end_sess_done(struct session_outpkt *outpkt)
@@ -971,14 +960,11 @@ static int sess_load_db(GHashTable *ss, DB_TXN *txn)
 
 		session_decode(sess, &raw_sess);
 
-		if (debugging)
-			applog(LOG_DEBUG,
-			       " loaded sid " SIDFMT " next seqid %llu/%llu",
-			       SIDARG(sess->sid),
-			       (unsigned long long)
-					le64_to_cpu(sess->next_seqid_out),
-			       (unsigned long long)
-					le64_to_cpu(sess->next_seqid_in));
+		HAIL_DEBUG(&srv_log, " loaded sid " SIDFMT
+			" next seqid %llu/%llu",
+			SIDARG(sess->sid),
+			(unsigned long long) le64_to_cpu(sess->next_seqid_out),
+			(unsigned long long) le64_to_cpu(sess->next_seqid_in));
 
 		g_hash_table_insert(ss, sess->sid, sess);
 
