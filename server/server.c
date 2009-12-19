@@ -689,7 +689,7 @@ static void cldb_state_cb(enum db_event event)
 				cld_srv.state_cldb_new = ST_CLDB_MASTER;
 			else
 				cld_srv.state_cldb_new = ST_CLDB_SLAVE;
-			if (debugging) {
+			if (srv_log.verbose) {
 				applog(LOG_DEBUG, "CLDB state > %s",
 				       state_name_cldb[cld_srv.state_cldb_new]);
 			}
@@ -906,7 +906,7 @@ static void cldb_state_process(enum st_cldb new_state)
 
 		add_chkpt_timer();
 	} else {
-		if (debugging)
+		if (srv_log.verbose)
 		      applog(LOG_DEBUG, "unhandled state transition %d -> %d",
 			     cld_srv.state_cldb, new_state);
       }
@@ -1198,7 +1198,7 @@ int main (int argc, char *argv[])
 	else
 		cld_srv.myhost = get_hostname();
 
-	if (debugging)
+	if (srv_log.verbose)
 		applog(LOG_DEBUG, "our hostname: %s", cld_srv.myhost);
 
 	/* remotes file should list all in peer group, except for us */
