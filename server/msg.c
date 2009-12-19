@@ -18,7 +18,6 @@
  */
 
 #define _GNU_SOURCE
-
 #include "cld-config.h"
 
 #include <stdlib.h>

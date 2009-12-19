@@ -1,4 +1,7 @@
 
+#define _GNU_SOURCE
+#include "cld-config.h"
+
 #include <glib.h>
 #include <libtimer.h>
 

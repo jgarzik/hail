@@ -1,4 +1,7 @@
 
+#define _GNU_SOURCE
+#include "cld-config.h"
+
 #include <stdlib.h>
 #include <fcntl.h>
 #include <unistd.h>

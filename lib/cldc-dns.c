@@ -1,4 +1,7 @@
 
+#define _GNU_SOURCE
+#include "cld-config.h"
+
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <stdlib.h>

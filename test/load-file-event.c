@@ -2,6 +2,10 @@
 /*
  * Load a file from CLD.
  */
+
+#define _GNU_SOURCE
+#include "cld-config.h"
+
 #include <sys/types.h>
 #include <unistd.h>
 #include <time.h>

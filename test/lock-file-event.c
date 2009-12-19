@@ -2,6 +2,10 @@
 /*
  * Create a file in CLD, lock it.
  */
+
+#define _GNU_SOURCE
+#include "cld-config.h"
+
 #include <sys/types.h>
 #include <unistd.h>
 #include <time.h>
