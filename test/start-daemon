@@ -12,19 +12,26 @@ fi
 ../server/cld -P cld1.pid -d "$PWD/data/n1/data" -p auto --port-file=cld1.port \
 	-E -D 2 -S 3			\
 	-m localhost.localdomain	\
+	-r 19181			\
 	-R localhost.localdomain:19182	\
 	-R localhost.localdomain:19183
+sleep 2
+
 ../server/cld -P cld2.pid -d "$PWD/data/n2/data" -p auto --port-file=cld2.port \
 	-E -D 2 -S 3			\
 	-m localhost.localdomain	\
+	-r 19182			\
 	-R localhost.localdomain:19181	\
 	-R localhost.localdomain:19183
+sleep 2
+
 ../server/cld -P cld3.pid -d "$PWD/data/n3/data" -p auto --port-file=cld3.port \
 	-E -D 2 -S 3			\
 	-m localhost.localdomain	\
+	-r 19183			\
 	-R localhost.localdomain:19181	\
 	-R localhost.localdomain:19182
-sleep 1
+sleep 2
 
 echo "      start-daemon: Waiting 20s, for daemons to start up..."
 sleep 20
