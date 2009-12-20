@@ -116,7 +116,7 @@ static int init(void)
 	int port;
 	struct cldc_call_opts copts;
 
-	port = cld_readport("cld.port");	/* FIXME need test.h */
+	port = cld_readport(TEST_PORTFILE_CLD);
 	if (port < 0)
 		return port;
 	if (port == 0)
