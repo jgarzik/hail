@@ -195,7 +195,7 @@ bool cli_evt_data_in(struct client *cli, unsigned int events)
 			return cli_err(cli, che_InternalError, false);
 		}
 
-		SHA1_Update(&cli->out_hash, cli->req_ptr, bytes);
+		SHA1_Update(&cli->out_hash, p, bytes);
 
 		cli->out_len -= bytes;
 		p += bytes;
