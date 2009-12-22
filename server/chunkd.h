@@ -27,6 +27,7 @@
 #include <elist.h>
 #include <chunk_msg.h>
 #include <hail_log.h>
+#include <tchdb.h>
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
@@ -211,12 +212,17 @@ struct server {
 	uint32_t		nid;
 	struct geo		loc;
 
+	TCHDB			*tbl_master;
+
 	struct server_stats	stats;		/* global statistics */
 };
 
 extern struct hail_log cldu_hail_log;
 
 /* be-fs.c */
+extern int fs_open(void);
+extern void fs_close(void);
+extern void fs_free(void);
 extern struct backend_obj *fs_obj_new(uint32_t table_id, const void *kbuf, size_t klen,
 				      enum chunk_errcode *err_code);
 extern struct backend_obj *fs_obj_open(uint32_t table_id, const char *user,

@@ -61,13 +61,57 @@ struct be_fs_obj_hdr {
 	uint32_t		key_len;
 };
 
+int fs_open(void)
+{
+	TCHDB *hdb;
+	char *db_fn = NULL;
+	int rc = 0, omode;
+
+	if (asprintf(&db_fn, "%s/master.tch", chunkd_srv.vol_path) < 0)
+		return -ENOMEM;
+
+	hdb = tchdbnew();
+	if (!hdb) {
+		rc = -ENOMEM;
+		goto out;
+	}
+
+	omode = HDBOREADER | HDBONOLCK | HDBOWRITER | HDBOCREAT | HDBOTSYNC;
+	if (!tchdbopen(hdb, db_fn, omode)) {
+		applog(LOG_ERR, "failed to open master table %s", db_fn);
+		rc = -EIO;
+		goto out_hdb;
+	}
+
+	chunkd_srv.tbl_master = hdb;
+
+out:
+	free(db_fn);
+	return rc;
+
+out_hdb:
+	tchdbdel(hdb);
+	goto out;
+}
+
+void fs_close(void)
+{
+	tchdbclose(chunkd_srv.tbl_master);
+}
+
+void fs_free(void)
+{
+	if (chunkd_srv.tbl_master)
+		tchdbdel(chunkd_srv.tbl_master);
+}
+
 bool fs_table_open(const char *user, const void *kbuf, size_t klen,
 		   bool tbl_creat, bool excl_creat, uint32_t *table_id,
 		   enum chunk_errcode *err_code)
 {
-	TCHDB *hdb;
-	char *db_fn = NULL, *table_path = NULL;
-	int omode, osize = 0, next_num;
+	TCHDB *hdb = chunkd_srv.tbl_master;
+	char *table_path = NULL;
+	int osize = 0, next_num;
 	bool rc = false;
 	uint32_t *val_p, table_id_le;
 
@@ -84,24 +128,6 @@ bool fs_table_open(const char *user, const void *kbuf, size_t klen,
 	     !memcmp(kbuf, MDB_TABLE_ID, strlen(MDB_TABLE_ID)))) {
 		*err_code = che_InvalidArgument;
 		return false;
-	}
-
-	/*
-	 * open master database
-	 */
-	if (asprintf(&db_fn, "%s/master.tch", chunkd_srv.vol_path) < 0)
-		return false;
-
-	hdb = tchdbnew();
-	if (!hdb)
-		goto out;
-
-	omode = HDBOREADER | HDBONOLCK;
-	if (tbl_creat)
-		omode |= HDBOWRITER | HDBOCREAT | HDBOTSYNC;
-	if (!tchdbopen(hdb, db_fn, omode)) {
-		applog(LOG_ERR, "failed to open master table %s", db_fn);
-		goto out_hdb;
 	}
 
 	/*
@@ -155,11 +181,6 @@ out_ok:
 	*err_code = che_Success;
 	rc = true;
 out_close:
-	tchdbclose(hdb);
-out_hdb:
-	tchdbdel(hdb);
-out:
-	free(db_fn);
 	free(table_path);
 	return rc;
 }
