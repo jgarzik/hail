@@ -74,6 +74,9 @@ int fs_open(void)
 		goto out;
 	}
 
+	if (!tchdbsetmutex(hdb))
+		goto out_hdb;
+
 	omode = HDBOREADER | HDBONOLCK | HDBOWRITER | HDBOCREAT | HDBOTSYNC;
 	if (!tchdbopen(hdb, db_fn, omode)) {
 		applog(LOG_ERR, "failed to open master table %s", db_fn);
