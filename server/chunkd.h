@@ -52,7 +52,6 @@ enum {
 
 struct client;
 struct client_write;
-struct server_socket;
 
 typedef bool (*cli_evt_func)(struct client *, unsigned int);
 typedef bool (*cli_write_func)(struct client *, struct client_write *, bool);
