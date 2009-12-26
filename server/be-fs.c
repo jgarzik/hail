@@ -39,8 +39,6 @@
 #include <tchdb.h>
 #include "chunkd.h"
 
-#define BE_NAME		"fs"
-
 #define MDB_TABLE_ID	"__chunkd_table_id"
 #define MDB_TPATH_FMT	"%s/%X"
 

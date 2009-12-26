@@ -33,8 +33,6 @@
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 #endif
 
-#define ADDRSIZE	24	/* Enough for IPv6, including port. */
-
 enum {
 	STORAGED_PGSZ_INODE	= 1024,
 	STORAGED_PGSZ_SESSION	= 512,
