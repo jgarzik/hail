@@ -75,7 +75,7 @@ int fs_open(void)
 	}
 
 	if (!tchdbsetmutex(hdb))
-		goto out_hdb;
+		goto out_mut;
 
 	omode = HDBOREADER | HDBONOLCK | HDBOWRITER | HDBOCREAT | HDBOTSYNC;
 	if (!tchdbopen(hdb, db_fn, omode)) {
@@ -86,13 +86,15 @@ int fs_open(void)
 
 	chunkd_srv.tbl_master = hdb;
 
+	free(db_fn);
+	return 0;
+
+out_mut:
+out_hdb:
+	tchdbdel(hdb);
 out:
 	free(db_fn);
 	return rc;
-
-out_hdb:
-	tchdbdel(hdb);
-	goto out;
 }
 
 void fs_close(void)

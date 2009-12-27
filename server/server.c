@@ -1664,13 +1664,13 @@ int main (int argc, char *argv[])
 
 	if (fs_open()) {
 		rc = 1;
-		goto err_out_session;
+		goto err_out_fs;
 	}
 
 	if (cld_begin(chunkd_srv.ourhost, chunkd_srv.cell, chunkd_srv.nid,
 		      &chunkd_srv.loc, NULL)) {
 		rc = 1;
-		goto err_out_fs;
+		goto err_out_cld;
 	}
 
 	/* set up server networking */
@@ -1686,19 +1686,20 @@ int main (int argc, char *argv[])
 
 	applog(LOG_INFO, "shutting down");
 
+	/* net_close(); */
 err_out_listen:
 	cld_end();
-err_out_fs:
+err_out_cld:
 	fs_close();
+err_out_fs:
+	if (strict_free)
+		g_hash_table_destroy(chunkd_srv.fd_info);
 err_out_session:
-	/* net_close(); */
 	unlink(chunkd_srv.pid_file);
 	close(chunkd_srv.pid_fd);
 err_out:
-	if (strict_free) {
+	if (strict_free)
 		fs_free();
-		g_hash_table_destroy(chunkd_srv.fd_info);
-	}
 	closelog();
 	return rc;
 }
