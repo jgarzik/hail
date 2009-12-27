@@ -689,168 +689,263 @@ err_out:
 	return false;
 }
 
+int fs_list_objs_open(struct fs_obj_lister *t,
+		      const char *root_path, uint32_t table_id)
+{
+	int err;
+
+	if (asprintf(&t->table_path, MDB_TPATH_FMT, root_path, table_id) < 0)
+		return -ENOMEM;
+	t->root = opendir(t->table_path);
+	if (!t->root) {
+		err = errno;
+		free(t->table_path);
+		return -err;
+	}
+	return 0;
+}
+
+/*
+ * Get next filename.
+ * Return:
+ * -1  - error
+ *  0  - EOF
+ *  1  - ok
+ */
+int fs_list_objs_next(struct fs_obj_lister *t, char **fnp)
+{
+	struct dirent *de;
+
+again:
+	if (!t->sub) {
+		if ((de = readdir(t->root)) == NULL)
+			return 0;
+
+		if (de->d_name[0] == '.')
+			goto again;
+		if (strlen(de->d_name) != 4)
+			goto again;
+
+		if (asprintf(&t->sub, "%s/%s", t->table_path, de->d_name) < 0)
+			return -1;
+	}
+
+	if (!t->d) {
+		t->d = opendir(t->sub);
+		if (!t->d) {
+			syslogerr(t->sub);
+			free(t->sub);
+			t->sub = NULL;
+			goto again;
+		}
+	}
+
+	if ((de = readdir(t->d)) == NULL) {
+		closedir(t->d);
+		t->d = NULL;
+		free(t->sub);
+		t->sub = NULL;
+		goto again;
+	}
+
+	if (de->d_name[0] == '.')
+		goto again;
+
+	if (asprintf(fnp, "%s/%s", t->sub, de->d_name) < 0)
+		return -1;
+
+	return 1;
+}
+
+void fs_list_objs_close(struct fs_obj_lister *t)
+{
+	closedir(t->root);
+	free(t->table_path);
+
+	if (t->d)
+		closedir(t->d);
+	free(t->sub);
+}
+
 GList *fs_list_objs(uint32_t table_id, const char *user)
 {
+	struct fs_obj_lister lister;
 	GList *res = NULL;
-	struct dirent *de, *root_de;
-	DIR *d, *root;
-	char *sub, *table_path = NULL;
+	char *fn;
+	int rc;
 
-	sub = alloca(strlen(chunkd_srv.vol_path) + 1 + 16 + 4 + 1);
-
-	if (asprintf(&table_path, MDB_TPATH_FMT,
-		     chunkd_srv.vol_path, table_id) < 0)
-		return NULL;
-
-	root = opendir(table_path);
-	if (!root) {
-		syslogerr(table_path);
-		free(table_path);
+	memset(&lister, 0, sizeof(struct fs_obj_lister));
+	rc = fs_list_objs_open(&lister, chunkd_srv.vol_path, table_id);
+	if (rc) {
+		applog(LOG_WARNING, "Cannot open table %u: %s", table_id,
+		       strerror(-rc));
 		return NULL;
 	}
 
-	/* iterate through each dir */
-	while ((root_de = readdir(root)) != NULL) {
+	while (fs_list_objs_next(&lister, &fn) > 0) {
+		char *owner;
+		char *csum;
+		unsigned long long size;
+		time_t mtime;
+		struct volume_entry *ve;
+		void *p;
+		size_t alloc_len;
+		void *key_in;
+		size_t klen_in;
 
-		if (root_de->d_name[0] == '.')
-			continue;
-		if (strlen(root_de->d_name) != 4)
-			continue;
+		rc = fs_obj_hdr_read(fn, &owner, &csum, &key_in, &klen_in,
+				     &size, &mtime);
+		if (rc < 0) {
+			free(fn);
+			break;
+		}
+		free(fn);
 
-		sprintf(sub, "%s/%s", table_path, root_de->d_name);
-		d = opendir(sub);
-		if (!d) {
-			syslogerr(sub);
+		/* filter out results that do not match
+		 * the authenticated user
+		 */
+		if (strcmp(user, owner)) {
+			free(owner);
+			free(csum);
+			free(key_in);
+			continue;
+		}
+
+		/* one alloc, for fixed + var length struct */
+		alloc_len = sizeof(*ve) + strlen(csum) + 1 + strlen(owner) + 1;
+
+		ve = malloc(alloc_len);
+		if (!ve) {
+			free(owner);
+			free(csum);
+			free(key_in);
+			applog(LOG_ERR, "OOM");
 			break;
 		}
 
-		while ((de = readdir(d)) != NULL) {
-			int fd;
-			char *fn;
-			ssize_t rrc;
-			struct be_fs_obj_hdr hdr;
-			struct stat st;
-			struct volume_entry *ve;
-			void *p;
-			size_t alloc_len;
-			void *key_in;
-			uint32_t key_len_in;
+		/* store fixed-length portion of struct */
+		ve->size = size;
+		ve->mtime = mtime;
+		ve->key = key_in;
+		ve->key_len = klen_in;
 
-			if (de->d_name[0] == '.')
-				continue;
+		/*
+		 * store variable-length portion of struct:
+		 * checksum, owner strings
+		 */
 
-			if (asprintf(&fn, "%s/%s", sub, de->d_name) < 0)
-				break;
+		p = (ve + 1);
+		ve->hash = p;
+		strcpy(ve->hash, csum);
 
-			fd = open(fn, O_RDONLY);
-			if (fd < 0) {
-				syslogerr(fn);
-				free(fn);
-				break;
-			}
+		p += strlen(ve->hash) + 1;
+		ve->owner = p;
+		strcpy(ve->owner, owner);
 
-			if (fstat(fd, &st) < 0) {
-				syslogerr(fn);
-				close(fd);
-				free(fn);
-				break;
-			}
+		/* add entry to result list */
+		res = g_list_append(res, ve);
 
-			rrc = read(fd, &hdr, sizeof(hdr));
-			if (rrc != sizeof(hdr)) {
-				if (rrc < 0)
-					syslogerr(fn);
-				else
-					applog(LOG_ERR, "%s hdr read failed", fn);
-				close(fd);
-				free(fn);
-				break;
-			}
-
-			key_len_in = GUINT32_FROM_LE(hdr.key_len);
-			if (key_len_in < 1 || key_len_in > CHD_KEY_SZ) {
-				applog(LOG_ERR, "%s hdr key len invalid", fn);
-				close(fd);
-				free(fn);
-				break;
-			}
-
-			key_in = malloc(key_len_in);
-			if (!key_in) {
-				close(fd);
-				free(fn);
-				break;
-			}
-
-			rrc = read(fd, key_in, key_len_in);
-			if (rrc != key_len_in) {
-				if (rrc < 0)
-					syslogerr(fn);
-				else
-					applog(LOG_ERR, "%s hdr read failed", fn);
-				close(fd);
-				free(fn);
-				free(key_in);
-				break;
-			}
-
-			if (close(fd) < 0)
-				syslogerr(fn);
-
-			free(fn);
-
-			/* filter out results that do not match
-			 * the authenticated user
-			 */
-			if (strcmp(user, hdr.owner)) {
-				free(key_in);
-				continue;
-			}
-
-			/* one alloc, for fixed + var length struct */
-			alloc_len = sizeof(*ve) +
-				    strlen(hdr.checksum) + 1 +
-				    strlen(hdr.owner) + 1;
-
-			ve = malloc(alloc_len);
-			if (!ve) {
-				free(key_in);
-				applog(LOG_ERR, "OOM");
-				break;
-			}
-
-			/* store fixed-length portion of struct */
-			st.st_size -= sizeof(struct be_fs_obj_hdr);
-			st.st_size -= key_len_in;
-
-			ve->size = st.st_size;
-			ve->mtime = st.st_mtime;
-			ve->key = key_in;
-			ve->key_len = key_len_in;
-
-			/*
-			 * store variable-length portion of struct:
-			 * checksum, owner strings
-			 */
-
-			p = (ve + 1);
-			ve->hash = p;
-			strcpy(ve->hash, hdr.checksum);
-
-			p += strlen(ve->hash) + 1;
-			ve->owner = p;
-			strcpy(ve->owner, hdr.owner);
-
-			/* add entry to result list */
-			res = g_list_append(res, ve);
-		}
-
-		closedir(d);
+		free(owner);
+		free(csum);
 	}
 
-	closedir(root);
-
-	free(table_path);
+	fs_list_objs_close(&lister);
 	return res;
+}
+
+/*
+ * Read an object by filename.
+ * TODO - possibly factor out some code from fs_obj_open and fs_obj_delete.
+ */
+int fs_obj_hdr_read(const char *fn, char **owner, char **csum,
+		    void **keyp, size_t *klenp,
+		    unsigned long long *size, time_t *mtime)
+{
+	struct be_fs_obj_hdr hdr;
+	struct stat st;
+	int fd;
+	ssize_t rrc;
+	void *key_in;
+	size_t klen_in;
+	unsigned long long sz;
+
+	fd = open(fn, O_RDONLY);
+	if (fd < 0) {
+		syslogerr(fn);
+		goto err_open;
+	}
+
+	if (fstat(fd, &st) < 0) {
+		syslogerr(fn);
+		goto err_stat;
+	}
+
+	rrc = read(fd, &hdr, sizeof(hdr));
+	if (rrc != sizeof(hdr)) {
+		if (rrc < 0)
+			syslogerr(fn);
+		else
+			applog(LOG_WARNING, "%s hdr read failed", fn);
+		goto err_fix;
+	}
+
+	klen_in = GUINT32_FROM_LE(hdr.key_len);
+	if (klen_in < 1 || klen_in > CHD_KEY_SZ) {
+		applog(LOG_WARNING, "%s hdr key len (0x%x) invalid",
+		       fn, (unsigned int)klen_in);
+		goto err_fix;
+	}
+
+	key_in = malloc(klen_in);
+	if (!key_in) {
+		applog(LOG_WARNING, "NO CORE");
+		goto err_fix;
+	}
+
+	rrc = read(fd, key_in, klen_in);
+	if (rrc != klen_in) {
+		if (rrc < 0)
+			syslogerr(fn);
+		else
+			applog(LOG_ERR, "%s hdr short read (%lu)",
+			       fn, (unsigned long)rrc);
+		goto err_var;
+	}
+
+	*owner = strndup(hdr.owner, sizeof(hdr.owner));
+	if (!*owner) {
+		applog(LOG_WARNING, "NO CORE");
+		goto err_owner;
+	}
+	*csum = strndup(hdr.checksum, sizeof(hdr.checksum));
+	if (!*csum) {
+		applog(LOG_WARNING, "NO CORE");
+		goto err_csum;
+	}
+
+	*keyp = key_in;
+	*klenp = klen_in;
+
+	sz = st.st_size;
+	if (sz < klen_in + sizeof(struct be_fs_obj_hdr))
+		sz = 0;
+	else
+		sz = st.st_size - (sizeof(struct be_fs_obj_hdr) + klen_in);
+	*size = sz;
+	*mtime = st.st_mtime;
+
+	close(fd);
+	return 0;
+
+ err_csum:
+	free(*owner);
+ err_owner:
+ err_var:
+	free(key_in);
+ err_fix:
+ err_stat:
+	close(fd);
+ err_open:
+	return -1;
 }
 

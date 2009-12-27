@@ -217,6 +217,15 @@ struct server {
 extern struct hail_log cldu_hail_log;
 
 /* be-fs.c */
+#include <dirent.h>
+struct fs_obj_lister {
+	DIR *root;
+	char *table_path;
+
+	DIR *d;
+	char *sub;
+};
+
 extern int fs_open(void);
 extern void fs_close(void);
 extern void fs_free(void);
@@ -234,6 +243,13 @@ extern bool fs_obj_delete(uint32_t table_id, const char *user,
 		          const void *kbuf, size_t klen,
 			  enum chunk_errcode *err_code);
 extern ssize_t fs_obj_sendfile(struct backend_obj *bo, int out_fd, size_t len);
+extern int fs_list_objs_open(struct fs_obj_lister *t,
+			     const char *root_path, uint32_t table_id);
+extern int fs_list_objs_next(struct fs_obj_lister *t, char **fnp);
+extern void fs_list_objs_close(struct fs_obj_lister *t);
+extern int fs_obj_hdr_read(const char *fn, char **owner, char **checksum,
+			   void **keyp, size_t *klenp,
+			   unsigned long long *size, time_t *mtime);
 extern GList *fs_list_objs(uint32_t table_id, const char *user);
 extern bool fs_table_open(const char *user, const void *kbuf, size_t klen,
 		   bool tbl_creat, bool excl_creat, uint32_t *table_id,
