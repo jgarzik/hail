@@ -769,92 +769,6 @@ void fs_list_objs_close(struct fs_obj_lister *t)
 	free(t->sub);
 }
 
-GList *fs_list_objs(uint32_t table_id, const char *user)
-{
-	struct fs_obj_lister lister;
-	GList *res = NULL;
-	char *fn;
-	int rc;
-
-	memset(&lister, 0, sizeof(struct fs_obj_lister));
-	rc = fs_list_objs_open(&lister, chunkd_srv.vol_path, table_id);
-	if (rc) {
-		applog(LOG_WARNING, "Cannot open table %u: %s", table_id,
-		       strerror(-rc));
-		return NULL;
-	}
-
-	while (fs_list_objs_next(&lister, &fn) > 0) {
-		char *owner;
-		char *csum;
-		unsigned long long size;
-		time_t mtime;
-		struct volume_entry *ve;
-		void *p;
-		size_t alloc_len;
-		void *key_in;
-		size_t klen_in;
-
-		rc = fs_obj_hdr_read(fn, &owner, &csum, &key_in, &klen_in,
-				     &size, &mtime);
-		if (rc < 0) {
-			free(fn);
-			break;
-		}
-		free(fn);
-
-		/* filter out results that do not match
-		 * the authenticated user
-		 */
-		if (strcmp(user, owner)) {
-			free(owner);
-			free(csum);
-			free(key_in);
-			continue;
-		}
-
-		/* one alloc, for fixed + var length struct */
-		alloc_len = sizeof(*ve) + strlen(csum) + 1 + strlen(owner) + 1;
-
-		ve = malloc(alloc_len);
-		if (!ve) {
-			free(owner);
-			free(csum);
-			free(key_in);
-			applog(LOG_ERR, "OOM");
-			break;
-		}
-
-		/* store fixed-length portion of struct */
-		ve->size = size;
-		ve->mtime = mtime;
-		ve->key = key_in;
-		ve->key_len = klen_in;
-
-		/*
-		 * store variable-length portion of struct:
-		 * checksum, owner strings
-		 */
-
-		p = (ve + 1);
-		ve->hash = p;
-		strcpy(ve->hash, csum);
-
-		p += strlen(ve->hash) + 1;
-		ve->owner = p;
-		strcpy(ve->owner, owner);
-
-		/* add entry to result list */
-		res = g_list_append(res, ve);
-
-		free(owner);
-		free(csum);
-	}
-
-	fs_list_objs_close(&lister);
-	return res;
-}
-
 /*
  * Read an object by filename.
  * TODO - possibly factor out some code from fs_obj_open and fs_obj_delete.
@@ -949,5 +863,91 @@ int fs_obj_hdr_read(const char *fn, char **owner, char **csum,
 	close(fd);
  err_open:
 	return -1;
+}
+
+GList *fs_list_objs(uint32_t table_id, const char *user)
+{
+	struct fs_obj_lister lister;
+	GList *res = NULL;
+	char *fn;
+	int rc;
+
+	memset(&lister, 0, sizeof(struct fs_obj_lister));
+	rc = fs_list_objs_open(&lister, chunkd_srv.vol_path, table_id);
+	if (rc) {
+		applog(LOG_WARNING, "Cannot open table %u: %s", table_id,
+		       strerror(-rc));
+		return NULL;
+	}
+
+	while (fs_list_objs_next(&lister, &fn) > 0) {
+		char *owner;
+		char *csum;
+		unsigned long long size;
+		time_t mtime;
+		struct volume_entry *ve;
+		void *p;
+		size_t alloc_len;
+		void *key_in;
+		size_t klen_in;
+
+		rc = fs_obj_hdr_read(fn, &owner, &csum, &key_in, &klen_in,
+				     &size, &mtime);
+		if (rc < 0) {
+			free(fn);
+			break;
+		}
+		free(fn);
+
+		/* filter out results that do not match
+		 * the authenticated user
+		 */
+		if (strcmp(user, owner)) {
+			free(owner);
+			free(csum);
+			free(key_in);
+			continue;
+		}
+
+		/* one alloc, for fixed + var length struct */
+		alloc_len = sizeof(*ve) + strlen(csum) + 1 + strlen(owner) + 1;
+
+		ve = malloc(alloc_len);
+		if (!ve) {
+			free(owner);
+			free(csum);
+			free(key_in);
+			applog(LOG_ERR, "OOM");
+			break;
+		}
+
+		/* store fixed-length portion of struct */
+		ve->size = size;
+		ve->mtime = mtime;
+		ve->key = key_in;
+		ve->key_len = klen_in;
+
+		/*
+		 * store variable-length portion of struct:
+		 * checksum, owner strings
+		 */
+
+		p = (ve + 1);
+		ve->hash = p;
+		strcpy(ve->hash, csum);
+
+		p += strlen(ve->hash) + 1;
+		ve->owner = p;
+		strcpy(ve->owner, owner);
+
+		/* add entry to result list */
+		res = g_list_append(res, ve);
+
+		free(owner);
+		free(csum);
+	}
+
+	fs_list_objs_close(&lister);
+	return res;
 }
 
