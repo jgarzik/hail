@@ -706,7 +706,7 @@ static int net_open_any(void)
 
 	if (cld_srv.port_file) {
 		char portstr[7];
-		snprintf(portstr, sizeof(portstr), "%u\n", port);
+		snprintf(portstr, sizeof(portstr), "%u", port);
 		return net_write_port(cld_srv.port_file, portstr);
 	}
 	return 0;
