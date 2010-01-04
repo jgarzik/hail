@@ -168,7 +168,7 @@ static bool dirdata_append(void **data, size_t *data_len,
 
 	mem = realloc(*data, new_len);
 	if (!mem) {
-		HAIL_CRIT(&srv_log, "out of memory for data [%lz]", new_len);
+		HAIL_CRIT(&srv_log, "out of memory for data [%zu]", new_len);
 		return false;
 	}
 
@@ -452,8 +452,8 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 		goto err_out;
 	}
 
-	HAIL_DEBUG(&srv_log, "GET-DEBUG: sizeof(resp) %u, name_len %u, "
-		"inode->size %u, resp_len %u",
+	HAIL_DEBUG(&srv_log, "GET-DEBUG: sizeof(resp) %zu, name_len %u, "
+		"inode->size %u, resp_len %zu",
 		sizeof(*resp), name_len,
 		inode_size, resp_len);
 
@@ -757,7 +757,7 @@ void msg_put(struct msg_params *mp)
 	data_size = le32_to_cpu(msg->data_size);
 	if (mp->msg_len != (data_size + sizeof(*msg))) {
 		HAIL_INFO(&srv_log, "PUT len mismatch: msg len %zu, "
-			"wanted %zu + %u (== %u)",
+			"wanted %zu + %u (== %zu)",
 			mp->msg_len,
 			sizeof(*msg), data_size, data_size + sizeof(*msg));
 		resp_rc = CLE_BAD_PKT;

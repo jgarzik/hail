@@ -177,7 +177,7 @@ static int cldc_rx_ack_frag(struct cldc_session *sess,
 		return -1008;
 
 	HAIL_DEBUG(&sess->log, "ack-frag: seqid %llu, want to ack",
-			ack_msg->seqid);
+		   (unsigned long long) ack_msg->seqid);
 
 	tmp = sess->out_msg;
 	while (tmp) {
@@ -196,7 +196,7 @@ static int cldc_rx_ack_frag(struct cldc_session *sess,
 				continue;
 
 			HAIL_DEBUG(&sess->log, "ack-frag: seqid %llu, expiring",
-				ack_msg->seqid);
+				   (unsigned long long) ack_msg->seqid);
 
 			req->pkt_info[i] = NULL;
 			free(pi);
@@ -666,7 +666,7 @@ static int sess_send_pkt(struct cldc_session *sess,
 			first ? "F" : "",
 			last ? "L" : "",
 			first ? opstr(op) : "n/a",
-			le64_to_cpu(pkt->seqid));
+			(unsigned long long) le64_to_cpu(pkt->seqid));
 	}
 
 	return sess->ops->pkt_send(sess->private,
