@@ -3,8 +3,15 @@
 
 #include <stdbool.h>
 
+#ifdef __GNUC__
+#define ATTR_PRINTF(x,y) __attribute__((format(printf, x, y)))
+#else
+#define ATTR_PRINTF(x,y)
+#endif
+
 struct hail_log {
-	void (*func)(int prio, const char *fmt, ...);
+	void (*func)(int prio, const char *fmt, ...)
+		ATTR_PRINTF(2,3);
 	bool verbose;
 };
 
