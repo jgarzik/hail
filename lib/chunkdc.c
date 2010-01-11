@@ -431,7 +431,7 @@ size_t stc_get_recv(struct st_client *stc, void *data, size_t data_len)
 			if (done_cnt == data_len)
 				break;
 			if (ioctl(stc->fd, FIONREAD, &avail))
-				return errno;
+				return -errno;
 			if (avail == 0) {
 				if ((avail = SSL_pending(stc->ssl)) == 0)
 					break;
@@ -457,14 +457,14 @@ size_t stc_get_recv(struct st_client *stc, void *data, size_t data_len)
 		}
 	} else {
 		if (ioctl(stc->fd, FIONREAD, &avail))
-			return errno;
+			return -errno;
 		if (avail) {
 			if ((xfer_len = avail) > data_len)
 				xfer_len = data_len;
 
 			rc = read(stc->fd, data, xfer_len);
 			if (rc < 0)
-				return errno;
+				return -errno;
 
 			done_cnt += rc;
 		}
