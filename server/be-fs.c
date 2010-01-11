@@ -204,10 +204,12 @@ static struct fs_obj *fs_obj_alloc(void)
 	return obj;
 }
 
+#define PREFIX_LEN 4
+
 static char *fs_obj_pathname(uint32_t table_id,const void *key, size_t key_len)
 {
 	char *s = NULL;
-	char prefix[5] = "";
+	char prefix[PREFIX_LEN + 1] = "";
 	struct stat st;
 	size_t slen;
 	unsigned char md[SHA256_DIGEST_LENGTH];
@@ -219,7 +221,7 @@ static char *fs_obj_pathname(uint32_t table_id,const void *key, size_t key_len)
 	SHA256(key, key_len, md);
 	hexstr(md, SHA256_DIGEST_LENGTH, mdstr);
 
-	memcpy(prefix, mdstr, 4);
+	memcpy(prefix, mdstr, PREFIX_LEN);
 
 	slen = strlen(chunkd_srv.vol_path) + 1 +	/* volume */
 	       16 +					/* table id */
@@ -253,7 +255,7 @@ static char *fs_obj_pathname(uint32_t table_id,const void *key, size_t key_len)
 	}
 
 	sprintf(s, MDB_TPATH_FMT "/%s/%s", chunkd_srv.vol_path, table_id,
-		prefix, mdstr + 4);
+		prefix, mdstr + PREFIX_LEN);
 
 	return s;
 
@@ -725,7 +727,7 @@ again:
 
 		if (de->d_name[0] == '.')
 			goto again;
-		if (strlen(de->d_name) != 4)
+		if (strlen(de->d_name) != PREFIX_LEN)
 			goto again;
 
 		if (asprintf(&t->sub, "%s/%s", t->table_path, de->d_name) < 0)
