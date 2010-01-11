@@ -67,7 +67,7 @@ struct timer {
 
 struct client_write {
 	const void		*buf;		/* write buffer */
-	int			len;		/* write buffer length */
+	uint64_t		len;		/* write buffer length */
 	cli_write_func		cb;		/* callback */
 	void			*cb_data;	/* data passed to cb */
 	bool			sendfile;	/* using sendfile? */
@@ -115,11 +115,11 @@ struct client {
 
 	char			*out_user;
 	SHA_CTX			out_hash;
-	long			out_len;
+	uint64_t		out_len;
 
 	struct backend_obj	*out_bo;
 
-	long			in_len;
+	uint64_t		in_len;
 	struct backend_obj	*in_obj;
 
 	/* we put the big arrays and objects at the end... */

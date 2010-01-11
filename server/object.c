@@ -140,7 +140,7 @@ bool cli_evt_data_in(struct client *cli, unsigned int events)
 	read_sz = MIN(cli->out_len, CLI_DATA_BUF_SZ);
 
 	if (debugging)
-		applog(LOG_DEBUG, "REQ(data-in) seq %x, out_len %ld, read_sz %u",
+		applog(LOG_DEBUG, "REQ(data-in) seq %x, out_len %llu, read_sz %u",
 		       cli->creq.nonce, cli->out_len, read_sz);
 
 	if (cli->ssl) {

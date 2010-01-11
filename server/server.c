@@ -413,14 +413,21 @@ static int cli_wr_iov(struct client *cli, struct iovec *iov, int max_iov)
 {
 	struct client_write *tmp;
 	int n_iov = 0;
+	ssize_t total =  0;
 
 	/* accumulate pending writes into iovec */
 	list_for_each_entry(tmp, &cli->write_q, node) {
 		if (n_iov >= max_iov)
 			break;
 
+		if (tmp->len > (sizeof(ssize_t) == 8 ? LONG_MAX : INT_MAX))
+			break;
+		if (total + tmp->len < total)
+			break;
+
 		iov[n_iov].iov_base = (void *) tmp->buf;
 		iov[n_iov].iov_len = tmp->len;
+		total += tmp->len;
 
 		n_iov++;
 	}
@@ -436,7 +443,7 @@ static void cli_wr_completed(struct client *cli, ssize_t rc, bool *more_work)
 	 * amount of data written
 	 */
 	while (rc > 0) {
-		int sz;
+		ssize_t sz;
 
 		/* get pointer to first record on list */
 		tmp = list_entry(cli->write_q.next, struct client_write, node);

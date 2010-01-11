@@ -18,6 +18,7 @@
  */
 
 #define _GNU_SOURCE
+#define _FILE_OFFSET_BITS 64
 #include "chunkd-config.h"
 
 #include <sys/types.h>
