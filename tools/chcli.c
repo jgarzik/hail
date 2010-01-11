@@ -595,6 +595,7 @@ static int cmd_get(void)
 
 	while (get_len > 0) {
 		size_t need_len;
+		ssize_t rc;
 
 		need_len = MIN(GET_BUFSZ, get_len);
 
@@ -603,14 +604,15 @@ static int cmd_get(void)
 			return 1;
 		}
 
-		if (write(wfd, get_buf, need_len) != need_len) {
+		rc = write(wfd, get_buf, need_len);
+		if (rc < 0) {
 			fprintf(stderr, "GET write to output failed: %s\n",
 				strerror(errno));
 			unlink(output_fn);
 			return 1;
 		}
 
-		get_len -= need_len;
+		get_len -= rc;
 	}
 
 	if (wfd != STDOUT_FILENO)
