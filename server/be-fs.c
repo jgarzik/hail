@@ -204,7 +204,7 @@ static struct fs_obj *fs_obj_alloc(void)
 	return obj;
 }
 
-#define PREFIX_LEN 4
+#define PREFIX_LEN 3
 
 static char *fs_obj_pathname(uint32_t table_id,const void *key, size_t key_len)
 {
