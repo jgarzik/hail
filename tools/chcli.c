@@ -18,6 +18,7 @@
  */
 
 #define _GNU_SOURCE
+#define _FILE_OFFSET_BITS 64
 #include "chunkd-config.h"
 
 #include <assert.h>
@@ -51,6 +52,8 @@ static struct argp_option options[] = {
 	  "Connect to remote chunkd at specified HOST:PORT" },
 	{ "key", 'k', "FILE", 0,
 	  "Read key from FILE, rather than command line" },
+	{ "input", 'i', "FILE", 0,
+	  "Read value from FILE, rather than command line" },
 	{ "output", 'o', "FILE", 0,
 	  "Send GET output to FILE, rather than stdout" },
 	{ "ssl", 'S', NULL, 0,
@@ -101,6 +104,9 @@ static char *password;
 static char *output_fn;
 static char *key_data;
 static gsize key_data_len;
+static bool key_in_file;
+static char *input_fn;
+static bool value_in_file;
 static char *table_name;
 static size_t table_name_len;
 static bool table_create;
@@ -271,6 +277,11 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 			fprintf(stderr, "failed to read key file %s\n", arg);
 			argp_usage(state);
 		}
+		key_in_file = true;
+		break;
+	case 'i':
+		input_fn = arg;
+		value_in_file = true;
 		break;
 	case 'o':
 		output_fn = arg;
@@ -403,27 +414,74 @@ static int cmd_del(void)
 	return 0;
 }
 
+static size_t read_file_cb(void *ptr, size_t size, size_t nmemb,
+			void *user_data)
+{
+	int *fdp = user_data;
+
+	return read(*fdp, ptr, size * nmemb);
+}
+
+static bool stc_put_file(struct st_client *stc, const void *key, size_t key_len,
+			const char *filename, uint32_t flags)
+{
+	bool rcb;
+	int fd;
+	struct stat stat;
+	off64_t content_len;
+	int rc;
+
+	fd = open(filename, O_RDONLY);
+	if (fd < 0)
+		return false;
+
+	rc = fstat(fd, &stat);
+	if (rc) {
+		close(fd);
+		return false;
+	}
+	content_len = stat.st_size;
+	rcb = stc_put(stc, key, key_len, read_file_cb, content_len, &fd, flags);
+	close(fd);
+
+	return rcb;
+}
+
 static int cmd_put(void)
 {
 	struct st_client *stc;
+	bool rcb;
+	char *value_data;
+	gsize value_data_len;
 
-	/* if key data not supplied via file, absorb first cmd arg */
-	if (!key_data) {
-		if (!n_cmd_args) {
+	if (key_in_file && value_in_file) {
+		if (n_cmd_args) {
+			fprintf(stderr, "PUT invalid arg\n");
+			return 1;
+		}
+	} else if (key_in_file) {
+		if (n_cmd_args != 1) {
+			fprintf(stderr, "PUT requires value arg\n");
+			return 1;
+		}
+		value_data = cmd_args[0];
+		value_data_len = strlen(cmd_args[0]);
+	} else if (value_in_file) {
+		if (n_cmd_args != 1) {
 			fprintf(stderr, "PUT requires key arg\n");
 			return 1;
 		}
-
 		key_data = cmd_args[0];
 		key_data_len = strlen(cmd_args[0]) + 1;
-
-		cmd_args++;
-		n_cmd_args--;
-	}
-
-	if (n_cmd_args != 1) {
-		fprintf(stderr, "PUT requires value arg\n");
-		return 1;
+	} else {
+		if (n_cmd_args != 2) {
+			fprintf(stderr, "PUT requires key arg\n");
+			return 1;
+		}
+		key_data = cmd_args[0];
+		key_data_len = strlen(cmd_args[0]) + 1;
+		value_data = cmd_args[1];
+		value_data_len = strlen(cmd_args[1]);
 	}
 
 	if (key_data_len < 1 || key_data_len > CHD_KEY_SZ) {
@@ -436,8 +494,14 @@ static int cmd_put(void)
 	if (!stc)
 		return 1;
 
-	if (!stc_put_inline(stc, key_data, key_data_len,
-			    cmd_args[0], strlen(cmd_args[0]), 0)) {
+	if (value_in_file) {
+		rcb = stc_put_file(stc, key_data, key_data_len, input_fn, 0);
+	} else {
+		rcb = stc_put_inline(stc, key_data, key_data_len,
+				value_data, value_data_len, 0);
+	}
+
+	if (!rcb) {
 		fprintf(stderr, "PUT failed\n");
 		return 1;
 	}
