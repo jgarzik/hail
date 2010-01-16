@@ -6,21 +6,26 @@
 #include <string.h>
 #include <time.h>
 
-struct timer {
+struct cld_timer_list {
+	void *list;
+};
+
+struct cld_timer {
 	bool			fired;
 	bool			on_list;
-	void			(*cb)(struct timer *);
+	void			(*cb)(struct cld_timer *);
 	void			*userdata;
 	time_t			expires;
 	char			name[32];
 };
 
-extern void timer_add(struct timer *timer, time_t expires);
-extern void timer_del(struct timer *timer);
-extern time_t timers_run(void);
+extern void cld_timer_add(struct cld_timer_list *tlist, struct cld_timer *timer,
+			  time_t expires);
+extern void cld_timer_del(struct cld_timer_list *tlist, struct cld_timer *timer);
+extern time_t cld_timers_run(struct cld_timer_list *tlist);
 
-static inline void timer_init(struct timer *timer, const char *name,
-			      void (*cb)(struct timer *), void *userdata)
+static inline void cld_timer_init(struct cld_timer *timer, const char *name,
+	void (*cb)(struct cld_timer *), void *userdata)
 {
 	memset(timer, 0, sizeof(*timer));
 	timer->cb = cb;

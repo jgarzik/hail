@@ -59,13 +59,13 @@ struct session {
 
 	uint64_t		last_contact;
 	uint64_t		next_fh;
-	struct timer		timer;
+	struct cld_timer	timer;
 
 	uint64_t		next_seqid_in;
 	uint64_t		next_seqid_out;
 
 	GList			*out_q;		/* outgoing pkts (to client) */
-	struct timer		retry_timer;
+	struct cld_timer	retry_timer;
 
 	char			user[CLD_MAX_USERNAME];
 
@@ -116,9 +116,9 @@ struct server {
 
 	GHashTable		*sessions;
 
-	GQueue			*timers;
+	struct cld_timer_list	timers;
 
-	struct timer		chkpt_timer;	/* db4 checkpoint timer */
+	struct cld_timer	chkpt_timer;	/* db4 checkpoint timer */
 
 	struct server_stats	stats;		/* global statistics */
 };

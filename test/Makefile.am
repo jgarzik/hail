@@ -25,7 +25,6 @@ check_PROGRAMS		= it-works \
 			  save-file-event load-file-event lock-file-event
 
 TESTLDADD		= ../lib/libcldc.la	\
-			  ../lib/libtimer.a	\
 			  libtest.a		\
 			  @GLIB_LIBS@ @CRYPTO_LIBS@
 it_works_LDADD		= $(TESTLDADD)

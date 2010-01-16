@@ -557,10 +557,11 @@ static bool udp_srv_event(int fd, short events, void *userdata)
 
 static void add_chkpt_timer(void)
 {
-	timer_add(&cld_srv.chkpt_timer, time(NULL) + CLD_CHKPT_SEC);
+	cld_timer_add(&cld_srv.timers, &cld_srv.chkpt_timer,
+		      time(NULL) + CLD_CHKPT_SEC);
 }
 
-static void cldb_checkpoint(struct timer *timer)
+static void cldb_checkpoint(struct cld_timer *timer)
 {
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	int rc;
@@ -879,7 +880,7 @@ static int main_loop(void)
 {
 	time_t next_timeout;
 
-	next_timeout = timers_run();
+	next_timeout = cld_timers_run(&cld_srv.timers);
 
 	while (server_running) {
 		struct pollfd *pfd;
@@ -943,7 +944,7 @@ static int main_loop(void)
 			stats_dump();
 		}
 
-		next_timeout = timers_run();
+		next_timeout = cld_timers_run(&cld_srv.timers);
 	}
 
 	return 0;
@@ -1005,19 +1006,17 @@ int main (int argc, char *argv[])
 
 	ensure_root();
 
-	timer_init(&cld_srv.chkpt_timer, "db4-checkpoint",
-		   cldb_checkpoint, NULL);
+	cld_timer_init(&cld_srv.chkpt_timer, "db4-checkpoint",
+		       cldb_checkpoint, NULL);
 	add_chkpt_timer();
 
 	rc = 1;
 
 	cld_srv.sessions = g_hash_table_new(sess_hash, sess_equal);
-	cld_srv.timers = g_queue_new();
 	cld_srv.poll_data = g_array_sized_new(FALSE, FALSE,
 					   sizeof(struct server_poll), 4);
 	cld_srv.polls = g_array_sized_new(FALSE,FALSE,sizeof(struct pollfd), 4);
-	if (!cld_srv.sessions || !cld_srv.timers || !cld_srv.poll_data ||
-	    !cld_srv.polls)
+	if (!cld_srv.sessions || !cld_srv.poll_data || !cld_srv.polls)
 		goto err_out_pid;
 
 	if (sess_load(cld_srv.sessions) != 0)
@@ -1040,7 +1039,7 @@ int main (int argc, char *argv[])
 	applog(LOG_INFO, "shutting down");
 
 	if (strict_free)
-		timer_del(&cld_srv.chkpt_timer);
+		cld_timer_del(&cld_srv.timers, &cld_srv.chkpt_timer);
 
 	if (cld_srv.cldb.up)
 		cldb_down(&cld_srv.cldb);
@@ -1054,7 +1053,6 @@ err_out:
 		net_close();
 		g_array_free(cld_srv.polls, TRUE);
 		g_array_free(cld_srv.poll_data, TRUE);
-		g_queue_free(cld_srv.timers);
 		sessions_free();
 		g_hash_table_unref(cld_srv.sessions);
 	}

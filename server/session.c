@@ -46,8 +46,8 @@ struct session_outpkt {
 	void			*done_data;
 };
 
-static void session_retry(struct timer *);
-static void session_timeout(struct timer *);
+static void session_retry(struct cld_timer *);
+static void session_timeout(struct cld_timer *);
 static int sess_load_db(GHashTable *ss, DB_TXN *txn);
 static void op_unref(struct session_outpkt *op);
 
@@ -110,8 +110,8 @@ static struct session *session_new(void)
 
 	__cld_rand64(&sess->next_seqid_out);
 
-	timer_init(&sess->timer, "session-timeout", session_timeout, sess);
-	timer_init(&sess->retry_timer, "session-retry", session_retry, sess);
+	cld_timer_init(&sess->timer, "session-timeout", session_timeout, sess);
+	cld_timer_init(&sess->retry_timer, "session-retry", session_retry, sess);
 
 	return sess;
 }
@@ -126,8 +126,8 @@ static void session_free(struct session *sess, bool hash_remove)
 	if (hash_remove)
 		g_hash_table_remove(cld_srv.sessions, sess->sid);
 
-	timer_del(&sess->timer);
-	timer_del(&sess->retry_timer);
+	cld_timer_del(&cld_srv.timers, &sess->timer);
+	cld_timer_del(&cld_srv.timers, &sess->retry_timer);
 
 	tmp = sess->out_q;
 	while (tmp) {
@@ -413,7 +413,7 @@ static void session_ping(struct session *sess)
 	sess_sendmsg(sess, &resp, sizeof(resp), session_ping_done, NULL);
 }
 
-static void session_timeout(struct timer *timer)
+static void session_timeout(struct cld_timer *timer)
 {
 	struct session *sess = timer->userdata;
 	uint64_t sess_expire;
@@ -429,7 +429,8 @@ static void session_timeout(struct timer *timer)
 		    (sess->sock_fd > 0))))
 			session_ping(sess);
 
-		timer_add(&sess->timer, now + ((sess_expire - now) / 2) + 1);
+		cld_timer_add(&cld_srv.timers, &sess->timer,
+			      now + ((sess_expire - now) / 2) + 1);
 		return;	/* timer added; do not time out session */
 	}
 
@@ -589,7 +590,7 @@ static int sess_retry_output(struct session *sess, time_t *next_retry_out)
 	return rc;
 }
 
-static void session_retry(struct timer *timer)
+static void session_retry(struct cld_timer *timer)
 {
 	struct session *sess = timer->userdata;
 	time_t next_retry;
@@ -599,14 +600,15 @@ static void session_retry(struct timer *timer)
 
 	sess_retry_output(sess, &next_retry);
 
-	timer_add(&sess->retry_timer, next_retry);
+	cld_timer_add(&cld_srv.timers, &sess->retry_timer, next_retry);
 }
 
 static void session_outq(struct session *sess, GList *new_pkts)
 {
 	/* if out_q empty, start retry timer */
 	if (!sess->out_q)
-		timer_add(&sess->retry_timer, time(NULL) + CLD_RETRY_START);
+		cld_timer_add(&cld_srv.timers, &sess->retry_timer,
+			      time(NULL) + CLD_RETRY_START);
 
 	sess->out_q = g_list_concat(sess->out_q, new_pkts);
 }
@@ -777,7 +779,7 @@ void msg_ack(struct msg_params *mp)
 	}
 
 	if (!sess->out_q)
-		timer_del(&sess->retry_timer);
+		cld_timer_del(&cld_srv.timers, &sess->retry_timer);
 }
 
 void msg_new_sess(struct msg_params *mp, const struct client *cli)
@@ -838,7 +840,8 @@ void msg_new_sess(struct msg_params *mp, const struct client *cli)
 	g_hash_table_insert(cld_srv.sessions, sess->sid, sess);
 
 	/* begin session timer */
-	timer_add(&sess->timer, time(NULL) + (CLD_SESS_TIMEOUT / 2));
+	cld_timer_add(&cld_srv.timers, &sess->timer,
+		      time(NULL) + (CLD_SESS_TIMEOUT / 2));
 
 	resp_ok(sess, mp->msg);
 	return;
@@ -969,7 +972,8 @@ static int sess_load_db(GHashTable *ss, DB_TXN *txn)
 		g_hash_table_insert(ss, sess->sid, sess);
 
 		/* begin session timer */
-		timer_add(&sess->timer, time(NULL) + (CLD_SESS_TIMEOUT / 2));
+		cld_timer_add(&cld_srv.timers, &sess->timer,
+			      time(NULL) + (CLD_SESS_TIMEOUT / 2));
 	}
 
 	cur->close(cur);

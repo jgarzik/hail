@@ -23,12 +23,10 @@
 #include <glib.h>
 #include <libtimer.h>
 
-static GList *timer_list;
-
-static gint timer_cmp(gconstpointer a_, gconstpointer b_)
+static gint cld_timer_cmp(gconstpointer a_, gconstpointer b_)
 {
-	const struct timer *a = a_;
-	const struct timer *b = b_;
+	const struct cld_timer *a = a_;
+	const struct cld_timer *b = b_;
 
 	if (a->expires > b->expires)
 		return 1;
@@ -37,8 +35,11 @@ static gint timer_cmp(gconstpointer a_, gconstpointer b_)
 	return -1;
 }
 
-void timer_add(struct timer *timer, time_t expires)
+void cld_timer_add(struct cld_timer_list *tlist, struct cld_timer *timer,
+		   time_t expires)
 {
+	GList *timer_list = tlist->list;
+
 	if (timer->on_list)
 		timer_list = g_list_remove(timer_list, timer);
 
@@ -46,25 +47,26 @@ void timer_add(struct timer *timer, time_t expires)
 	timer->fired = false;
 	timer->expires = expires;
 
-	timer_list = g_list_insert_sorted(timer_list, timer, timer_cmp);
+	tlist->list = g_list_insert_sorted(timer_list, timer, cld_timer_cmp);
 }
 
-void timer_del(struct timer *timer)
+void cld_timer_del(struct cld_timer_list *tlist, struct cld_timer *timer)
 {
 	if (!timer->on_list)
 		return;
 
-	timer_list = g_list_remove(timer_list, timer);
+	tlist->list = g_list_remove(tlist->list, timer);
 
 	timer->on_list = false;
 }
 
-time_t timers_run(void)
+time_t cld_timers_run(struct cld_timer_list *tlist)
 {
-	struct timer *timer;
+	struct cld_timer *timer;
 	time_t now = time(NULL);
 	time_t next_timeout = 0;
 	GList *tmp, *cur;
+	GList *timer_list = tlist->list;
 	GList *exec_list = NULL;
 
 	tmp = timer_list;
@@ -99,6 +101,7 @@ time_t timers_run(void)
 			next_timeout = 1;
 	}
 
+	tlist->list = timer_list;
 	return next_timeout;
 }
 
