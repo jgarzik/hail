@@ -30,7 +30,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <libtimer.h>
 #include <cldc.h>
 #include "test.h"
 

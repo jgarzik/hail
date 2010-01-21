@@ -27,7 +27,6 @@
 #include "cldb.h"
 #include <cld_msg.h>
 #include <cld_common.h>
-#include <libtimer.h>
 #include <hail_log.h>
 
 struct client;

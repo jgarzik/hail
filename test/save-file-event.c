@@ -31,7 +31,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <cldc.h>
-#include <libtimer.h>
 #include "test.h"
 
 #define DATAMAX  10000

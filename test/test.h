@@ -3,7 +3,6 @@
 
 #include <stdbool.h>
 #include <cldc.h>
-#include <libtimer.h>
 
 #define TESTSTR          "longertestdata\n"
 #define TESTLEN  (sizeof("longertestdata\n")-1)

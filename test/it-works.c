@@ -26,7 +26,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <libtimer.h>
 #include <cldc.h>
 #include "test.h"
 

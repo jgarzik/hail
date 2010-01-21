@@ -20,6 +20,37 @@
  */
 
 #include <stdint.h>
+#include <stdbool.h>
+#include <string.h>
+#include <time.h>
+
+struct cld_timer_list {
+	void *list;
+};
+
+struct cld_timer {
+	bool			fired;
+	bool			on_list;
+	void			(*cb)(struct cld_timer *);
+	void			*userdata;
+	time_t			expires;
+	char			name[32];
+};
+
+extern void cld_timer_add(struct cld_timer_list *tlist, struct cld_timer *timer,
+			  time_t expires);
+extern void cld_timer_del(struct cld_timer_list *tlist, struct cld_timer *timer);
+extern time_t cld_timers_run(struct cld_timer_list *tlist);
+
+static inline void cld_timer_init(struct cld_timer *timer, const char *name,
+	void (*cb)(struct cld_timer *), void *userdata)
+{
+	memset(timer, 0, sizeof(*timer));
+	timer->cb = cb;
+	timer->userdata = userdata;
+	strncpy(timer->name, name, sizeof(timer->name));
+	timer->name[sizeof(timer->name) - 1] = 0;
+}
 
 unsigned long long cld_sid2llu(const uint8_t *sid);
 void __cld_rand64(void *p);

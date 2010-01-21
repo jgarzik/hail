@@ -31,7 +31,6 @@
 #include <stdarg.h>
 #include <ctype.h>
 #include <cldc.h>
-#include <libtimer.h>
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 

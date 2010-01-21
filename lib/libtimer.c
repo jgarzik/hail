@@ -21,7 +21,8 @@
 #include "cld-config.h"
 
 #include <glib.h>
-#include <libtimer.h>
+#include <cldc.h>
+#include <cld_common.h>
 
 static gint cld_timer_cmp(gconstpointer a_, gconstpointer b_)
 {

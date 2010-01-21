@@ -16,8 +16,6 @@ libcldc_la_LDFLAGS = \
 	-no-undefined \
 	-export-symbols-regex "^[^_].*"
 
-noinst_LIBRARIES	=
-
 pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = libcldc.pc
 

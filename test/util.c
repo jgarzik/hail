@@ -29,7 +29,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-#include <libtimer.h>
 #include <cldc.h>
 #include "test.h"
 
