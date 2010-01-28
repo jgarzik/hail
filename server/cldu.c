@@ -54,10 +54,10 @@ struct cld_session {
 
 	struct timer timer;
 
-	char *cfname;		/* /chunk-CELL directory */
-	struct cldc_fh *cfh;	/* /chunk-CELL directory fh */
-	char *ffname;		/* /chunk-CELL/NID */
-	struct cldc_fh *ffh;	/* /chunk-cell/NID, keep open for lock */
+	char *cfname;		/* /chunk-GROUP directory */
+	struct cldc_fh *cfh;	/* /chunk-GROUP directory fh */
+	char *ffname;		/* /chunk-GROUP/NID */
+	struct cldc_fh *ffh;	/* /chunk-GROUP/NID, keep open for lock */
 	uint32_t nid;
 	const char *ourhost;	/* N.B. points to some global data. */
 	struct geo *ploc;	/* N.B. points to some global data. */
@@ -103,28 +103,28 @@ static int cldu_nextactive(struct cld_session *sp)
 	return sp->actx;
 }
 
-static int cldu_setcell(struct cld_session *sp, const char *thiscell,
-			uint32_t thisnid, const char *thishost,
-			struct geo *locp)
+static int cldu_setgroup(struct cld_session *sp, const char *thisgroup,
+			 uint32_t thisnid, const char *thishost,
+			 struct geo *locp)
 {
 	size_t cnlen;
 	size_t mlen;
 	char nbuf[11];	/* 32 bits in decimal and nul */
 	char *mem;
 
-	if (thiscell == NULL) {
-		thiscell = "default";
+	if (thisgroup == NULL) {
+		thisgroup = "default";
 	}
 
 	snprintf(nbuf, 11, "%u", thisnid);
 
-	cnlen = strlen(thiscell);
+	cnlen = strlen(thisgroup);
 
 	mlen = sizeof("/" SVC "-")-1;
 	mlen += cnlen;
 	mlen++;	// '\0'
 	mem = malloc(mlen);
-	sprintf(mem, "/%s-%s", svc, thiscell);
+	sprintf(mem, "/%s-%s", svc, thisgroup);
 	sp->cfname = mem;
 
 	mlen = sizeof("/" SVC "-")-1;
@@ -133,7 +133,7 @@ static int cldu_setcell(struct cld_session *sp, const char *thiscell,
 	mlen += strlen(nbuf);
 	mlen++;	// '\0'
 	mem = malloc(mlen);
-	sprintf(mem, "/%s-%s/%s", svc, thiscell, nbuf);
+	sprintf(mem, "/%s-%s/%s", svc, thisgroup, nbuf);
 	sp->ffname = mem;
 
 	sp->nid = thisnid;
@@ -610,7 +610,7 @@ static struct cld_session ses;
  * by reference, so their lifetime must exceed the lifetime of the session
  * (the time between cld_begin and cld_end).
  */
-int cld_begin(const char *thishost, const char *thiscell, uint32_t nid,
+int cld_begin(const char *thishost, const char *thisgroup, uint32_t nid,
 	      struct geo *locp, void (*cb)(enum st_cld))
 {
 
@@ -628,9 +628,9 @@ int cld_begin(const char *thishost, const char *thiscell, uint32_t nid,
 
 	timer_init(&ses.timer, "chunkd_cldu_timer", cldu_timer_event, &ses);
 
-	if (cldu_setcell(&ses, thiscell, nid, thishost, locp)) {
+	if (cldu_setgroup(&ses, thisgroup, nid, thishost, locp)) {
 		/* Already logged error */
-		goto err_cell;
+		goto err_group;
 	}
 
 	if (!ses.forced_hosts) {
@@ -677,7 +677,7 @@ int cld_begin(const char *thishost, const char *thiscell, uint32_t nid,
 
 err_net:
 err_addr:
-err_cell:
+err_group:
 	return -1;
 }
 

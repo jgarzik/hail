@@ -205,7 +205,7 @@ struct server {
 
 	char			*ourhost;
 	char			*vol_path;
-	char			*cell;
+	char			*group;
 	uint32_t		nid;
 	struct geo		loc;
 
@@ -265,7 +265,7 @@ extern void cli_in_end(struct client *cli);
 
 /* cldu.c */
 extern void cldu_add_host(const char *host, unsigned int port);
-extern int cld_begin(const char *thishost, const char *thiscell, uint32_t nid,
+extern int cld_begin(const char *thishost, const char *thisgroup, uint32_t nid,
 		     struct geo *locp, void (*cb)(enum st_cld));
 extern void cld_end(void);
 

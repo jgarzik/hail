@@ -1674,7 +1674,7 @@ int main (int argc, char *argv[])
 		goto err_out_fs;
 	}
 
-	if (cld_begin(chunkd_srv.ourhost, chunkd_srv.cell, chunkd_srv.nid,
+	if (cld_begin(chunkd_srv.ourhost, chunkd_srv.group, chunkd_srv.nid,
 		      &chunkd_srv.loc, NULL)) {
 		rc = 1;
 		goto err_out_cld;

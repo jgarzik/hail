@@ -55,7 +55,7 @@ struct config_context {
 	struct listen_cfg tmp_listen;
 };
 
-static bool is_good_cell_name(const char *s)
+static bool is_good_group_name(const char *s)
 {
 	char c;
 	int n;
@@ -391,9 +391,9 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		cc->text = NULL;
 	}
 
-	else if (!strcmp(element_name, "Cell") && cc->text) {
-		free(chunkd_srv.cell);
-		chunkd_srv.cell = cc->text;
+	else if (!strcmp(element_name, "Group") && cc->text) {
+		free(chunkd_srv.group);
+		chunkd_srv.group = cc->text;
 		cc->text = NULL;
 	}
 
@@ -508,8 +508,8 @@ void read_config(void)
 		}
 	}
 
-	if (chunkd_srv.cell && !is_good_cell_name(chunkd_srv.cell)) {
-		applog(LOG_ERR, "Cell name '%s' is invalid", chunkd_srv.cell);
+	if (chunkd_srv.group && !is_good_group_name(chunkd_srv.group)) {
+		applog(LOG_ERR, "Group name '%s' is invalid", chunkd_srv.group);
 		exit(1);
 	}
 

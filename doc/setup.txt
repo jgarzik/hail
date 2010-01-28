@@ -65,23 +65,26 @@ _cld._udp.phx2.ex.com has SRV record 10 50 8081 maika.phx2.ex.com.
 		<Cert>/etc/pki/cert-public-key.pem</Cert>
 	</SSL>
 
-*) configure the cell. This actually has a default, called "default".
-   Do not rely on it, unless you run an appartment-wide cloud cell
-   or something equally limited.
+*) configure the group. The group is used by upper level applications to
+   find chunkservers that are assigned to them. So, typically, a group
+   is named after the application.
 
-        <Cell>picbak</Cell>
+        <Group>ultracart2</Group>
 
    It's best to use only ASCII letters, numbers, dash ('-'), underscore ('_'),
-   and period ('.') in cell names.
+   and period ('.') in group names.
+
+   Keep in mind that if you do not assign a group, the chunkserver joins
+   the default group called "default".
 
 *) For a typical Chunk configuration (not running it standalone),
    configure Node ID (NID). The NID follows the data, so
    the best practice for NIDs is to have site-wide node bring-up scripts
-   create a unique identifier from a per-cell counter, instead of using
-   the MAC or IP, or such. One common trick is to use the creation time,
+   create a unique identifier from a per-group counter, instead of using
+   the MAC or IP address. One common trick is to use the creation time,
    from "date +%s", so for small clouds all you need is to remember not
    to create storage nodes in parallel. If NIDs conflict (they must be
-   unique within a cell), the new node will refuse to come up. This,
+   unique within a group), the new node will refuse to come up. This,
    however, is not bulletproof in the face of nodes going down and then
    back up, so implement those Jumpstart scripts as soon as you have the
    first 30..50 or so nodes installed.
@@ -106,3 +109,6 @@ _cld._udp.phx2.ex.com has SRV record 10 50 8081 maika.phx2.ex.com.
 
 	/usr/sbin/chunkd -C /etc/chunkd.conf
 
+   Once you are satisfied with the operation of the server, integrate
+   the daemon into your start-up sequence. Consult your local OS guru to
+   determine the site-appropriate way to do it.
