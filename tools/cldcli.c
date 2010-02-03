@@ -253,7 +253,8 @@ static int cb_ls_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 		}
 
 		s = cldc_dirent_name(&dc);
-		strcpy(lsr.name, s);
+		strncpy(lsr.name, s, sizeof(lsr.name));
+		lsr.name[sizeof(lsr.name) - 1] = 0;
 		free(s);
 
 		write_from_thread(&lsr, sizeof(lsr));

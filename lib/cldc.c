@@ -916,7 +916,7 @@ int cldc_del(struct cldc_session *sess, const struct cldc_call_opts *copts,
 		return -EINVAL;
 
 	plen = strlen(pathname);
-	if (plen > 65530)
+	if (plen > CLD_INODE_NAME_MAX)
 		return -EINVAL;
 
 	/* create DEL message */
@@ -987,7 +987,7 @@ int cldc_open(struct cldc_session *sess,
 		return -EINVAL;
 
 	plen = strlen(pathname);
-	if (plen > 65530)
+	if (plen > CLD_INODE_NAME_MAX)
 		return -EINVAL;
 
 	/* create OPEN message */
