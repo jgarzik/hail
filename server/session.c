@@ -404,7 +404,7 @@ static void session_ping(struct session *sess)
 	memset(&resp, 0, sizeof(resp));
 	memcpy(resp.magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
 	__cld_rand64(&resp.xid);
-	resp.op = cmo_ping;
+	resp.op = CMO_PING;
 
 	sess->ping_open = true;
 
@@ -637,18 +637,18 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
 
 		switch (hdr->op) {
 		/* This is the command set that gets to cldc_rx_generic */
-		case cmo_nop:
-		case cmo_close:
-		case cmo_del:
-		case cmo_lock:
-		case cmo_unlock:
-		case cmo_trylock:
-		case cmo_put:
-		case cmo_new_sess:
-		case cmo_end_sess:
-		case cmo_open:
-		case cmo_get_meta:
-		case cmo_get:
+		case CMO_NOP:
+		case CMO_CLOSE:
+		case CMO_DEL:
+		case CMO_LOCK:
+		case CMO_UNLOCK:
+		case CMO_TRYLOCK:
+		case CMO_PUT:
+		case CMO_NEW_SESS:
+		case CMO_END_SESS:
+		case CMO_OPEN:
+		case CMO_GET_META:
+		case CMO_GET:
 			rsp = (struct cld_msg_resp *) msg_;
 			HAIL_DEBUG(&srv_log, "%s: "
 				   "sid " SIDFMT ", op %s, msglen %u, code %u, "

@@ -71,23 +71,23 @@ int __cld_authsign(struct hail_log *log, const char *key,
 const char *__cld_opstr(enum cld_msg_ops op)
 {
 	switch (op) {
-	case cmo_nop:		return "cmo_nop";
-	case cmo_new_sess:	return "cmo_new_sess";
-	case cmo_open:		return "cmo_open";
-	case cmo_get_meta:	return "cmo_get_meta";
-	case cmo_get:		return "cmo_get";
-	case cmo_put:		return "cmo_put";
-	case cmo_close:		return "cmo_close";
-	case cmo_del:		return "cmo_del";
-	case cmo_lock:		return "cmo_lock";
-	case cmo_unlock:	return "cmo_unlock";
-	case cmo_trylock:	return "cmo_trylock";
-	case cmo_ack:		return "cmo_ack";
-	case cmo_end_sess:	return "cmo_end_sess";
-	case cmo_ping:		return "cmo_ping";
-	case cmo_not_master:	return "cmo_not_master";
-	case cmo_event:		return "cmo_event";
-	case cmo_ack_frag:	return "cmo_ack_frag";
+	case CMO_NOP:		return "CMO_NOP";
+	case CMO_NEW_SESS:	return "CMO_NEW_SESS";
+	case CMO_OPEN:		return "CMO_OPEN";
+	case CMO_GET_META:	return "CMO_GET_META";
+	case CMO_GET:		return "CMO_GET";
+	case CMO_PUT:		return "CMO_PUT";
+	case CMO_CLOSE:		return "CMO_CLOSE";
+	case CMO_DEL:		return "CMO_DEL";
+	case CMO_LOCK:		return "CMO_LOCK";
+	case CMO_UNLOCK:	return "CMO_UNLOCK";
+	case CMO_TRYLOCK:	return "CMO_TRYLOCK";
+	case CMO_ACK:		return "CMO_ACK";
+	case CMO_END_SESS:	return "CMO_END_SESS";
+	case CMO_PING:		return "CMO_PING";
+	case CMO_NOT_MASTER:	return "CMO_NOT_MASTER";
+	case CMO_EVENT:		return "CMO_EVENT";
+	case CMO_ACK_FRAG:	return "CMO_ACK_FRAG";
 	default:		return "(unknown)";
 	}
 }

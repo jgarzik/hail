@@ -184,23 +184,23 @@ const char *user_key(const char *user)
 static void show_msg(const struct cld_msg_hdr *msg)
 {
 	switch (msg->op) {
-	case cmo_nop:
-	case cmo_new_sess:
-	case cmo_open:
-	case cmo_get_meta:
-	case cmo_get:
-	case cmo_put:
-	case cmo_close:
-	case cmo_del:
-	case cmo_lock:
-	case cmo_unlock:
-	case cmo_trylock:
-	case cmo_ack:
-	case cmo_end_sess:
-	case cmo_ping:
-	case cmo_not_master:
-	case cmo_event:
-	case cmo_ack_frag:
+	case CMO_NOP:
+	case CMO_NEW_SESS:
+	case CMO_OPEN:
+	case CMO_GET_META:
+	case CMO_GET:
+	case CMO_PUT:
+	case CMO_CLOSE:
+	case CMO_DEL:
+	case CMO_LOCK:
+	case CMO_UNLOCK:
+	case CMO_TRYLOCK:
+	case CMO_ACK:
+	case CMO_END_SESS:
+	case CMO_PING:
+	case CMO_NOT_MASTER:
+	case CMO_EVENT:
+	case CMO_ACK_FRAG:
 		HAIL_DEBUG(&srv_log, "msg: op %s, xid %llu",
 			   __cld_opstr(msg->op),
 			   (unsigned long long) le64_to_cpu(msg->xid));
@@ -217,22 +217,22 @@ static void udp_rx_msg(const struct client *cli, const struct cld_packet *pkt,
 		show_msg(msg);
 
 	switch(msg->op) {
-	case cmo_nop:
+	case CMO_NOP:
 		resp_ok(sess, msg);
 		break;
 
-	case cmo_new_sess:	msg_new_sess(mp, cli); break;
-	case cmo_end_sess:	msg_end_sess(mp, cli); break;
-	case cmo_open:		msg_open(mp); break;
-	case cmo_get:		msg_get(mp, false); break;
-	case cmo_get_meta:	msg_get(mp, true); break;
-	case cmo_put:		msg_put(mp); break;
-	case cmo_close:		msg_close(mp); break;
-	case cmo_del:		msg_del(mp); break;
-	case cmo_unlock:	msg_unlock(mp); break;
-	case cmo_lock:		msg_lock(mp, true); break;
-	case cmo_trylock:	msg_lock(mp, false); break;
-	case cmo_ack:		msg_ack(mp); break;
+	case CMO_NEW_SESS:	msg_new_sess(mp, cli); break;
+	case CMO_END_SESS:	msg_end_sess(mp, cli); break;
+	case CMO_OPEN:		msg_open(mp); break;
+	case CMO_GET:		msg_get(mp, false); break;
+	case CMO_GET_META:	msg_get(mp, true); break;
+	case CMO_PUT:		msg_put(mp); break;
+	case CMO_CLOSE:		msg_close(mp); break;
+	case CMO_DEL:		msg_del(mp); break;
+	case CMO_UNLOCK:	msg_unlock(mp); break;
+	case CMO_LOCK:		msg_lock(mp, true); break;
+	case CMO_TRYLOCK:	msg_lock(mp, false); break;
+	case CMO_ACK:		msg_ack(mp); break;
 
 	default:
 		/* do nothing */
@@ -259,7 +259,7 @@ static void pkt_ack_frag(int sock_fd,
 
 	memcpy(ack_msg->hdr.magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
 	__cld_rand64(&ack_msg->hdr.xid);
-	ack_msg->hdr.op = cmo_ack_frag;
+	ack_msg->hdr.op = CMO_ACK_FRAG;
 	ack_msg->seqid = pkt->seqid;
 
 	p = outpkt;
@@ -311,9 +311,9 @@ static void udp_rx(int sock_fd,
 	pkt_flags = le32_to_cpu(pkt->flags);
 	first_frag = pkt_flags & CPF_FIRST;
 	last_frag = pkt_flags & CPF_LAST;
-	have_new_sess = first_frag && (msg->op == cmo_new_sess);
-	have_ack = first_frag && (msg->op == cmo_ack);
-	have_put = first_frag && (msg->op == cmo_put);
+	have_new_sess = first_frag && (msg->op == CMO_NEW_SESS);
+	have_ack = first_frag && (msg->op == CMO_ACK);
+	have_put = first_frag && (msg->op == CMO_PUT);
 
 	/* look up client session, verify it matches IP and username */
 	sess = g_hash_table_lookup(cld_srv.sessions, pkt->sid);
@@ -497,7 +497,7 @@ static bool udp_srv_event(int fd, short events, void *userdata)
 		/* transmit not-master error msg */
 		resp = (struct cld_msg_resp *) (outpkt + 1);
 		resp_copy(resp, msg);
-		resp->hdr.op = cmo_not_master;
+		resp->hdr.op = CMO_NOT_MASTER;
 
 		p = outpkt;
 		secret_key = user_key(outpkt->user);

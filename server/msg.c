@@ -248,7 +248,7 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 
 		memset(&me, 0, sizeof(me));
 		memcpy(me.hdr.magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
-		me.hdr.op = cmo_event;
+		me.hdr.op = CMO_EVENT;
 		me.fh = h.fh;
 		me.events = cpu_to_le32(deleted ? CE_DELETED : CE_UPDATED);
 
@@ -315,7 +315,7 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 
 	memset(&me, 0, sizeof(me));
 	memcpy(me.hdr.magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
-	me.hdr.op = cmo_event;
+	me.hdr.op = CMO_EVENT;
 
 	/* loop through locks associated with this inode, searching
 	 * for pending locks that can be converted into acquired

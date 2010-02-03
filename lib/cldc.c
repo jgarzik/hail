@@ -51,7 +51,7 @@ static int sess_send_pkt(struct cldc_session *sess,
 
 static const struct cld_msg_hdr def_msg_ack = {
 	.magic		= CLD_MSG_MAGIC,
-	.op		= cmo_ack,
+	.op		= CMO_ACK,
 };
 
 #ifndef HAVE_STRNLEN
@@ -311,28 +311,28 @@ static int cldc_receive_msg(struct cldc_session *sess,
 	}
 
 	switch(msg->op) {
-	case cmo_nop:
-	case cmo_close:
-	case cmo_del:
-	case cmo_lock:
-	case cmo_unlock:
-	case cmo_trylock:
-	case cmo_put:
-	case cmo_new_sess:
-	case cmo_end_sess:
-	case cmo_open:
-	case cmo_get_meta:
-	case cmo_get:
+	case CMO_NOP:
+	case CMO_CLOSE:
+	case CMO_DEL:
+	case CMO_LOCK:
+	case CMO_UNLOCK:
+	case CMO_TRYLOCK:
+	case CMO_PUT:
+	case CMO_NEW_SESS:
+	case CMO_END_SESS:
+	case CMO_OPEN:
+	case CMO_GET_META:
+	case CMO_GET:
 		return cldc_rx_generic(sess, pkt, msg, msglen);
-	case cmo_not_master:
+	case CMO_NOT_MASTER:
 		return cldc_rx_not_master(sess, pkt, msg, msglen);
-	case cmo_ack_frag:
+	case CMO_ACK_FRAG:
 		return cldc_rx_ack_frag(sess, pkt, msg, msglen);
-	case cmo_event:
+	case CMO_EVENT:
 		return cldc_rx_event(sess, pkt, msg, msglen);
-	case cmo_ping:
+	case CMO_PING:
 		return ack_seqid(sess, pkt->seqid);
-	case cmo_ack:
+	case CMO_ACK:
 		return -EBADRQC;
 	}
 
@@ -368,10 +368,10 @@ int cldc_receive_pkt(struct cldc_session *sess,
 	pkt_flags = le32_to_cpu(pkt->flags);
 	first_frag = pkt_flags & CPF_FIRST;
 	last_frag = pkt_flags & CPF_LAST;
-	have_get = first_frag && (msg->op == cmo_get);
-	have_new_sess = first_frag && (msg->op == cmo_new_sess);
-	no_seqid = first_frag && ((msg->op == cmo_not_master) ||
-				  (msg->op == cmo_ack_frag));
+	have_get = first_frag && (msg->op == CMO_GET);
+	have_new_sess = first_frag && (msg->op == CMO_NEW_SESS);
+	no_seqid = first_frag && ((msg->op == CMO_NOT_MASTER) ||
+				  (msg->op == CMO_ACK_FRAG));
 
 	if (sess->log.verbose) {
 		if (have_get) {
@@ -591,7 +591,7 @@ static int sess_send_pkt(struct cldc_session *sess,
 		uint32_t flags = le32_to_cpu(pkt->flags);
 		bool first = (flags & CPF_FIRST);
 		bool last = (flags & CPF_LAST);
-		uint8_t op = cmo_nop;
+		uint8_t op = CMO_NOP;
 
 		if (first) {
 			struct cld_msg_hdr *hdr;
@@ -748,7 +748,7 @@ int cldc_end_sess(struct cldc_session *sess, const struct cldc_call_opts *copts)
 		return -EINVAL;
 
 	/* create END-SESS message */
-	msg = cldc_new_msg(sess, copts, cmo_end_sess,
+	msg = cldc_new_msg(sess, copts, CMO_END_SESS,
 			   sizeof(struct cld_msg_hdr));
 	if (!msg)
 		return -ENOMEM;
@@ -823,7 +823,7 @@ int cldc_new_sess(const struct cldc_ops *ops,
 	sess->addr_len = addr_len;
 
 	/* create NEW-SESS message */
-	msg = cldc_new_msg(sess, copts, cmo_new_sess,
+	msg = cldc_new_msg(sess, copts, CMO_NEW_SESS,
 			   sizeof(struct cld_msg_hdr));
 	if (!msg) {
 		sess_free(sess);
@@ -878,7 +878,7 @@ int cldc_nop(struct cldc_session *sess, const struct cldc_call_opts *copts)
 		return -EINVAL;
 
 	/* create NOP message */
-	msg = cldc_new_msg(sess, copts, cmo_nop, sizeof(struct cld_msg_hdr));
+	msg = cldc_new_msg(sess, copts, CMO_NOP, sizeof(struct cld_msg_hdr));
 	if (!msg)
 		return -ENOMEM;
 
@@ -907,7 +907,7 @@ int cldc_del(struct cldc_session *sess, const struct cldc_call_opts *copts,
 		return -EINVAL;
 
 	/* create DEL message */
-	msg = cldc_new_msg(sess, copts, cmo_del,
+	msg = cldc_new_msg(sess, copts, CMO_DEL,
 			   sizeof(struct cld_msg_del) + strlen(pathname));
 	if (!msg)
 		return -ENOMEM;
@@ -978,7 +978,7 @@ int cldc_open(struct cldc_session *sess,
 		return -EINVAL;
 
 	/* create OPEN message */
-	msg = cldc_new_msg(sess, copts, cmo_open,
+	msg = cldc_new_msg(sess, copts, CMO_OPEN,
 			   sizeof(struct cld_msg_open) + strlen(pathname));
 	if (!msg)
 		return -ENOMEM;
@@ -1020,7 +1020,7 @@ int cldc_close(struct cldc_fh *fh, const struct cldc_call_opts *copts)
 	sess = fh->sess;
 
 	/* create CLOSE message */
-	msg = cldc_new_msg(sess, copts, cmo_close,
+	msg = cldc_new_msg(sess, copts, CMO_CLOSE,
 			   sizeof(struct cld_msg_close));
 	if (!msg)
 		return -ENOMEM;
@@ -1051,7 +1051,7 @@ int cldc_lock(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 
 	/* create LOCK message */
 	msg = cldc_new_msg(sess, copts,
-			   wait_for_lock ? cmo_lock : cmo_trylock,
+			   wait_for_lock ? CMO_LOCK : CMO_TRYLOCK,
 			   sizeof(struct cld_msg_lock));
 	if (!msg)
 		return -ENOMEM;
@@ -1078,7 +1078,7 @@ int cldc_unlock(struct cldc_fh *fh, const struct cldc_call_opts *copts)
 	sess = fh->sess;
 
 	/* create UNLOCK message */
-	msg = cldc_new_msg(sess, copts, cmo_unlock,
+	msg = cldc_new_msg(sess, copts, CMO_UNLOCK,
 			   sizeof(struct cld_msg_unlock));
 	if (!msg)
 		return -ENOMEM;
@@ -1108,7 +1108,7 @@ int cldc_put(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 	sess = fh->sess;
 
 	/* create PUT message */
-	msg = cldc_new_msg(sess, copts, cmo_put,
+	msg = cldc_new_msg(sess, copts, CMO_PUT,
 			   sizeof(struct cld_msg_put) + data_len);
 	if (!msg)
 		return -ENOMEM;
@@ -1150,8 +1150,8 @@ static ssize_t get_end_cb(struct cldc_msg *msg, const void *resp_p,
 
 		o = &msg->copts.u.get.resp;
 
-		get_body = (resp->resp.hdr.op == cmo_get);
-		msg->copts.op = cmo_get;
+		get_body = (resp->resp.hdr.op == CMO_GET);
+		msg->copts.op = CMO_GET;
 
 		/* copy-and-swap */
 		XC64(inum);
@@ -1200,7 +1200,7 @@ int cldc_get(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 	sess = fh->sess;
 
 	/* create GET message */
-	msg = cldc_new_msg(sess, copts, cmo_get,
+	msg = cldc_new_msg(sess, copts, CMO_GET,
 			   sizeof(struct cld_msg_get));
 	if (!msg)
 		return -ENOMEM;

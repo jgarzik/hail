@@ -42,25 +42,25 @@ enum {
 /** available RPC operations */
 enum cld_msg_ops {
 	/* client -> server */
-	cmo_nop			= 0,		/**< no op */
-	cmo_new_sess		= 1,		/**< new session */
-	cmo_open		= 2,		/**< open file */
-	cmo_get_meta		= 3,		/**< get metadata */
-	cmo_get			= 4,		/**< get metadata + data */
-	cmo_put			= 6,		/**< put data */
-	cmo_close		= 7,		/**< close file */
-	cmo_del			= 8,		/**< delete file */
-	cmo_lock		= 9,		/**< lock */
-	cmo_unlock		= 10,		/**< unlock */
-	cmo_trylock		= 11,		/**< trylock */
-	cmo_ack			= 12,		/**< ack of seqid rx'd */
-	cmo_end_sess		= 13,		/**< end session */
+	CMO_NOP			= 0,		/**< no op */
+	CMO_NEW_SESS		= 1,		/**< new session */
+	CMO_OPEN		= 2,		/**< open file */
+	CMO_GET_META		= 3,		/**< get metadata */
+	CMO_GET			= 4,		/**< get metadata + data */
+	CMO_PUT			= 6,		/**< put data */
+	CMO_CLOSE		= 7,		/**< close file */
+	CMO_DEL			= 8,		/**< delete file */
+	CMO_LOCK		= 9,		/**< lock */
+	CMO_UNLOCK		= 10,		/**< unlock */
+	CMO_TRYLOCK		= 11,		/**< trylock */
+	CMO_ACK			= 12,		/**< ack of seqid rx'd */
+	CMO_END_SESS		= 13,		/**< end session */
 
 	/* server -> client */
-	cmo_ping		= 30,		/**< server to client ping */
-	cmo_not_master		= 31,		/**< I am not the master! */
-	cmo_event		= 32,		/**< server->cli async event */
-	cmo_ack_frag		= 33,		/**< ack partial msg */
+	CMO_PING		= 30,		/**< server to client ping */
+	CMO_NOT_MASTER		= 31,		/**< I am not the master! */
+	CMO_EVENT		= 32,		/**< server->cli async event */
+	CMO_ACK_FRAG		= 33,		/**< ack partial msg */
 };
 
 /** CLD error codes */
