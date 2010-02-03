@@ -96,6 +96,7 @@ static int ack_seqid(struct cldc_session *sess, uint64_t seqid_le)
 	struct cld_packet *pkt;
 	struct cld_msg_hdr *resp;
 	size_t pkt_len;
+	int ret;
 	const char *secret_key;
 
 	pkt_len = sizeof(*pkt) + sizeof(*resp) + SHA_DIGEST_LENGTH;
@@ -111,21 +112,22 @@ static int ack_seqid(struct cldc_session *sess, uint64_t seqid_le)
 	resp = (struct cld_msg_hdr *) (pkt + 1);
 	memcpy(resp, &def_msg_ack, sizeof(*resp));
 
-	secret_key = user_key(sess, pkt->user);
-	if (__cld_authsign(&sess->log, secret_key,
-			   pkt, pkt_len - SHA_DIGEST_LENGTH,
-			   (uint8_t *)pkt + pkt_len - SHA_DIGEST_LENGTH)) {
-		HAIL_INFO(&sess->log, "%s: authsign failed 2", __func__);
-		return -1;
+	secret_key = user_key(sess, sess->user);
+	ret = __cld_authsign(&sess->log, secret_key,
+			     pkt, pkt_len - SHA_DIGEST_LENGTH,
+			     (uint8_t *)pkt + pkt_len - SHA_DIGEST_LENGTH);
+	if (ret) {
+		HAIL_ERR(&sess->log, "%s: authsign failed: %d",
+			 __func__, ret);
+		return ret;
 	}
 
 	return sess_send_pkt(sess, pkt, pkt_len);
 }
 
-static int cldc_rx_generic(struct cldc_session *sess,
-			   const struct cld_packet *pkt,
-			   const void *msgbuf,
-			   size_t buflen)
+static int rxmsg_generic(struct cldc_session *sess,
+			 const struct cld_packet *pkt,
+			 const void *msgbuf, size_t buflen)
 {
 	const struct cld_msg_resp *resp = msgbuf;
 	struct cldc_msg *req = NULL;
@@ -151,7 +153,9 @@ static int cldc_rx_generic(struct cldc_session *sess,
 	}
 	if (!tmp) {
 		HAIL_DEBUG(&sess->log, "%s: no match found with "
-			   "xid_in %llu", __func__, (unsigned long long) le64_to_cpu(resp->xid_in));
+			   "xid_in %llu",
+			   __func__,
+			   (unsigned long long) le64_to_cpu(resp->xid_in));
 		return -1005;
 	}
 
@@ -173,23 +177,23 @@ static int cldc_rx_generic(struct cldc_session *sess,
 	return ack_seqid(sess, pkt->seqid);
 }
 
-static int cldc_rx_ack_frag(struct cldc_session *sess,
-			    const struct cld_packet *pkt,
-			    const void *msgbuf,
-			    size_t buflen)
+static int rxmsg_ack_frag(struct cldc_session *sess,
+			  const struct cld_packet *pkt,
+			  const void *msgbuf, size_t buflen)
 {
 	const struct cld_msg_ack_frag *ack_msg = msgbuf;
-	struct cldc_msg *req = NULL;
 	GList *tmp;
 
 	if (buflen < sizeof(*ack_msg))
 		return -1008;
 
 	HAIL_INFO(&sess->log, "%s: seqid %llu, want to ack",
-		  __func__, (unsigned long long) ack_msg->seqid);
+		  __func__,
+		  (unsigned long long) ack_msg->seqid);
 
 	tmp = sess->out_msg;
 	while (tmp) {
+		struct cldc_msg *req;
 		int i;
 
 		req = tmp->data;
@@ -197,11 +201,13 @@ static int cldc_rx_ack_frag(struct cldc_session *sess,
 
 		for (i = 0; i < req->n_pkts; i++) {
 			struct cldc_pkt_info *pi;
+			uint64_t seqid;
 
 			pi = req->pkt_info[i];
 			if (!pi)
 				continue;
-			if (pi->pkt.seqid != ack_msg->seqid)
+			seqid = pi->pkt.seqid;
+			if (seqid != ack_msg->seqid)
 				continue;
 
 			HAIL_DEBUG(&sess->log, "%s: seqid %llu, expiring",
@@ -216,10 +222,9 @@ static int cldc_rx_ack_frag(struct cldc_session *sess,
 	return 0;
 }
 
-static int cldc_rx_event(struct cldc_session *sess,
-			 const struct cld_packet *pkt,
-			 const void *msgbuf,
-			 size_t buflen)
+static int rxmsg_event(struct cldc_session *sess,
+		       const struct cld_packet *pkt,
+		       const void *msgbuf, size_t buflen)
 {
 	const struct cld_msg_event *ev = msgbuf;
 	struct cldc_fh *fh = NULL;
@@ -244,10 +249,9 @@ static int cldc_rx_event(struct cldc_session *sess,
 	return 0;
 }
 
-static int cldc_rx_not_master(struct cldc_session *sess,
-			      const struct cld_packet *pkt,
-			      const void *msgbuf,
-			      size_t buflen)
+static int rxmsg_not_master(struct cldc_session *sess,
+			    const struct cld_packet *pkt,
+			    const void *msgbuf, size_t buflen)
 {
 	HAIL_DEBUG(&sess->log, "FIXME: not-master message received");
 	return -1055;	/* FIXME */
@@ -260,7 +264,7 @@ static void cldc_msg_free(struct cldc_msg *msg)
 	if (!msg)
 		return;
 
-	for (i = 0; i < CLD_MAX_PKT_MSG; i++)
+	for (i = 0; i < msg->n_pkts; i++)
 		free(msg->pkt_info[i]);
 
 	free(msg);
@@ -323,13 +327,13 @@ static int cldc_receive_msg(struct cldc_session *sess,
 	case CMO_OPEN:
 	case CMO_GET_META:
 	case CMO_GET:
-		return cldc_rx_generic(sess, pkt, msg, msglen);
+		return rxmsg_generic(sess, pkt, msg, msglen);
 	case CMO_NOT_MASTER:
-		return cldc_rx_not_master(sess, pkt, msg, msglen);
+		return rxmsg_not_master(sess, pkt, msg, msglen);
 	case CMO_ACK_FRAG:
-		return cldc_rx_ack_frag(sess, pkt, msg, msglen);
+		return rxmsg_ack_frag(sess, pkt, msg, msglen);
 	case CMO_EVENT:
-		return cldc_rx_event(sess, pkt, msg, msglen);
+		return rxmsg_event(sess, pkt, msg, msglen);
 	case CMO_PING:
 		return ack_seqid(sess, pkt->seqid);
 	case CMO_ACK:
@@ -354,6 +358,7 @@ int cldc_receive_pkt(struct cldc_session *sess,
 	uint32_t pkt_flags;
 	bool first_frag, last_frag, have_new_sess, no_seqid;
 	bool have_get;
+	int ret;
 
 	gettimeofday(&tv, NULL);
 	current_time = tv.tv_sec;
@@ -416,10 +421,12 @@ int cldc_receive_pkt(struct cldc_session *sess,
 
 	/* check HMAC signature */
 	secret_key = user_key(sess, pkt->user);
-	if (__cld_authcheck(&sess->log, secret_key,
-			    pkt, pkt_len - SHA_DIGEST_LENGTH,
-			    (uint8_t *)pkt + pkt_len - SHA_DIGEST_LENGTH)) {
-		HAIL_DEBUG(&sess->log, "%s: invalid auth", __func__);
+	ret = __cld_authcheck(&sess->log, secret_key,
+			      pkt, pkt_len - SHA_DIGEST_LENGTH,
+			      (uint8_t *)pkt + pkt_len - SHA_DIGEST_LENGTH);
+	if (ret) {
+		HAIL_DEBUG(&sess->log, "%s: invalid auth (ret=%d)",
+			   __func__, ret);
 		return -EACCES;
 	}
 
@@ -497,6 +504,7 @@ static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 
 	gettimeofday(&tv, NULL);
 
+	/* Create cldc_msg */
 	msg = calloc(1, sizeof(*msg) + msg_len);
 	if (!msg)
 		return NULL;
@@ -661,7 +669,8 @@ static int sess_timer(struct cldc_session *sess, void *priv)
 
 static int sess_send(struct cldc_session *sess, struct cldc_msg *msg)
 {
-	int i, data_left;
+	int ret, i;
+	int data_left;
 	void *p;
 	const char *secret_key;
 
@@ -679,20 +688,23 @@ static int sess_send(struct cldc_session *sess, struct cldc_msg *msg)
 		total_pkt_len = sizeof(struct cld_packet) +
 				pi->pkt_len + SHA_DIGEST_LENGTH;
 
+		/* Add the sequence number to the end of the packet */
 		sess_next_seqid(sess, &pi->pkt.seqid);
 
 		p += pi->pkt_len;
 		data_left -= pi->pkt_len;
 
-		if (__cld_authsign(&sess->log, secret_key,
-				   &pi->pkt, total_pkt_len - SHA_DIGEST_LENGTH,
-				   ((uint8_t *)&pi->pkt + total_pkt_len) -
-				    	SHA_DIGEST_LENGTH))
-			return -1;
+		/* Add the signature to the end of the packet */
+		ret = __cld_authsign(&sess->log, secret_key,
+				     &pi->pkt, total_pkt_len-SHA_DIGEST_LENGTH,
+				     ((uint8_t *)&pi->pkt + total_pkt_len) -
+				    	SHA_DIGEST_LENGTH);
+		if (ret)
+			return ret;
 
 		/* attempt first send */
 		if (sess_send_pkt(sess, &pi->pkt, total_pkt_len) < 0)
-			return -1;
+			return -EIO;
 	}
 
 	/* add to list of outgoing packets, waiting to be ack'd */
@@ -878,7 +890,8 @@ int cldc_nop(struct cldc_session *sess, const struct cldc_call_opts *copts)
 		return -EINVAL;
 
 	/* create NOP message */
-	msg = cldc_new_msg(sess, copts, CMO_NOP, sizeof(struct cld_msg_hdr));
+	msg = cldc_new_msg(sess, copts, CMO_NOP,
+			   sizeof(struct cld_msg_hdr));
 	if (!msg)
 		return -ENOMEM;
 
