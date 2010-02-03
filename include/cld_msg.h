@@ -34,9 +34,10 @@ enum {
 	CLD_MAX_SECRET_KEY	= 128,		/**< includes req. nul */
 
 	CLD_MAX_PKT_MSG_SZ	= 1024,
-	CLD_MAX_PKT_MSG		= 128,
-	CLD_MAX_MSG_SZ		= CLD_MAX_PKT_MSG * 1024, /**< maximum total
-					      msg size, including all packets */
+	CLD_MAX_PAYLOAD_SZ	= 131072,	/**< maximum size of data that users
+						  can GET or PUT */
+	CLD_MAX_MSG_SZ		= 196608,	/**< maximum total
+						msg size, including all packets */
 };
 
 /** available RPC operations */

@@ -623,13 +623,20 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
 	struct cld_packet *outpkt;
 	unsigned int n_pkts, i;
 	size_t pkt_len, msg_left = msglen;
-	struct session_outpkt *pkts[CLD_MAX_PKT_MSG], *op;
+	struct session_outpkt **pkts, *op;
 	GList *tmp_root = NULL;
 	const void *p;
 	bool first_frag = true;
 
+	if (msglen > CLD_MAX_MSG_SZ) {
+		HAIL_ERR(&srv_log, "%s: message too big (%zu bytes)\n",
+			__func__, msglen);
+		return false;
+	}
+
 	n_pkts = (msglen / CLD_MAX_PKT_MSG_SZ);
 	n_pkts += (msglen % CLD_MAX_PKT_MSG_SZ) ? 1 : 0;
+	pkts = alloca(sizeof(struct session_outpkt *) * n_pkts);
 
 	if (srv_log.verbose) {
 		const struct cld_msg_hdr *hdr = msg_;
@@ -670,9 +677,6 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
 				   (unsigned int) msglen);
 		}
 	}
-
-	if (n_pkts > CLD_MAX_PKT_MSG)
-		return false;
 
 	/* pass 1: perform allocations */
 	for (i = 0; i < n_pkts; i++) {

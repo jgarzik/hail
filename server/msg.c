@@ -757,6 +757,13 @@ void msg_put(struct msg_params *mp)
 
 	/* make sure additional input data as large as expected */
 	data_size = le32_to_cpu(msg->data_size);
+	if (data_size > CLD_MAX_PAYLOAD_SZ) {
+		HAIL_ERR(&srv_log, "%s: can't PUT %d bytes of data: "
+			"%d is the maximum.\n",
+			__func__, data_size, CLD_MAX_PAYLOAD_SZ);
+		resp_rc = CLE_BAD_PKT;
+		goto err_out_noabort;
+	}
 	if (mp->msg_len != (data_size + sizeof(*msg))) {
 		HAIL_INFO(&srv_log, "PUT len mismatch: msg len %zu, "
 			  "wanted %zu + %u (== %zu)",

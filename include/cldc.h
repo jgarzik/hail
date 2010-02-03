@@ -73,10 +73,10 @@ struct cldc_msg {
 	int		data_len;
 	int		n_pkts;
 
-	struct cldc_pkt_info *pkt_info[CLD_MAX_PKT_MSG];
+	uint8_t		*data;
 
 	/* must be at end of struct */
-	uint8_t		data[0];
+	struct cldc_pkt_info *pkt_info[0];
 };
 
 /** an open file handle associated with a session */

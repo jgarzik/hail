@@ -264,6 +264,8 @@ static void cldc_msg_free(struct cldc_msg *msg)
 	if (!msg)
 		return;
 
+	free(msg->data);
+
 	for (i = 0; i < msg->n_pkts; i++)
 		free(msg->pkt_info[i]);
 
@@ -499,15 +501,25 @@ static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 	struct cldc_msg *msg;
 	struct cld_msg_hdr *hdr;
 	struct timeval tv;
-	int i, data_left;
+	int n_pkts, i, data_left;
 	void *p;
 
 	gettimeofday(&tv, NULL);
 
+	n_pkts = msg_len / CLD_MAX_PKT_MSG_SZ;
+	n_pkts += ((msg_len % CLD_MAX_PKT_MSG_SZ) ? 1 : 0);
+
 	/* Create cldc_msg */
-	msg = calloc(1, sizeof(*msg) + msg_len);
+	msg = calloc(1, sizeof(*msg) +
+		        (n_pkts * sizeof(struct cldc_pkt_info *)));
 	if (!msg)
 		return NULL;
+
+	msg->data = calloc(1, msg_len);
+	if (!msg->data) {
+		free(msg);
+		return NULL;
+	}
 
 	__cld_rand64(&msg->xid);
 
@@ -520,8 +532,7 @@ static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 
 	msg->data_len = msg_len;
 
-	msg->n_pkts = msg_len / CLD_MAX_PKT_MSG_SZ;
-	msg->n_pkts += ((msg_len % CLD_MAX_PKT_MSG_SZ) ? 1 : 0);
+	msg->n_pkts = n_pkts;
 
 	p = msg->data;
 	data_left = msg_len;
@@ -550,7 +561,7 @@ static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 		data_left -= pkt_len;
 	}
 
-	hdr = (struct cld_msg_hdr *) &msg->data[0];
+	hdr = (struct cld_msg_hdr *) msg->data;
 	memcpy(&hdr->magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
 	hdr->op = op;
 	hdr->xid = msg->xid;
@@ -1112,7 +1123,7 @@ int cldc_put(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 	struct cldc_msg *msg;
 	struct cld_msg_put *put;
 
-	if (!data || !data_len || data_len > CLD_MAX_MSG_SZ)
+	if (!data || !data_len || data_len > CLD_MAX_PAYLOAD_SZ)
 		return -EINVAL;
 
 	if (!fh->valid)
