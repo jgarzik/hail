@@ -3,6 +3,7 @@
 
 /*
  * Copyright 2009 Red Hat, Inc.
+ * Copyright 2010, Colin McCabe
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,6 +26,8 @@
 #include <time.h>
 
 #define CLD_ALIGN8(n) ((8 - ((n) & 7)) & 7)
+
+struct hail_log;
 
 struct cld_timer_list {
 	void *list;
@@ -54,10 +57,41 @@ static inline void cld_timer_init(struct cld_timer *timer, const char *name,
 	timer->name[sizeof(timer->name) - 1] = 0;
 }
 
-unsigned long long cld_sid2llu(const uint8_t *sid);
-void __cld_rand64(void *p);
-const char *cld_errstr(enum cle_err_codes ecode);
-int cld_readport(const char *fname);
+extern unsigned long long cld_sid2llu(const uint8_t *sid);
+extern void __cld_rand64(void *p);
+extern const char *cld_errstr(enum cle_err_codes ecode);
+extern int cld_readport(const char *fname);
+
+/*** Validate the HMAC signature of a byte buffer.
+ *
+ * @param log		log to write to
+ * @param key		The key, as a NULL-terminated string
+ * @param buf		The buffer
+ * @param buf_len	Length of the buffer
+ * @param sha		The signature itself. Must be of length exactly
+ *			SHA_DIGEST_LENGTH
+ *
+ * @return		0 on success; error code otherwise
+ */
+extern int __cld_authcheck(struct hail_log *log, const char *key,
+			   const void *buf, size_t buf_len, const void *sha);
+
+/*** Sign a byte buffer.
+ *
+ * @param log		log to write to
+ * @param key		The key, as a NULL-terminated string
+ * @param buf		The buffer
+ * @param buf_len	Length of the buffer
+ * @param sha		(out param) The signature itself. Must be of length
+ *			exactly SHA_DIGEST_LENGTH
+ *
+ * @return		0 on success; error code otherwise
+ */
+extern int __cld_authsign(struct hail_log *log, const char *key,
+			  const void *buf, size_t buf_len, void *sha);
+
+/* Returns a constant string representing a message operation */
+extern const char *__cld_opstr(enum cld_msg_ops op);
 
 /*
  * We use a unified format for sid so it can be searched in log files (* in vi).

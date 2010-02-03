@@ -45,7 +45,7 @@ enum {
 	CLDC_SESS_EXPIRE	= 2 * 60,
 };
 
-static bool authsign(struct cldc_session *, struct cld_packet *, size_t);
+static const char *user_key(struct cldc_session *sess, const char *user);
 static int sess_send_pkt(struct cldc_session *sess,
 			 const struct cld_packet *pkt, size_t pkt_len);
 
@@ -96,6 +96,7 @@ static int ack_seqid(struct cldc_session *sess, uint64_t seqid_le)
 	struct cld_packet *pkt;
 	struct cld_msg_hdr *resp;
 	size_t pkt_len;
+	const char *secret_key;
 
 	pkt_len = sizeof(*pkt) + sizeof(*resp) + SHA_DIGEST_LENGTH;
 	pkt = alloca(pkt_len);
@@ -110,7 +111,10 @@ static int ack_seqid(struct cldc_session *sess, uint64_t seqid_le)
 	resp = (struct cld_msg_hdr *) (pkt + 1);
 	memcpy(resp, &def_msg_ack, sizeof(*resp));
 
-	if (!authsign(sess, pkt, pkt_len)) {
+	secret_key = user_key(sess, pkt->user);
+	if (__cld_authsign(&sess->log, secret_key,
+			   pkt, pkt_len - SHA_DIGEST_LENGTH,
+			   (uint8_t *)pkt + pkt_len - SHA_DIGEST_LENGTH)) {
 		HAIL_INFO(&sess->log, "%s: authsign failed 2", __func__);
 		return -1;
 	}
@@ -285,88 +289,13 @@ static void sess_expire_outmsg(struct cldc_session *sess, time_t current_time)
 
 static const char *user_key(struct cldc_session *sess, const char *user)
 {
+	if (!sess || !user || !*user ||
+	    (strnlen(user, CLD_MAX_USERNAME) >= CLD_MAX_USERNAME))
+		return NULL;
 	if (strcmp(sess->user, user))
 		return NULL;
 
 	return sess->secret_key;
-}
-
-static bool authcheck(struct cldc_session *sess, const struct cld_packet *pkt,
-		      size_t buflen)
-{
-	size_t userlen = strnlen(pkt->user, sizeof(pkt->user));
-	const char *key;
-	unsigned char md[SHA_DIGEST_LENGTH];
-	unsigned int md_len = 0;
-	const void *buf = pkt;
-
-	/* forbid zero-len and max-len (no nul) usernames */
-	if (userlen < 1 || userlen >= sizeof(pkt->user))
-		return false;
-
-	key = user_key(sess, pkt->user);
-	if (!key)
-		return false;
-
-	HMAC(EVP_sha1(), key, strlen(key), buf, buflen - SHA_DIGEST_LENGTH,
-	     md, &md_len);
-
-	if (md_len != SHA_DIGEST_LENGTH)
-		HAIL_INFO(&sess->log,
-			  "%s BUG: md_len != SHA_DIGEST_LENGTH", __func__);
-
-	if (memcmp(buf + buflen - SHA_DIGEST_LENGTH, md, SHA_DIGEST_LENGTH))
-		return false;
-
-	return true;
-}
-
-static bool authsign(struct cldc_session *sess, struct cld_packet *pkt,
-		     size_t buflen)
-{
-	const char *key;
-	unsigned char md[SHA_DIGEST_LENGTH];
-	unsigned int md_len = 0;
-	void *buf = pkt;
-
-	key = user_key(sess, pkt->user);
-	if (!key)
-		return false;
-
-	HMAC(EVP_sha1(), key, strlen(key), buf, buflen - SHA_DIGEST_LENGTH,
-	     md, &md_len);
-
-	if (md_len != SHA_DIGEST_LENGTH)
-		HAIL_INFO(&sess->log,
-			  "%s BUG: md_len != SHA_DIGEST_LENGTH", __func__);
-
-	memcpy(buf + (buflen - SHA_DIGEST_LENGTH), md, SHA_DIGEST_LENGTH);
-
-	return true;
-}
-
-static const char *opstr(enum cld_msg_ops op)
-{
-	switch (op) {
-	case cmo_nop:		return "cmo_nop";
-	case cmo_new_sess:	return "cmo_new_sess";
-	case cmo_open:		return "cmo_open";
-	case cmo_get_meta:	return "cmo_get_meta";
-	case cmo_get:		return "cmo_get";
-	case cmo_put:		return "cmo_put";
-	case cmo_close:		return "cmo_close";
-	case cmo_del:		return "cmo_del";
-	case cmo_lock:		return "cmo_lock";
-	case cmo_unlock:	return "cmo_unlock";
-	case cmo_trylock:	return "cmo_trylock";
-	case cmo_ack:		return "cmo_ack";
-	case cmo_end_sess:	return "cmo_end_sess";
-	case cmo_ping:		return "cmo_ping";
-	case cmo_not_master:	return "cmo_not_master";
-	case cmo_event:		return "cmo_event";
-	case cmo_ack_frag:	return "cmo_ack_frag";
-	default:		return "(unknown)";
-	}
 }
 
 static int cldc_receive_msg(struct cldc_session *sess,
@@ -417,6 +346,7 @@ int cldc_receive_pkt(struct cldc_session *sess,
 {
 	const struct cld_packet *pkt = pktbuf;
 	const struct cld_msg_hdr *msg = (struct cld_msg_hdr *) (pkt + 1);
+	const char *secret_key;
 	size_t msglen;
 	struct timeval tv;
 	time_t current_time;
@@ -451,7 +381,7 @@ int cldc_receive_pkt(struct cldc_session *sess,
 				   ", seqid %llu, user %s, size %u)",
 				   __func__,
 				   (unsigned int) pkt_len,
-				   opstr(msg->op),
+				   __cld_opstr(msg->op),
 				   (unsigned long long) le64_to_cpu(pkt->seqid),
 				   pkt->user,
 				   le32_to_cpu(dp->size));
@@ -462,7 +392,7 @@ int cldc_receive_pkt(struct cldc_session *sess,
 				   ", seqid %llu, user %s, xid_in %llu)",
 				   __func__,
 				   (unsigned int) pkt_len,
-				   opstr(msg->op),
+				   __cld_opstr(msg->op),
 				   (unsigned long long) le64_to_cpu(pkt->seqid),
 				   pkt->user,
 				   (unsigned long long) le64_to_cpu(dp->xid_in));
@@ -473,7 +403,7 @@ int cldc_receive_pkt(struct cldc_session *sess,
 				   (unsigned int) pkt_len,
 				   first_frag ? "F" : "",
 				   last_frag ? "L" : "",
-				   first_frag ? opstr(msg->op) : "n/a",
+				   first_frag ? __cld_opstr(msg->op) : "n/a",
 				   (unsigned long long) le64_to_cpu(pkt->seqid),
 				   pkt->user);
 		}
@@ -485,7 +415,10 @@ int cldc_receive_pkt(struct cldc_session *sess,
 	}
 
 	/* check HMAC signature */
-	if (!authcheck(sess, pkt, pkt_len)) {
+	secret_key = user_key(sess, pkt->user);
+	if (__cld_authcheck(&sess->log, secret_key,
+			    pkt, pkt_len - SHA_DIGEST_LENGTH,
+			    (uint8_t *)pkt + pkt_len - SHA_DIGEST_LENGTH)) {
 		HAIL_DEBUG(&sess->log, "%s: invalid auth", __func__);
 		return -EACCES;
 	}
@@ -674,7 +607,7 @@ static int sess_send_pkt(struct cldc_session *sess,
 			   pkt_len,
 			   first ? "F" : "",
 			   last ? "L" : "",
-			   first ? opstr(op) : "n/a",
+			   first ? __cld_opstr(op) : "n/a",
 			   (unsigned long long) le64_to_cpu(pkt->seqid));
 	}
 
@@ -730,6 +663,9 @@ static int sess_send(struct cldc_session *sess, struct cldc_msg *msg)
 {
 	int i, data_left;
 	void *p;
+	const char *secret_key;
+
+	secret_key = user_key(sess, sess->user);
 
 	p = msg->data;
 	data_left = msg->data_len;
@@ -748,7 +684,10 @@ static int sess_send(struct cldc_session *sess, struct cldc_msg *msg)
 		p += pi->pkt_len;
 		data_left -= pi->pkt_len;
 
-		if (!authsign(sess, &pi->pkt, total_pkt_len))
+		if (__cld_authsign(&sess->log, secret_key,
+				   &pi->pkt, total_pkt_len - SHA_DIGEST_LENGTH,
+				   ((uint8_t *)&pi->pkt + total_pkt_len) -
+				    	SHA_DIGEST_LENGTH))
 			return -1;
 
 		/* attempt first send */

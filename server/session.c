@@ -578,7 +578,7 @@ static int sess_retry_output(struct session *sess, time_t *next_retry_out)
 			HAIL_DEBUG(&srv_log, "%s: retrying: sid " SIDFMT ", "
 				   "op %s, seqid %llu",
 				   __func__,
-				   SIDARG(outpkt->sid), opstr(outmsg->op),
+				   SIDARG(outpkt->sid), __cld_opstr(outmsg->op),
 				   (unsigned long long) le64_to_cpu(outpkt->seqid));
 		}
 
@@ -655,7 +655,7 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
 				   "xid %llu, xid_in %llu",
 				   __func__,
 				   SIDARG(sess->sid),
-				   opstr(hdr->op),
+				   __cld_opstr(hdr->op),
 				   (unsigned int) msglen,
 				   le32_to_cpu(rsp->code),
 				   (unsigned long long) le64_to_cpu(hdr->xid),
@@ -666,7 +666,7 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
 				   "sid " SIDFMT ", op %s, msglen %u",
 				   __func__,
 				   SIDARG(sess->sid),
-				   opstr(hdr->op),
+				   __cld_opstr(hdr->op),
 				   (unsigned int) msglen);
 		}
 	}
@@ -691,6 +691,8 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
 		struct cld_msg_hdr *outmsg;
 		void *outmsg_mem;
 		size_t copy_len;
+		void *out_p;
+		const char *secret_key;
 
 		op = pkts[i];
 
@@ -729,7 +731,11 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
 
 		op->next_retry = current_time.tv_sec + CLD_RETRY_START;
 
-		if (!authsign(outpkt, pkt_len))
+		out_p = outpkt;
+		secret_key = user_key(outpkt->user);
+		if (__cld_authsign(&srv_log, secret_key, out_p,
+				   pkt_len - SHA_DIGEST_LENGTH,
+				   out_p + pkt_len - SHA_DIGEST_LENGTH))
 			goto err_out;	/* FIXME: we free all pkts -- wrong! */
 
 		udp_tx(sess->sock_fd, (struct sockaddr *) &sess->addr,
@@ -798,6 +804,8 @@ void msg_new_sess(struct msg_params *mp, const struct client *cli)
 	struct cld_msg_resp *resp;
 	struct cld_packet *outpkt;
 	size_t alloc_len;
+	const char *secret_key;
+	void *p;
 
 	sess = session_new();
 	if (!sess) {
@@ -869,11 +877,14 @@ err_out:
 	resp_copy(resp, mp->msg);
 	resp->code = cpu_to_le32(resp_rc);
 
-	authsign(outpkt, alloc_len);
+	p = outpkt;
+	secret_key = user_key(outpkt->user);
+	__cld_authsign(&srv_log, secret_key, p, alloc_len - SHA_DIGEST_LENGTH,
+		       p + alloc_len - SHA_DIGEST_LENGTH);
 
 	HAIL_DEBUG(&srv_log, "%s err: sid " SIDFMT ", op %s, seqid %llu",
 		   __func__,
-		   SIDARG(outpkt->sid), opstr(resp->hdr.op),
+		   SIDARG(outpkt->sid), __cld_opstr(resp->hdr.op),
 		   (unsigned long long) le64_to_cpu(outpkt->seqid));
 
 	udp_tx(mp->sock_fd, (struct sockaddr *) &mp->cli->addr,

@@ -169,7 +169,7 @@ void resp_ok(struct session *sess, const struct cld_msg_hdr *src)
 	resp_err(sess, src, CLE_OK);
 }
 
-static const char *user_key(const char *user)
+const char *user_key(const char *user)
 {
 	/* TODO: better auth scheme.
 	 * for now, use simple username==password auth scheme
@@ -179,75 +179,6 @@ static const char *user_key(const char *user)
 		return NULL;
 
 	return user;	/* our secret key */
-}
-
-static bool authcheck(const struct cld_packet *pkt, size_t pkt_len)
-{
-	const char *key;
-	unsigned char md[SHA_DIGEST_LENGTH];
-	unsigned int md_len = 0;
-	const void *p = pkt;
-
-	key = user_key(pkt->user);
-	if (!key)
-		return false;
-
-	HMAC(EVP_sha1(), key, strlen(key), p, pkt_len - SHA_DIGEST_LENGTH,
-	     md, &md_len);
-
-	if (md_len != SHA_DIGEST_LENGTH)
-		return false; /* BUG */
-
-	if (memcmp(md, p + (pkt_len - SHA_DIGEST_LENGTH), SHA_DIGEST_LENGTH))
-		return false;
-
-	return true;
-}
-
-bool authsign(struct cld_packet *pkt, size_t pkt_len)
-{
-	const char *key;
-	unsigned char md[SHA_DIGEST_LENGTH];
-	unsigned int md_len = 0;
-	void *buf = pkt;
-
-	key = user_key(pkt->user);
-	if (!key)
-		return false;
-
-	HMAC(EVP_sha1(), key, strlen(key), buf, pkt_len - SHA_DIGEST_LENGTH,
-	     md, &md_len);
-
-	if (md_len != SHA_DIGEST_LENGTH)
-		HAIL_ERR(&srv_log, "%s BUG: md_len != SHA_DIGEST_LENGTH", __func__);
-
-	memcpy(buf + pkt_len - SHA_DIGEST_LENGTH, md, SHA_DIGEST_LENGTH);
-
-	return true;
-}
-
-const char *opstr(enum cld_msg_ops op)
-{
-	switch (op) {
-	case cmo_nop:		return "cmo_nop";
-	case cmo_new_sess:	return "cmo_new_sess";
-	case cmo_open:		return "cmo_open";
-	case cmo_get_meta:	return "cmo_get_meta";
-	case cmo_get:		return "cmo_get";
-	case cmo_put:		return "cmo_put";
-	case cmo_close:		return "cmo_close";
-	case cmo_del:		return "cmo_del";
-	case cmo_lock:		return "cmo_lock";
-	case cmo_unlock:	return "cmo_unlock";
-	case cmo_trylock:	return "cmo_trylock";
-	case cmo_ack:		return "cmo_ack";
-	case cmo_end_sess:	return "cmo_end_sess";
-	case cmo_ping:		return "cmo_ping";
-	case cmo_not_master:	return "cmo_not_master";
-	case cmo_event:		return "cmo_event";
-	case cmo_ack_frag:	return "cmo_ack_frag";
-	default:		return "(unknown)";
-	}
 }
 
 static void show_msg(const struct cld_msg_hdr *msg)
@@ -271,7 +202,7 @@ static void show_msg(const struct cld_msg_hdr *msg)
 	case cmo_event:
 	case cmo_ack_frag:
 		HAIL_DEBUG(&srv_log, "msg: op %s, xid %llu",
-			   opstr(msg->op),
+			   __cld_opstr(msg->op),
 			   (unsigned long long) le64_to_cpu(msg->xid));
 		break;
 	}
@@ -316,6 +247,8 @@ static void pkt_ack_frag(int sock_fd,
 	size_t alloc_len;
 	struct cld_packet *outpkt;
 	struct cld_msg_ack_frag *ack_msg;
+	void *p;
+	const char *secret_key;
 
 	alloc_len = sizeof(*outpkt) + sizeof(*ack_msg) + SHA_DIGEST_LENGTH;
 	outpkt = alloca(alloc_len);
@@ -329,12 +262,15 @@ static void pkt_ack_frag(int sock_fd,
 	ack_msg->hdr.op = cmo_ack_frag;
 	ack_msg->seqid = pkt->seqid;
 
-	authsign(outpkt, alloc_len);
+	p = outpkt;
+	secret_key = user_key(outpkt->user);
+	__cld_authsign(&srv_log, secret_key, p, alloc_len - SHA_DIGEST_LENGTH,
+		       p + alloc_len - SHA_DIGEST_LENGTH);
 
 	HAIL_DEBUG(&srv_log, "%s: "
 		   "sid " SIDFMT ", op %s, seqid %llu",
 		   __func__,
-		   SIDARG(outpkt->sid), opstr(ack_msg->hdr.op),
+		   SIDARG(outpkt->sid), __cld_opstr(ack_msg->hdr.op),
 		   (unsigned long long) le64_to_cpu(outpkt->seqid));
 
 	/* transmit ack-partial-msg response (once, without retries) */
@@ -356,9 +292,18 @@ static void udp_rx(int sock_fd,
 	size_t alloc_len;
 	uint32_t pkt_flags;
 	bool first_frag, last_frag, have_new_sess, have_ack, have_put;
+	const char *secret_key;
+	int auth_rc;
+	void *p;
+
+	secret_key = user_key(pkt->user);
 
 	/* verify pkt data integrity and credentials via HMAC signature */
-	if (!authcheck(pkt, pkt_len)) {
+	auth_rc = __cld_authcheck(&srv_log, secret_key, raw_pkt,
+				  pkt_len - SHA_DIGEST_LENGTH,
+				  raw_pkt + pkt_len - SHA_DIGEST_LENGTH);
+	if (auth_rc) {
+		HAIL_DEBUG(&srv_log, "auth failed, code %d", auth_rc);
 		resp_rc = CLE_SIG_INVAL;
 		goto err_out;
 	}
@@ -471,12 +416,15 @@ err_out:
 	resp_copy(resp, msg);
 	resp->code = cpu_to_le32(resp_rc);
 
-	authsign(outpkt, alloc_len);
+	p = outpkt;
+	secret_key = user_key(outpkt->user);
+	__cld_authsign(&srv_log, secret_key, p, alloc_len - SHA_DIGEST_LENGTH,
+		       p + alloc_len - SHA_DIGEST_LENGTH);
 
 	HAIL_DEBUG(&srv_log, "%s err: "
 		   "sid " SIDFMT ", op %s, seqid %llu, code %d",
 		   __func__,
-		   SIDARG(outpkt->sid), opstr(resp->hdr.op),
+		   SIDARG(outpkt->sid), __cld_opstr(resp->hdr.op),
 		   (unsigned long long) le64_to_cpu(outpkt->seqid),
 		   resp_rc);
 
@@ -537,6 +485,8 @@ static bool udp_srv_event(int fd, short events, void *userdata)
 		struct cld_msg_hdr *msg = (struct cld_msg_hdr *) (pkt + 1);
 		struct cld_msg_resp *resp;
 		size_t alloc_len;
+		const char *secret_key;
+		void *p;
 
 		alloc_len = sizeof(*outpkt) + sizeof(*resp) + SHA_DIGEST_LENGTH;
 		outpkt = alloca(alloc_len);
@@ -549,7 +499,11 @@ static bool udp_srv_event(int fd, short events, void *userdata)
 		resp_copy(resp, msg);
 		resp->hdr.op = cmo_not_master;
 
-		authsign(outpkt, alloc_len);
+		p = outpkt;
+		secret_key = user_key(outpkt->user);
+		__cld_authsign(&srv_log, secret_key, p,
+			       alloc_len - SHA_DIGEST_LENGTH,
+			       p + alloc_len - SHA_DIGEST_LENGTH);
 
 		udp_tx(fd, (struct sockaddr *) &cli.addr, cli.addr_len,
 		       outpkt, alloc_len);

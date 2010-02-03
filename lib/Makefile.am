@@ -14,7 +14,8 @@ libcldc_la_SOURCES	=	\
 	cldc-udp.c		\
 	cldc-dns.c		\
 	common.c		\
-	libtimer.c
+	libtimer.c		\
+	pkt.c
 
 libcldc_la_LDFLAGS = \
 	-version-info $(LIBCLDC_CURRENT):$(LIBCLDC_REVISION):$(LIBCLDC_AGE) \

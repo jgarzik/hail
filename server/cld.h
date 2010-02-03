@@ -151,7 +151,6 @@ extern int session_remove_locks(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 extern int sess_load(GHashTable *ss);
 
 /* server.c */
-extern const char *opstr(enum cld_msg_ops op);
 extern struct server cld_srv;
 extern struct hail_log srv_log;
 extern struct timeval current_time;
@@ -161,7 +160,7 @@ extern void resp_copy(struct cld_msg_resp *resp, const struct cld_msg_hdr *src);
 extern void resp_err(struct session *sess,
 	      const struct cld_msg_hdr *src, enum cle_err_codes errcode);
 extern void resp_ok(struct session *sess, const struct cld_msg_hdr *src);
-extern bool authsign(struct cld_packet *pkt, size_t pkt_len);
+extern const char *user_key(const char *user);
 
 /* util.c */
 extern int write_pid_file(const char *pid_fn);
