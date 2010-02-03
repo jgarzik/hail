@@ -61,7 +61,8 @@ struct cldc_msg {
 
 	struct cldc_session *sess;
 
-	ssize_t		(*cb)(struct cldc_msg *, const void *, size_t, bool);
+	ssize_t		(*cb)(struct cldc_msg *, const void *, size_t,
+			      enum cle_err_codes);
 	void		*cb_private;
 
 	struct cldc_call_opts copts;

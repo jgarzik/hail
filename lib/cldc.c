@@ -168,7 +168,7 @@ static int rxmsg_generic(struct cldc_session *sess,
 		req->done = true;
 
 		if (req->cb) {
-			ssize_t rc = req->cb(req, msgbuf, buflen, true);
+			ssize_t rc = req->cb(req, msgbuf, buflen, resp->code);
 			if (rc < 0)
 				return rc;
 		}
@@ -504,8 +504,6 @@ static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 	int n_pkts, i, data_left;
 	void *p;
 
-	gettimeofday(&tv, NULL);
-
 	n_pkts = msg_len / CLD_MAX_PKT_MSG_SZ;
 	n_pkts += ((msg_len % CLD_MAX_PKT_MSG_SZ) ? 1 : 0);
 
@@ -521,6 +519,7 @@ static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 		return NULL;
 	}
 
+	msg->n_pkts = n_pkts;
 	__cld_rand64(&msg->xid);
 
 	msg->sess = sess;
@@ -528,11 +527,10 @@ static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 	if (copts)
 		memcpy(&msg->copts, copts, sizeof(msg->copts));
 
+	gettimeofday(&tv, NULL);
 	msg->expire_time = tv.tv_sec + CLDC_MSG_EXPIRE;
 
 	msg->data_len = msg_len;
-
-	msg->n_pkts = n_pkts;
 
 	p = msg->data;
 	data_left = msg_len;
@@ -583,7 +581,7 @@ static void sess_msg_drop(struct cldc_session *sess)
 		tmp = tmp->next;
 
 		if (!msg->done && msg->cb)
-			msg->cb(msg, NULL, 0, false);
+			msg->cb(msg, NULL, 0, CLE_TIMEOUT);
 
 		cldc_msg_free(msg);
 	}
@@ -746,16 +744,8 @@ static void sess_free(struct cldc_session *sess)
 }
 
 static ssize_t end_sess_cb(struct cldc_msg *msg, const void *resp_p,
-			   size_t resp_len, bool ok)
+			   size_t resp_len, enum cle_err_codes resp_rc)
 {
-	const struct cld_msg_resp *resp = resp_p;
-	enum cle_err_codes resp_rc = CLE_OK;
-
-	if (!ok)
-		resp_rc = CLE_TIMEOUT;
-	else
-		resp_rc = le32_to_cpu(resp->code);
-
 	if (msg->copts.cb)
 		return msg->copts.cb(&msg->copts, resp_rc);
 
@@ -782,16 +772,9 @@ int cldc_end_sess(struct cldc_session *sess, const struct cldc_call_opts *copts)
 }
 
 static ssize_t new_sess_cb(struct cldc_msg *msg, const void *resp_p,
-			   size_t resp_len, bool ok)
+			   size_t resp_len, enum cle_err_codes resp_rc)
 {
 	struct cldc_session *sess = msg->sess;
-	const struct cld_msg_resp *resp = resp_p;
-	enum cle_err_codes resp_rc = CLE_OK;
-
-	if (!ok)
-		resp_rc = CLE_TIMEOUT;
-	else
-		resp_rc = le32_to_cpu(resp->code);
 
 	if (resp_rc == CLE_OK)
 		sess->confirmed = true;
@@ -877,16 +860,8 @@ void cldc_kill_sess(struct cldc_session *sess)
 }
 
 static ssize_t generic_end_cb(struct cldc_msg *msg, const void *resp_p,
-			      size_t resp_len, bool ok)
+			      size_t resp_len, enum cle_err_codes resp_rc)
 {
-	const struct cld_msg_resp *resp = resp_p;
-	enum cle_err_codes resp_rc = CLE_OK;
-
-	if (!ok)
-		resp_rc = CLE_TIMEOUT;
-	else
-		resp_rc = le32_to_cpu(resp->code);
-
 	if (msg->copts.cb)
 		return msg->copts.cb(&msg->copts, resp_rc);
 
@@ -949,19 +924,10 @@ int cldc_del(struct cldc_session *sess, const struct cldc_call_opts *copts,
 }
 
 static ssize_t open_end_cb(struct cldc_msg *msg, const void *resp_p,
-			   size_t resp_len, bool ok)
+			   size_t resp_len, enum cle_err_codes resp_rc)
 {
 	const struct cld_msg_open_resp *resp = resp_p;
 	struct cldc_fh *fh = msg->cb_private;
-	enum cle_err_codes resp_rc = CLE_OK;
-
-	if (!ok)
-		resp_rc = CLE_TIMEOUT;
-	else {
-		if (resp_len < sizeof(resp->resp))
-			return -1009;
-		resp_rc = le32_to_cpu(resp->resp.code);
-	}
 
 	if (resp_rc == CLE_OK) {
 		if (resp_len < sizeof(*resp))
@@ -1158,16 +1124,10 @@ int cldc_put(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 	o->name = le64_to_cpu(resp->name)
 
 static ssize_t get_end_cb(struct cldc_msg *msg, const void *resp_p,
-			  size_t resp_len, bool ok)
+			  size_t resp_len, enum cle_err_codes resp_rc)
 {
 	const struct cld_msg_get_resp *resp = resp_p;
-	enum cle_err_codes resp_rc = CLE_OK;
 	struct cld_msg_get_resp *o = NULL;
-
-	if (!ok)
-		resp_rc = CLE_TIMEOUT;
-	else
-		resp_rc = le32_to_cpu(resp->resp.code);
 
 	if (resp_rc == CLE_OK) {
 		bool get_body;
