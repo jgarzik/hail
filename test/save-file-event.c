@@ -33,8 +33,6 @@
 #include <cldc.h>
 #include "test.h"
 
-#define DATAMAX  10000
-
 struct run {
 	struct cldc_udp *udp;
 	struct cld_timer_list tlist;

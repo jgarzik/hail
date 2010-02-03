@@ -1,5 +1,5 @@
 
-INCLUDES        = -I$(top_srcdir)/include       \
+INCLUDES	= -I$(top_srcdir)/include	\
 		  @GLIB_CFLAGS@
 
 EXTRA_DIST =			\
