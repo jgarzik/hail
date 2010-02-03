@@ -30,8 +30,6 @@
 #include <cld-private.h>
 #include "cld.h"
 
-struct session_outpkt;
-
 struct session_outpkt {
 	struct session		*sess;
 
@@ -158,7 +156,7 @@ void sessions_free(void)
 static void session_trash(struct session *sess)
 {
 	HAIL_DEBUG(&srv_log, "session " SIDFMT " sent to garbage",
-		       SIDARG(sess->sid));
+		   SIDARG(sess->sid));
 	sess->dead = true;
 }
 
@@ -435,8 +433,8 @@ static void session_timeout(struct cld_timer *timer)
 	}
 
 	HAIL_INFO(&srv_log, "session %s, addr %s sid " SIDFMT,
-		sess->dead ? "gc'd" : "timeout",
-		sess->ipaddr, SIDARG(sess->sid));
+		  sess->dead ? "gc'd" : "timeout",
+		  sess->ipaddr, SIDARG(sess->sid));
 
 	/* open transaction */
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
@@ -550,8 +548,7 @@ static void op_unref(struct session_outpkt *op)
 
 static int sess_retry_output(struct session *sess, time_t *next_retry_out)
 {
-	GList *tmp, *tmp1;
-	struct session_outpkt *op;
+	GList *tmp;
 	int rc = 0;
 	time_t next_retry = 0;
 
@@ -561,6 +558,8 @@ static int sess_retry_output(struct session *sess, time_t *next_retry_out)
 	while (tmp) {
 		struct cld_packet *outpkt;
 		struct cld_msg_hdr *outmsg;
+		struct session_outpkt *op;
+		GList *tmp1;
 
 		tmp1 = tmp;
 		tmp = tmp->next;
@@ -575,9 +574,13 @@ static int sess_retry_output(struct session *sess, time_t *next_retry_out)
 		if (current_time.tv_sec < op->next_retry)
 			continue;
 
-		HAIL_DEBUG(&srv_log, "retry: sid " SIDFMT ", op %s, seqid %llu",
-			SIDARG(outpkt->sid), opstr(outmsg->op),
-			(unsigned long long) le64_to_cpu(outpkt->seqid));
+		if (srv_log.verbose) {
+			HAIL_DEBUG(&srv_log, "%s: retrying: sid " SIDFMT ", "
+				   "op %s, seqid %llu",
+				   __func__,
+				   SIDARG(outpkt->sid), opstr(outmsg->op),
+				   (unsigned long long) le64_to_cpu(outpkt->seqid));
+		}
 
 		rc = udp_tx(sess->sock_fd, (struct sockaddr *) &sess->addr,
 			    sess->addr_len, op->pkt, op->pkt_len);
@@ -647,22 +650,24 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
 		case cmo_get_meta:
 		case cmo_get:
 			rsp = (struct cld_msg_resp *) msg_;
-			HAIL_DEBUG(&srv_log, "sendmsg: "
-			       "sid " SIDFMT ", op %s, msglen %u, code %u, "
-			       "xid %llu, xid_in %llu",
-			       SIDARG(sess->sid),
-			       opstr(hdr->op),
-			       (unsigned int) msglen,
-			       le32_to_cpu(rsp->code),
-			       (unsigned long long) le64_to_cpu(hdr->xid),
-			       (unsigned long long) le64_to_cpu(rsp->xid_in));
+			HAIL_DEBUG(&srv_log, "%s: "
+				   "sid " SIDFMT ", op %s, msglen %u, code %u, "
+				   "xid %llu, xid_in %llu",
+				   __func__,
+				   SIDARG(sess->sid),
+				   opstr(hdr->op),
+				   (unsigned int) msglen,
+				   le32_to_cpu(rsp->code),
+				   (unsigned long long) le64_to_cpu(hdr->xid),
+				   (unsigned long long) le64_to_cpu(rsp->xid_in));
 			break;
 		default:
-			HAIL_DEBUG(&srv_log, "sendmsg: "
-			       "sid " SIDFMT ", op %s, msglen %u",
-			       SIDARG(sess->sid),
-			       opstr(hdr->op),
-			       (unsigned int) msglen);
+			HAIL_DEBUG(&srv_log, "%s: "
+				   "sid " SIDFMT ", op %s, msglen %u",
+				   __func__,
+				   SIDARG(sess->sid),
+				   opstr(hdr->op),
+				   (unsigned int) msglen);
 		}
 	}
 
@@ -768,7 +773,7 @@ void msg_ack(struct msg_params *mp)
 			continue;
 
 		HAIL_DEBUG(&srv_log, "    expiring seqid %llu",
-			(unsigned long long) le64_to_cpu(outpkt->seqid));
+			   (unsigned long long) le64_to_cpu(outpkt->seqid));
 
 		/* remove and delete the ack'd msg; call ack'd callback */
 		sess->out_q = g_list_delete_link(sess->out_q, tmp1);
@@ -837,6 +842,11 @@ void msg_new_sess(struct msg_params *mp, const struct client *cli)
 		goto err_out;
 	}
 
+	HAIL_DEBUG(&srv_log, "%s: created new session " SIDFMT " with "
+		   "sess->next_seqid_in = %llu",
+		   __func__, SIDARG(sess->sid),
+		   (unsigned long long) sess->next_seqid_in);
+
 	g_hash_table_insert(cld_srv.sessions, sess->sid, sess);
 
 	/* begin session timer */
@@ -861,9 +871,10 @@ err_out:
 
 	authsign(outpkt, alloc_len);
 
-	HAIL_DEBUG(&srv_log, "new_sess err: sid " SIDFMT ", op %s, seqid %llu",
-		SIDARG(outpkt->sid), opstr(resp->hdr.op),
-		(unsigned long long) le64_to_cpu(outpkt->seqid));
+	HAIL_DEBUG(&srv_log, "%s err: sid " SIDFMT ", op %s, seqid %llu",
+		   __func__,
+		   SIDARG(outpkt->sid), opstr(resp->hdr.op),
+		   (unsigned long long) le64_to_cpu(outpkt->seqid));
 
 	udp_tx(mp->sock_fd, (struct sockaddr *) &mp->cli->addr,
 	       mp->cli->addr_len, outpkt, alloc_len);
@@ -964,10 +975,10 @@ static int sess_load_db(GHashTable *ss, DB_TXN *txn)
 		session_decode(sess, &raw_sess);
 
 		HAIL_DEBUG(&srv_log, " loaded sid " SIDFMT
-			" next seqid %llu/%llu",
-			SIDARG(sess->sid),
-			(unsigned long long) le64_to_cpu(sess->next_seqid_out),
-			(unsigned long long) le64_to_cpu(sess->next_seqid_in));
+			   " next seqid %llu/%llu",
+			   SIDARG(sess->sid),
+			   (unsigned long long) le64_to_cpu(sess->next_seqid_out),
+			   (unsigned long long) le64_to_cpu(sess->next_seqid_in));
 
 		g_hash_table_insert(ss, sess->sid, sess);
 

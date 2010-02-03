@@ -168,7 +168,8 @@ static bool dirdata_append(void **data, size_t *data_len,
 
 	mem = realloc(*data, new_len);
 	if (!mem) {
-		HAIL_CRIT(&srv_log, "out of memory for data [%zu]", new_len);
+		HAIL_CRIT(&srv_log, "%s: out of memory for data [%zu]",
+			  __func__, new_len);
 		return false;
 	}
 
@@ -194,7 +195,6 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 	DB *hand_idx = cld_srv.cldb.handle_idx;
 	DBC *cur;
 	DBT key, val;
-	struct cld_msg_event me;
 	cldino_t inum_le = cldino_to_le(inum);
 	int gflags;
 	struct session *sess;
@@ -210,10 +210,6 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 	val.ulen = sizeof(h);
 	val.flags = DB_DBT_USERMEM;
 
-	memset(&me, 0, sizeof(me));
-	memcpy(me.hdr.magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
-	me.hdr.op = cmo_event;
-
 	rc = hand_idx->cursor(hand_idx, txn, &cur, 0);
 	if (rc) {
 		hand_idx->err(hand_idx, rc, "inode_notify cursor");
@@ -222,6 +218,8 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 
 	gflags = DB_SET;
 	while (1) {
+		struct cld_msg_event me;
+
 		rc = cur->get(cur, &key, &val, gflags);
 		if (rc) {
 			if (rc != DB_NOTFOUND)
@@ -237,17 +235,20 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 
 		sess = g_hash_table_lookup(cld_srv.sessions, h.sid);
 		if (!sess) {
-			HAIL_WARN(&srv_log, "inode_notify BUG");
+			HAIL_WARN(&srv_log, "%s BUG", __func__);
 			continue;
 		}
 
 		if (!sess->sock_fd) {		/* Freshly recovered session */
 			HAIL_DEBUG(&srv_log, "Lost notify sid " SIDFMT
-				" ino %lld", SIDARG(sess->sid),
-				(long long) inum);
+				   " ino %lld", SIDARG(sess->sid),
+				   (long long) inum);
 			continue;
 		}
 
+		memset(&me, 0, sizeof(me));
+		memcpy(me.hdr.magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
+		me.hdr.op = cmo_event;
 		me.fh = h.fh;
 		me.events = cpu_to_le32(deleted ? CE_DELETED : CE_UPDATED);
 
@@ -361,7 +362,7 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 
 		sess = g_hash_table_lookup(cld_srv.sessions, lock.sid);
 		if (!sess) {
-			HAIL_WARN(&srv_log, "inode_lock_rescan BUG");
+			HAIL_WARN(&srv_log, "%s BUG", __func__);
 			break;
 		}
 
@@ -371,8 +372,8 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 
 		if (!sess->sock_fd) {		/* Freshly recovered session */
 			HAIL_DEBUG(&srv_log, "Lost success sid " SIDFMT
-				" ino %lld", SIDARG(sess->sid),
-				(long long) inum);
+				   " ino %lld", SIDARG(sess->sid),
+				   (long long) inum);
 			continue;
 		}
 
@@ -452,10 +453,11 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 		goto err_out;
 	}
 
-	HAIL_DEBUG(&srv_log, "GET-DEBUG: sizeof(resp) %zu, name_len %u, "
-		"inode->size %u, resp_len %zu",
-		sizeof(*resp), name_len,
-		inode_size, resp_len);
+	HAIL_DEBUG(&srv_log, "%s: sizeof(resp) %zu, name_len %u, "
+		   "inode->size %u, resp_len %zu",
+		   __func__,
+		   sizeof(*resp), name_len,
+		   inode_size, resp_len);
 
 	/* return response containing inode metadata */
 	memset(resp, 0, resp_len);
@@ -757,9 +759,9 @@ void msg_put(struct msg_params *mp)
 	data_size = le32_to_cpu(msg->data_size);
 	if (mp->msg_len != (data_size + sizeof(*msg))) {
 		HAIL_INFO(&srv_log, "PUT len mismatch: msg len %zu, "
-			"wanted %zu + %u (== %zu)",
-			mp->msg_len,
-			sizeof(*msg), data_size, data_size + sizeof(*msg));
+			  "wanted %zu + %u (== %zu)",
+			  mp->msg_len,
+			  sizeof(*msg), data_size, data_size + sizeof(*msg));
 		resp_rc = CLE_BAD_PKT;
 		goto err_out_noabort;
 	}

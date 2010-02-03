@@ -125,13 +125,13 @@ int udp_tx(int sock_fd, struct sockaddr *addr, socklen_t addr_len,
 {
 	ssize_t src;
 
-	HAIL_DEBUG(&srv_log, "udp_tx, fd %d", sock_fd);
+	HAIL_DEBUG(&srv_log, "%s, fd %d", __func__, sock_fd);
 
 	src = sendto(sock_fd, data, data_len, 0, addr, addr_len);
 	if (src < 0 && errno != EAGAIN)
-		applog(LOG_ERR, "udp_tx sendto (fd %d, data_len %u): %s",
-		       sock_fd, (unsigned int) data_len,
-		       strerror(errno));
+		HAIL_ERR(&srv_log, "%s sendto (fd %d, data_len %u): %s",
+			 __func__, sock_fd, (unsigned int) data_len,
+			 strerror(errno));
 
 	if (src < 0)
 		return -errno;
@@ -157,7 +157,7 @@ void resp_err(struct session *sess,
 	resp.code = cpu_to_le32(errcode);
 
 	if (sess->sock_fd <= 0) {
-		applog(LOG_ERR, "Nul sock in response");
+		HAIL_ERR(&srv_log, "Nul sock in response");
 		return;
 	}
 
@@ -219,7 +219,7 @@ bool authsign(struct cld_packet *pkt, size_t pkt_len)
 	     md, &md_len);
 
 	if (md_len != SHA_DIGEST_LENGTH)
-		applog(LOG_ERR, "authsign BUG: md_len != SHA_DIGEST_LENGTH");
+		HAIL_ERR(&srv_log, "%s BUG: md_len != SHA_DIGEST_LENGTH", __func__);
 
 	memcpy(buf + pkt_len - SHA_DIGEST_LENGTH, md, SHA_DIGEST_LENGTH);
 
@@ -271,8 +271,8 @@ static void show_msg(const struct cld_msg_hdr *msg)
 	case cmo_event:
 	case cmo_ack_frag:
 		HAIL_DEBUG(&srv_log, "msg: op %s, xid %llu",
-		       opstr(msg->op),
-		       (unsigned long long) le64_to_cpu(msg->xid));
+			   opstr(msg->op),
+			   (unsigned long long) le64_to_cpu(msg->xid));
 		break;
 	}
 }
@@ -331,10 +331,11 @@ static void pkt_ack_frag(int sock_fd,
 
 	authsign(outpkt, alloc_len);
 
-	HAIL_DEBUG(&srv_log, "ack-partial-msg: "
-		"sid " SIDFMT ", op %s, seqid %llu",
-		SIDARG(outpkt->sid), opstr(ack_msg->hdr.op),
-		(unsigned long long) le64_to_cpu(outpkt->seqid));
+	HAIL_DEBUG(&srv_log, "%s: "
+		   "sid " SIDFMT ", op %s, seqid %llu",
+		   __func__,
+		   SIDARG(outpkt->sid), opstr(ack_msg->hdr.op),
+		   (unsigned long long) le64_to_cpu(outpkt->seqid));
 
 	/* transmit ack-partial-msg response (once, without retries) */
 	udp_tx(sock_fd, (struct sockaddr *) &cli->addr, cli->addr_len,
@@ -387,12 +388,13 @@ static void udp_rx(int sock_fd,
 	mp.msg = msg;
 	mp.msg_len = pkt_len - sizeof(*pkt) - SHA_DIGEST_LENGTH;
 
-	HAIL_DEBUG(&srv_log, "pkt: len %zu, seqid %llu, sid " SIDFMT ", "
-		"flags %s%s, user %s",
-		pkt_len, (unsigned long long) le64_to_cpu(pkt->seqid),
-		SIDARG(pkt->sid),
-		first_frag ? "F" : "", last_frag ? "L" : "",
-		pkt->user);
+	HAIL_DEBUG(&srv_log, "%s pkt: len %zu, seqid %llu, sid " SIDFMT ", "
+		   "flags %s%s, user %s",
+		   __func__,
+		   pkt_len, (unsigned long long) le64_to_cpu(pkt->seqid),
+		   SIDARG(pkt->sid),
+		   first_frag ? "F" : "", last_frag ? "L" : "",
+		   pkt->user);
 
 	/* advance sequence id's and update last-contact timestamp */
 	if (!have_new_sess) {
@@ -407,7 +409,7 @@ static void udp_rx(int sock_fd,
 		if (!have_ack) {
 			/* eliminate duplicates; do not return any response */
 			if (le64_to_cpu(pkt->seqid) != sess->next_seqid_in) {
-				HAIL_DEBUG(&srv_log, "dropping dup");
+				HAIL_DEBUG(&srv_log, "%s: dropping dup", __func__);
 				return;
 			}
 
@@ -418,7 +420,7 @@ static void udp_rx(int sock_fd,
 		if (sess) {
 			/* eliminate duplicates; do not return any response */
 			if (le64_to_cpu(pkt->seqid) != sess->next_seqid_in) {
-				HAIL_DEBUG(&srv_log, "dropping dup");
+				HAIL_DEBUG(&srv_log, "%s: dropping dup", __func__);
 				return;
 			}
 
@@ -450,7 +452,7 @@ static void udp_rx(int sock_fd,
 
 		if ((srv_log.verbose > 1) && !first_frag)
 			HAIL_DEBUG(&srv_log, "    final message size %u",
-			       sess->msg_buf_len);
+				   sess->msg_buf_len);
 	}
 
 	if (last_frag)
@@ -471,11 +473,12 @@ err_out:
 
 	authsign(outpkt, alloc_len);
 
-	HAIL_DEBUG(&srv_log, "udp_rx err: "
-		"sid " SIDFMT ", op %s, seqid %llu, code %d",
-		SIDARG(outpkt->sid), opstr(resp->hdr.op),
-		(unsigned long long) le64_to_cpu(outpkt->seqid),
-		resp_rc);
+	HAIL_DEBUG(&srv_log, "%s err: "
+		   "sid " SIDFMT ", op %s, seqid %llu, code %d",
+		   __func__,
+		   SIDARG(outpkt->sid), opstr(resp->hdr.op),
+		   (unsigned long long) le64_to_cpu(outpkt->seqid),
+		   resp_rc);
 
 	udp_tx(sock_fd, (struct sockaddr *) &cli->addr, cli->addr_len,
 	       outpkt, alloc_len);
@@ -587,8 +590,8 @@ static int net_write_port(const char *port_file, const char *port_str)
 	portf = fopen(port_file, "w");
 	if (portf == NULL) {
 		rc = errno;
-		applog(LOG_INFO, "Cannot create port file %s: %s",
-		       port_file, strerror(rc));
+		HAIL_INFO(&srv_log, "Cannot create port file %s: %s",
+			  port_file, strerror(rc));
 		return -rc;
 	}
 	fprintf(portf, "%s\n", port_str);
@@ -608,8 +611,8 @@ static void net_close(void)
 		pfd = &g_array_index(cld_srv.polls, struct pollfd, i);
 		if (pfd->fd >= 0) {
 			if (close(pfd->fd) < 0)
-				applog(LOG_WARNING, "net_close(%d): %s",
-				       pfd->fd, strerror(errno));
+				HAIL_WARN(&srv_log, "%s(%d): %s",
+					  __func__, pfd->fd, strerror(errno));
 			pfd->fd = -1;
 		}
 	}
@@ -675,7 +678,7 @@ static int net_open_any(void)
 		if (getsockname(fd6, (struct sockaddr *) &addr6,
 				&addr_len) != 0) {
 			rc = errno;
-			applog(LOG_ERR, "getsockname failed: %s", strerror(rc));
+			HAIL_ERR(&srv_log, "getsockname failed: %s", strerror(rc));
 			return -rc;
 		}
 		port = ntohs(addr6.sin6_port);
@@ -697,13 +700,13 @@ static int net_open_any(void)
 		if (getsockname(fd4, (struct sockaddr *) &addr4,
 				&addr_len) != 0) {
 			rc = errno;
-			applog(LOG_ERR, "getsockname failed: %s", strerror(rc));
+			HAIL_ERR(&srv_log, "getsockname failed: %s", strerror(rc));
 			return -rc;
 		}
 		port = ntohs(addr4.sin_port);
 	}
 
-	applog(LOG_INFO, "Listening on port %u", port);
+	HAIL_INFO(&srv_log, "Listening on port %u", port);
 
 	if (cld_srv.port_file) {
 		char portstr[7];
@@ -726,8 +729,8 @@ static int net_open_known(const char *portstr)
 
 	rc = getaddrinfo(NULL, portstr, &hints, &res0);
 	if (rc) {
-		applog(LOG_ERR, "getaddrinfo(*:%s) failed: %s",
-		       portstr, gai_strerror(rc));
+		HAIL_ERR(&srv_log, "getaddrinfo(*:%s) failed: %s",
+			 portstr, gai_strerror(rc));
 		rc = -EINVAL;
 		goto err_addr;
 	}
@@ -766,8 +769,8 @@ static int net_open_known(const char *portstr)
 			    listen_serv, sizeof(listen_serv),
 			    NI_NUMERICHOST | NI_NUMERICSERV);
 
-		applog(LOG_INFO, "Listening on %s port %s",
-		       listen_host, listen_serv);
+		HAIL_INFO(&srv_log, "Listening on %s port %s",
+			  listen_host, listen_serv);
 	}
 
 	freeaddrinfo(res0);
@@ -792,7 +795,7 @@ static int net_open(void)
 
 static void segv_signal(int signo)
 {
-	applog(LOG_ERR, "SIGSEGV");
+	HAIL_ERR(&srv_log, "SIGSEGV");
 	exit(1);
 }
 
@@ -807,7 +810,7 @@ static void stats_signal(int signo)
 }
 
 #define X(stat) \
-	applog(LOG_INFO, "STAT %s %lu", #stat, cld_srv.stats.stat)
+	HAIL_INFO(&srv_log, "STAT %s %lu", #stat, cld_srv.stats.stat)
 
 static void stats_dump(void)
 {
@@ -1036,7 +1039,7 @@ int main (int argc, char *argv[])
 	 */
 	rc = main_loop();
 
-	applog(LOG_INFO, "shutting down");
+	HAIL_INFO(&srv_log, "shutting down");
 
 	if (strict_free)
 		cld_timer_del(&cld_srv.timers, &cld_srv.chkpt_timer);
@@ -1081,11 +1084,11 @@ static void ensure_root()
 	rc = cldb_inode_get_byname(txn, "/", sizeof("/")-1, &inode, false, 0);
 	if (rc == 0) {
 		HAIL_DEBUG(&srv_log, "Root inode found, ino %llu",
-			(unsigned long long) cldino_from_le(inode->inum));
+			   (unsigned long long) cldino_from_le(inode->inum));
 	} else if (rc == DB_NOTFOUND) {
 		inode = cldb_inode_mem("/", sizeof("/")-1, CIFL_DIR, CLD_INO_ROOT);
 		if (!inode) {
-			applog(LOG_CRIT, "Cannot allocate new root inode");
+			HAIL_CRIT(&srv_log, "Cannot allocate new root inode");
 			goto err_;
 		}
 
@@ -1096,12 +1099,12 @@ static void ensure_root()
 		rc = cldb_inode_put(txn, inode, 0);
 		if (rc) {
 			free(inode);
-			applog(LOG_CRIT, "Cannot allocate new root inode");
+			HAIL_CRIT(&srv_log, "Cannot allocate new root inode");
 			goto err_;
 		}
 
 		HAIL_DEBUG(&srv_log, "Root inode created, ino %llu",
-			(unsigned long long) cldino_from_le(inode->inum));
+			   (unsigned long long) cldino_from_le(inode->inum));
 		free(inode);
 	} else {
 		dbenv->err(dbenv, rc, "Root inode lookup");
