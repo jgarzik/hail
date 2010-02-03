@@ -24,6 +24,8 @@
 #include <string.h>
 #include <time.h>
 
+#define CLD_ALIGN8(n) ((8 - ((n) & 7)) & 7)
+
 struct cld_timer_list {
 	void *list;
 };
@@ -56,5 +58,11 @@ unsigned long long cld_sid2llu(const uint8_t *sid);
 void __cld_rand64(void *p);
 const char *cld_errstr(enum cle_err_codes ecode);
 int cld_readport(const char *fname);
+
+/*
+ * We use a unified format for sid so it can be searched in log files (* in vi).
+ */
+#define SIDFMT		"%016llX"
+#define SIDARG(sid)	cld_sid2llu(sid)
 
 #endif /* __CLD_COMMON_H__ */

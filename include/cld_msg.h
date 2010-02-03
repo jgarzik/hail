@@ -24,8 +24,6 @@
 #define CLD_PKT_MAGIC	"CLDc1pkt"
 #define CLD_MSG_MAGIC	"CLDc1msg"
 
-#define CLD_ALIGN8(n) ((8 - ((n) & 7)) & 7)
-
 enum {
 	CLD_MAGIC_SZ		= 8,		/**< length of magic number */
 	CLD_SID_SZ		= 8,		/**< length of session id */
@@ -40,12 +38,6 @@ enum {
 	CLD_MAX_MSG_SZ		= CLD_MAX_PKT_MSG * 1024, /**< maximum total
 					      msg size, including all packets */
 };
-
-/*
- * We use a unified format for sid so it can be searched in log files (* in vi).
- */
-#define SIDFMT   "%016llX"
-#define SIDARG(sid)  cld_sid2llu(sid)
 
 /** available RPC operations */
 enum cld_msg_ops {
