@@ -124,9 +124,9 @@ struct server {
 
 	unsigned int		n_peers;	/* total peers in cell */
 
-	int			rep_pipe[2];
+	int			ev_pipe[2];	/* internal event pipe */
 
-	enum st_cldb		state_cldb, state_cldb_new;
+	enum st_cldb		state_cldb;	/* db & replication state */
 
 	struct cldb		cldb;		/* database info */
 

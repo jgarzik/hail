@@ -57,6 +57,13 @@ enum {
 	CLD_MAX_PEERS		= 400,		/* arbitrary "sanity" limit */
 };
 
+enum int_event_cmd {
+	IEC_NONE,		/* invalid / no command */
+	IEC_DUMP,		/* statistics dump */
+	IEC_NOW_MASTER,		/* replication state -> master */
+	IEC_NOW_SLAVE,		/* replication state -> slave */
+};
+
 static struct argp_option options[] = {
 	{ "data", 'd', "DIRECTORY", 0,
 	  "Store database environment in DIRECTORY.  Default: "
@@ -91,12 +98,13 @@ static const char doc[] =
 PROGRAM_NAME " - coarse locking daemon";
 
 
+static void stats_dump(void);
+static void cldb_state_process(enum st_cldb new_state);
 static error_t parse_opt (int key, char *arg, struct argp_state *state);
 
 static const struct argp argp = { options, parse_opt, NULL, doc };
 
 static bool server_running = true;
-static bool dump_stats;
 static bool use_syslog = true;
 static bool strict_free = false;
 struct timeval current_time;
@@ -149,14 +157,14 @@ static char *get_hostname(void)
 	char *ret;
 
 	if (gethostname(hostb, hostsz-1) < 0) {
-		applog(LOG_ERR, "get_hostname: gethostname error (%d): %s",
-		     errno, strerror(errno));
+		HAIL_ERR(&srv_log, "get_hostname: gethostname error (%d): %s",
+			 errno, strerror(errno));
 		exit(1);
 	}
 	hostb[hostsz-1] = 0;
 	if ((ret = strdup(hostb)) == NULL) {
-		applog(LOG_ERR, "get_hostname: no core (%ld)",
-		     (long)strlen(hostb));
+		HAIL_ERR(&srv_log, "get_hostname: no core (%ld)",
+			 (long)strlen(hostb));
 		exit(1);
 	}
 	return ret;
@@ -641,30 +649,69 @@ static void cldb_state_cb(enum db_event event)
 		 */
 		if (cld_srv.state_cldb != ST_CLDB_INIT &&
 		    cld_srv.state_cldb != ST_CLDB_OPEN) {
-			char c = 0x42;
+			unsigned char cmd;
 
 			if (event == CLDB_EV_MASTER)
-				cld_srv.state_cldb_new = ST_CLDB_MASTER;
+				cmd = IEC_NOW_MASTER;
 			else
-				cld_srv.state_cldb_new = ST_CLDB_SLAVE;
-			if (srv_log.verbose) {
-				applog(LOG_DEBUG, "CLDB state > %s",
-				       state_name_cldb[cld_srv.state_cldb_new]);
-			}
+				cmd = IEC_NOW_SLAVE;
 
 			/* wake up main loop */
-			write(cld_srv.rep_pipe[1], &c, 1);
+			write(cld_srv.ev_pipe[1], &cmd, 1);
 		}
 		break;
 	default:
-		applog(LOG_WARNING, "API confusion with CLDB, event 0x%x", event);
+		HAIL_WARN(&srv_log, "API confusion with CLDB, event 0x%x",
+			  event);
 		cld_srv.state_cldb = ST_CLDB_OPEN;  /* wrong, stub for now */
-		cld_srv.state_cldb_new = ST_CLDB_INIT;
+		break;
 	}
 }
 
-static bool noop_event(int fd, short events, void *userdata)
+static bool internal_event(int fd, short events, void *userdata)
 {
+	unsigned char cmd;
+	ssize_t rrc;
+
+	rrc = read(cld_srv.ev_pipe[0], &cmd, 1);
+	if (rrc < 0) {
+		HAIL_WARN(&srv_log, "pipe read error: %s", strerror(errno));
+		abort();
+	}
+	if (rrc < 1) {
+		HAIL_WARN(&srv_log, "pipe short read");
+		abort();
+	}
+
+	switch(cmd) {
+	case IEC_DUMP:
+		stats_dump();
+		break;
+	case IEC_NOW_MASTER:
+		if (cld_srv.state_cldb == ST_CLDB_MASTER)
+			break;
+
+		cldb_state_process(ST_CLDB_MASTER);
+		cld_srv.state_cldb = ST_CLDB_MASTER;
+
+		HAIL_DEBUG(&srv_log, "CLDB state > %s",
+			   state_name_cldb[cld_srv.state_cldb]);
+		break;
+	case IEC_NOW_SLAVE:
+		if (cld_srv.state_cldb == ST_CLDB_SLAVE)
+			break;
+
+		cldb_state_process(ST_CLDB_SLAVE);
+		cld_srv.state_cldb = ST_CLDB_SLAVE;
+
+		HAIL_DEBUG(&srv_log, "CLDB state > %s",
+			   state_name_cldb[cld_srv.state_cldb]);
+		break;
+	default:
+		HAIL_WARN(&srv_log, "%s BUG: command 0x%x", __func__, cmd);
+		break;
+	}
+
 	return true;	/* continue main loop; do NOT terminate server */
 }
 
@@ -857,7 +904,7 @@ static void cldb_state_process(enum st_cldb new_state)
 		ensure_root();
 
 		if (sess_load(cld_srv.sessions) != 0) {
-			applog(LOG_ERR, "session load failed. "
+			HAIL_ERR(&srv_log, "session load failed. "
 			       "FIXME: I want error handling");
 			return;
 		}
@@ -865,7 +912,7 @@ static void cldb_state_process(enum st_cldb new_state)
 		add_chkpt_timer();
 	} else {
 		if (srv_log.verbose)
-		      applog(LOG_DEBUG, "unhandled state transition %d -> %d",
+		      HAIL_DEBUG(&srv_log,"unhandled state transition %d -> %d",
 			     cld_srv.state_cldb, new_state);
       }
 }
@@ -883,7 +930,8 @@ static void term_signal(int signo)
 
 static void stats_signal(int signo)
 {
-	dump_stats = true;
+	static const unsigned char cmd = IEC_DUMP;
+	write(cld_srv.ev_pipe[1], &cmd, 1);
 }
 
 #define X(stat) \
@@ -895,7 +943,7 @@ static void stats_dump(void)
 	X(event);
 	X(garbage);
 
-	applog(LOG_INFO, "State: CLDB %s",
+	HAIL_INFO(&srv_log, "State: CLDB %s",
 	       state_name_cldb[cld_srv.state_cldb]);
 }
 
@@ -1103,18 +1151,7 @@ static int main_loop(void)
 				break;
 		}
 
-		if (dump_stats) {
-			dump_stats = false;
-			stats_dump();
-		}
-
 		next_timeout = cld_timers_run(&cld_srv.timers);
-
-		if (cld_srv.state_cldb_new != ST_CLDB_INIT &&
-		    cld_srv.state_cldb_new != cld_srv.state_cldb) {
-			cldb_state_process(cld_srv.state_cldb_new);
-			cld_srv.state_cldb = cld_srv.state_cldb_new;
-		}
 	}
 
 	return 0;
@@ -1125,8 +1162,7 @@ int main (int argc, char *argv[])
 	error_t aprc;
 	int rc = 1, env_flags;
 
-	cld_srv.state_cldb =
-	cld_srv.state_cldb_new = ST_CLDB_INIT;
+	cld_srv.state_cldb = ST_CLDB_INIT;
 
 	/* isspace() and strcasecmp() consistency requires this */
 	setlocale(LC_ALL, "C");
@@ -1157,11 +1193,11 @@ int main (int argc, char *argv[])
 		cld_srv.myhost = get_hostname();
 
 	if (srv_log.verbose)
-		applog(LOG_DEBUG, "our hostname: %s", cld_srv.myhost);
+		HAIL_DEBUG(&srv_log, "our hostname: %s", cld_srv.myhost);
 
 	/* remotes file should list all in peer group, except for us */
 	if ((cld_srv.n_peers - 1) != g_list_length(cld_srv.rep_remotes)) {
-		applog(LOG_ERR, "n_peers does not match remotes file loaded");
+		HAIL_ERR(&srv_log, "n_peers does not match remotes file loaded");
 		goto err_out;
 	}
 
@@ -1197,7 +1233,7 @@ int main (int argc, char *argv[])
 	if (!cld_srv.sessions || !cld_srv.poll_data || !cld_srv.polls)
 		goto err_out_pid;
 
-	if (pipe(cld_srv.rep_pipe) < 0) {
+	if (pipe(cld_srv.ev_pipe) < 0) {
 		syslogerr("pipe");
 		goto err_out;
 	}
@@ -1214,12 +1250,12 @@ int main (int argc, char *argv[])
 		/*
 		 * add pipe to poll list, after doing so with our net sockets
 		 */
-		sp.fd = cld_srv.rep_pipe[0];
-		sp.cb = noop_event;
+		sp.fd = cld_srv.ev_pipe[0];
+		sp.cb = internal_event;
 		sp.userdata = NULL;
 		g_array_append_val(cld_srv.poll_data, sp);
 
-		pfd.fd = cld_srv.rep_pipe[0];
+		pfd.fd = cld_srv.ev_pipe[0];
 		pfd.events = POLLIN;
 		pfd.revents = 0;
 		g_array_append_val(cld_srv.polls, pfd);
@@ -1231,16 +1267,14 @@ int main (int argc, char *argv[])
 		    cld_srv.rep_remotes,
 		    cld_srv.myhost, cld_srv.rep_port,
 		    cld_srv.n_peers, cldb_state_cb)) {
-		applog(LOG_ERR, "Failed to open CLDB, limping");
-	} else {
-		cld_srv.state_cldb =
-		cld_srv.state_cldb_new = ST_CLDB_OPEN;
-	}
+		HAIL_ERR(&srv_log, "Failed to open CLDB, limping");
+	} else
+		cld_srv.state_cldb = ST_CLDB_OPEN;
 
 	HAIL_INFO(&srv_log, "initialized: verbose %u%s",
 	       srv_log.verbose,
 	       strict_free ? ", strict-free" : "");
-	applog(LOG_INFO, "replication: %s:%u",
+	HAIL_INFO(&srv_log, "replication: %s:%u",
 		cld_srv.myhost,
 		cld_srv.rep_port);
 
