@@ -30,8 +30,6 @@
 #include <cld-private.h>
 #include "cld.h"
 
-struct session_outpkt;
-
 struct session_outpkt {
 	struct session		*sess;
 
@@ -46,8 +44,8 @@ struct session_outpkt {
 	void			*done_data;
 };
 
-static void session_retry(struct timer *);
-static void session_timeout(struct timer *);
+static void session_retry(struct cld_timer *);
+static void session_timeout(struct cld_timer *);
 static int sess_load_db(GHashTable *ss, DB_TXN *txn);
 static void op_unref(struct session_outpkt *op);
 
@@ -110,8 +108,8 @@ static struct session *session_new(void)
 
 	__cld_rand64(&sess->next_seqid_out);
 
-	timer_init(&sess->timer, "session-timeout", session_timeout, sess);
-	timer_init(&sess->retry_timer, "session-retry", session_retry, sess);
+	cld_timer_init(&sess->timer, "session-timeout", session_timeout, sess);
+	cld_timer_init(&sess->retry_timer, "session-retry", session_retry, sess);
 
 	return sess;
 }
@@ -126,8 +124,8 @@ static void session_free(struct session *sess, bool hash_remove)
 	if (hash_remove)
 		g_hash_table_remove(cld_srv.sessions, sess->sid);
 
-	timer_del(&sess->timer);
-	timer_del(&sess->retry_timer);
+	cld_timer_del(&cld_srv.timers, &sess->timer);
+	cld_timer_del(&cld_srv.timers, &sess->retry_timer);
 
 	tmp = sess->out_q;
 	while (tmp) {
@@ -158,7 +156,7 @@ void sessions_free(void)
 static void session_trash(struct session *sess)
 {
 	HAIL_DEBUG(&srv_log, "session " SIDFMT " sent to garbage",
-		       SIDARG(sess->sid));
+		   SIDARG(sess->sid));
 	sess->dead = true;
 }
 
@@ -406,14 +404,14 @@ static void session_ping(struct session *sess)
 	memset(&resp, 0, sizeof(resp));
 	memcpy(resp.magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
 	__cld_rand64(&resp.xid);
-	resp.op = cmo_ping;
+	resp.op = CMO_PING;
 
 	sess->ping_open = true;
 
 	sess_sendmsg(sess, &resp, sizeof(resp), session_ping_done, NULL);
 }
 
-static void session_timeout(struct timer *timer)
+static void session_timeout(struct cld_timer *timer)
 {
 	struct session *sess = timer->userdata;
 	uint64_t sess_expire;
@@ -429,13 +427,14 @@ static void session_timeout(struct timer *timer)
 		    (sess->sock_fd > 0))))
 			session_ping(sess);
 
-		timer_add(&sess->timer, now + ((sess_expire - now) / 2) + 1);
+		cld_timer_add(&cld_srv.timers, &sess->timer,
+			      now + ((sess_expire - now) / 2) + 1);
 		return;	/* timer added; do not time out session */
 	}
 
 	HAIL_INFO(&srv_log, "session %s, addr %s sid " SIDFMT,
-		sess->dead ? "gc'd" : "timeout",
-		sess->ipaddr, SIDARG(sess->sid));
+		  sess->dead ? "gc'd" : "timeout",
+		  sess->ipaddr, SIDARG(sess->sid));
 
 	/* open transaction */
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
@@ -549,8 +548,7 @@ static void op_unref(struct session_outpkt *op)
 
 static int sess_retry_output(struct session *sess, time_t *next_retry_out)
 {
-	GList *tmp, *tmp1;
-	struct session_outpkt *op;
+	GList *tmp;
 	int rc = 0;
 	time_t next_retry = 0;
 
@@ -560,6 +558,8 @@ static int sess_retry_output(struct session *sess, time_t *next_retry_out)
 	while (tmp) {
 		struct cld_packet *outpkt;
 		struct cld_msg_hdr *outmsg;
+		struct session_outpkt *op;
+		GList *tmp1;
 
 		tmp1 = tmp;
 		tmp = tmp->next;
@@ -574,9 +574,13 @@ static int sess_retry_output(struct session *sess, time_t *next_retry_out)
 		if (current_time.tv_sec < op->next_retry)
 			continue;
 
-		HAIL_DEBUG(&srv_log, "retry: sid " SIDFMT ", op %s, seqid %llu",
-			SIDARG(outpkt->sid), opstr(outmsg->op),
-			(unsigned long long) le64_to_cpu(outpkt->seqid));
+		if (srv_log.verbose) {
+			HAIL_DEBUG(&srv_log, "%s: retrying: sid " SIDFMT ", "
+				   "op %s, seqid %llu",
+				   __func__,
+				   SIDARG(outpkt->sid), __cld_opstr(outmsg->op),
+				   (unsigned long long) le64_to_cpu(outpkt->seqid));
+		}
 
 		rc = udp_tx(sess->sock_fd, (struct sockaddr *) &sess->addr,
 			    sess->addr_len, op->pkt, op->pkt_len);
@@ -589,7 +593,7 @@ static int sess_retry_output(struct session *sess, time_t *next_retry_out)
 	return rc;
 }
 
-static void session_retry(struct timer *timer)
+static void session_retry(struct cld_timer *timer)
 {
 	struct session *sess = timer->userdata;
 	time_t next_retry;
@@ -599,14 +603,15 @@ static void session_retry(struct timer *timer)
 
 	sess_retry_output(sess, &next_retry);
 
-	timer_add(&sess->retry_timer, next_retry);
+	cld_timer_add(&cld_srv.timers, &sess->retry_timer, next_retry);
 }
 
 static void session_outq(struct session *sess, GList *new_pkts)
 {
 	/* if out_q empty, start retry timer */
 	if (!sess->out_q)
-		timer_add(&sess->retry_timer, time(NULL) + CLD_RETRY_START);
+		cld_timer_add(&cld_srv.timers, &sess->retry_timer,
+			      time(NULL) + CLD_RETRY_START);
 
 	sess->out_q = g_list_concat(sess->out_q, new_pkts);
 }
@@ -618,13 +623,20 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
 	struct cld_packet *outpkt;
 	unsigned int n_pkts, i;
 	size_t pkt_len, msg_left = msglen;
-	struct session_outpkt *pkts[CLD_MAX_PKT_MSG], *op;
+	struct session_outpkt **pkts, *op;
 	GList *tmp_root = NULL;
 	const void *p;
 	bool first_frag = true;
 
+	if (msglen > CLD_MAX_MSG_SZ) {
+		HAIL_ERR(&srv_log, "%s: message too big (%zu bytes)\n",
+			__func__, msglen);
+		return false;
+	}
+
 	n_pkts = (msglen / CLD_MAX_PKT_MSG_SZ);
 	n_pkts += (msglen % CLD_MAX_PKT_MSG_SZ) ? 1 : 0;
+	pkts = alloca(sizeof(struct session_outpkt *) * n_pkts);
 
 	if (srv_log.verbose) {
 		const struct cld_msg_hdr *hdr = msg_;
@@ -632,40 +644,39 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
 
 		switch (hdr->op) {
 		/* This is the command set that gets to cldc_rx_generic */
-		case cmo_nop:
-		case cmo_close:
-		case cmo_del:
-		case cmo_lock:
-		case cmo_unlock:
-		case cmo_trylock:
-		case cmo_put:
-		case cmo_new_sess:
-		case cmo_end_sess:
-		case cmo_open:
-		case cmo_get_meta:
-		case cmo_get:
+		case CMO_NOP:
+		case CMO_CLOSE:
+		case CMO_DEL:
+		case CMO_LOCK:
+		case CMO_UNLOCK:
+		case CMO_TRYLOCK:
+		case CMO_PUT:
+		case CMO_NEW_SESS:
+		case CMO_END_SESS:
+		case CMO_OPEN:
+		case CMO_GET_META:
+		case CMO_GET:
 			rsp = (struct cld_msg_resp *) msg_;
-			HAIL_DEBUG(&srv_log, "sendmsg: "
-			       "sid " SIDFMT ", op %s, msglen %u, code %u, "
-			       "xid %llu, xid_in %llu",
-			       SIDARG(sess->sid),
-			       opstr(hdr->op),
-			       (unsigned int) msglen,
-			       le32_to_cpu(rsp->code),
-			       (unsigned long long) le64_to_cpu(hdr->xid),
-			       (unsigned long long) le64_to_cpu(rsp->xid_in));
+			HAIL_DEBUG(&srv_log, "%s: "
+				   "sid " SIDFMT ", op %s, msglen %u, code %u, "
+				   "xid %llu, xid_in %llu",
+				   __func__,
+				   SIDARG(sess->sid),
+				   __cld_opstr(hdr->op),
+				   (unsigned int) msglen,
+				   le32_to_cpu(rsp->code),
+				   (unsigned long long) le64_to_cpu(hdr->xid),
+				   (unsigned long long) le64_to_cpu(rsp->xid_in));
 			break;
 		default:
-			HAIL_DEBUG(&srv_log, "sendmsg: "
-			       "sid " SIDFMT ", op %s, msglen %u",
-			       SIDARG(sess->sid),
-			       opstr(hdr->op),
-			       (unsigned int) msglen);
+			HAIL_DEBUG(&srv_log, "%s: "
+				   "sid " SIDFMT ", op %s, msglen %u",
+				   __func__,
+				   SIDARG(sess->sid),
+				   __cld_opstr(hdr->op),
+				   (unsigned int) msglen);
 		}
 	}
-
-	if (n_pkts > CLD_MAX_PKT_MSG)
-		return false;
 
 	/* pass 1: perform allocations */
 	for (i = 0; i < n_pkts; i++) {
@@ -684,6 +695,8 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
 		struct cld_msg_hdr *outmsg;
 		void *outmsg_mem;
 		size_t copy_len;
+		void *out_p;
+		const char *secret_key;
 
 		op = pkts[i];
 
@@ -722,7 +735,11 @@ bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
 
 		op->next_retry = current_time.tv_sec + CLD_RETRY_START;
 
-		if (!authsign(outpkt, pkt_len))
+		out_p = outpkt;
+		secret_key = user_key(outpkt->user);
+		if (__cld_authsign(&srv_log, secret_key, out_p,
+				   pkt_len - SHA_DIGEST_LENGTH,
+				   out_p + pkt_len - SHA_DIGEST_LENGTH))
 			goto err_out;	/* FIXME: we free all pkts -- wrong! */
 
 		udp_tx(sess->sock_fd, (struct sockaddr *) &sess->addr,
@@ -766,7 +783,7 @@ void msg_ack(struct msg_params *mp)
 			continue;
 
 		HAIL_DEBUG(&srv_log, "    expiring seqid %llu",
-			(unsigned long long) le64_to_cpu(outpkt->seqid));
+			   (unsigned long long) le64_to_cpu(outpkt->seqid));
 
 		/* remove and delete the ack'd msg; call ack'd callback */
 		sess->out_q = g_list_delete_link(sess->out_q, tmp1);
@@ -777,7 +794,7 @@ void msg_ack(struct msg_params *mp)
 	}
 
 	if (!sess->out_q)
-		timer_del(&sess->retry_timer);
+		cld_timer_del(&cld_srv.timers, &sess->retry_timer);
 }
 
 void msg_new_sess(struct msg_params *mp, const struct client *cli)
@@ -791,6 +808,8 @@ void msg_new_sess(struct msg_params *mp, const struct client *cli)
 	struct cld_msg_resp *resp;
 	struct cld_packet *outpkt;
 	size_t alloc_len;
+	const char *secret_key;
+	void *p;
 
 	sess = session_new();
 	if (!sess) {
@@ -835,10 +854,16 @@ void msg_new_sess(struct msg_params *mp, const struct client *cli)
 		goto err_out;
 	}
 
+	HAIL_DEBUG(&srv_log, "%s: created new session " SIDFMT " with "
+		   "sess->next_seqid_in = %llu",
+		   __func__, SIDARG(sess->sid),
+		   (unsigned long long) sess->next_seqid_in);
+
 	g_hash_table_insert(cld_srv.sessions, sess->sid, sess);
 
 	/* begin session timer */
-	timer_add(&sess->timer, time(NULL) + (CLD_SESS_TIMEOUT / 2));
+	cld_timer_add(&cld_srv.timers, &sess->timer,
+		      time(NULL) + (CLD_SESS_TIMEOUT / 2));
 
 	resp_ok(sess, mp->msg);
 	return;
@@ -856,11 +881,15 @@ err_out:
 	resp_copy(resp, mp->msg);
 	resp->code = cpu_to_le32(resp_rc);
 
-	authsign(outpkt, alloc_len);
+	p = outpkt;
+	secret_key = user_key(outpkt->user);
+	__cld_authsign(&srv_log, secret_key, p, alloc_len - SHA_DIGEST_LENGTH,
+		       p + alloc_len - SHA_DIGEST_LENGTH);
 
-	HAIL_DEBUG(&srv_log, "new_sess err: sid " SIDFMT ", op %s, seqid %llu",
-		SIDARG(outpkt->sid), opstr(resp->hdr.op),
-		(unsigned long long) le64_to_cpu(outpkt->seqid));
+	HAIL_DEBUG(&srv_log, "%s err: sid " SIDFMT ", op %s, seqid %llu",
+		   __func__,
+		   SIDARG(outpkt->sid), __cld_opstr(resp->hdr.op),
+		   (unsigned long long) le64_to_cpu(outpkt->seqid));
 
 	udp_tx(mp->sock_fd, (struct sockaddr *) &mp->cli->addr,
 	       mp->cli->addr_len, outpkt, alloc_len);
@@ -961,15 +990,16 @@ static int sess_load_db(GHashTable *ss, DB_TXN *txn)
 		session_decode(sess, &raw_sess);
 
 		HAIL_DEBUG(&srv_log, " loaded sid " SIDFMT
-			" next seqid %llu/%llu",
-			SIDARG(sess->sid),
-			(unsigned long long) le64_to_cpu(sess->next_seqid_out),
-			(unsigned long long) le64_to_cpu(sess->next_seqid_in));
+			   " next seqid %llu/%llu",
+			   SIDARG(sess->sid),
+			   (unsigned long long) le64_to_cpu(sess->next_seqid_out),
+			   (unsigned long long) le64_to_cpu(sess->next_seqid_in));
 
 		g_hash_table_insert(ss, sess->sid, sess);
 
 		/* begin session timer */
-		timer_add(&sess->timer, time(NULL) + (CLD_SESS_TIMEOUT / 2));
+		cld_timer_add(&cld_srv.timers, &sess->timer,
+			      time(NULL) + (CLD_SESS_TIMEOUT / 2));
 	}
 
 	cur->close(cur);

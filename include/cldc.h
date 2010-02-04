@@ -41,7 +41,7 @@ struct cldc_call_opts {
 			struct cld_msg_get_resp resp;
 			const char *buf;
 			unsigned int size;
-			char inode_name[CLD_INODE_NAME_MAX];
+			char inode_name[CLD_INODE_NAME_MAX + 1];
 		} get;
 	} u;
 };
@@ -61,7 +61,8 @@ struct cldc_msg {
 
 	struct cldc_session *sess;
 
-	ssize_t		(*cb)(struct cldc_msg *, const void *, size_t, bool);
+	ssize_t		(*cb)(struct cldc_msg *, const void *, size_t,
+			      enum cle_err_codes);
 	void		*cb_private;
 
 	struct cldc_call_opts copts;
@@ -73,10 +74,10 @@ struct cldc_msg {
 	int		data_len;
 	int		n_pkts;
 
-	struct cldc_pkt_info *pkt_info[CLD_MAX_PKT_MSG];
+	uint8_t		*data;
 
 	/* must be at end of struct */
-	uint8_t		data[0];
+	struct cldc_pkt_info *pkt_info[0];
 };
 
 /** an open file handle associated with a session */

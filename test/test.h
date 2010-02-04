@@ -20,6 +20,6 @@
 
 #define TEST_PORTFILE_CLD	"cld.port"
 
-extern void test_loop(struct cldc_udp *udp);
+extern void test_loop(struct cld_timer_list *tlist, struct cldc_udp *udp);
 
 #endif

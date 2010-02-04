@@ -24,8 +24,6 @@
 #define CLD_PKT_MAGIC	"CLDc1pkt"
 #define CLD_MSG_MAGIC	"CLDc1msg"
 
-#define CLD_ALIGN8(n) ((8 - ((n) & 7)) & 7)
-
 enum {
 	CLD_MAGIC_SZ		= 8,		/**< length of magic number */
 	CLD_SID_SZ		= 8,		/**< length of session id */
@@ -36,39 +34,34 @@ enum {
 	CLD_MAX_SECRET_KEY	= 128,		/**< includes req. nul */
 
 	CLD_MAX_PKT_MSG_SZ	= 1024,
-	CLD_MAX_PKT_MSG		= 128,
-	CLD_MAX_MSG_SZ		= CLD_MAX_PKT_MSG * 1024, /**< maximum total
-					      msg size, including all packets */
+	CLD_MAX_PAYLOAD_SZ	= 131072,	/**< maximum size of data that users
+						  can GET or PUT */
+	CLD_MAX_MSG_SZ		= 196608,	/**< maximum total
+						msg size, including all packets */
 };
-
-/*
- * We use a unified format for sid so it can be searched in log files (* in vi).
- */
-#define SIDFMT   "%016llX"
-#define SIDARG(sid)  cld_sid2llu(sid)
 
 /** available RPC operations */
 enum cld_msg_ops {
 	/* client -> server */
-	cmo_nop			= 0,		/**< no op */
-	cmo_new_sess		= 1,		/**< new session */
-	cmo_open		= 2,		/**< open file */
-	cmo_get_meta		= 3,		/**< get metadata */
-	cmo_get			= 4,		/**< get metadata + data */
-	cmo_put			= 6,		/**< put data */
-	cmo_close		= 7,		/**< close file */
-	cmo_del			= 8,		/**< delete file */
-	cmo_lock		= 9,		/**< lock */
-	cmo_unlock		= 10,		/**< unlock */
-	cmo_trylock		= 11,		/**< trylock */
-	cmo_ack			= 12,		/**< ack of seqid rx'd */
-	cmo_end_sess		= 13,		/**< end session */
+	CMO_NOP			= 0,		/**< no op */
+	CMO_NEW_SESS		= 1,		/**< new session */
+	CMO_OPEN		= 2,		/**< open file */
+	CMO_GET_META		= 3,		/**< get metadata */
+	CMO_GET			= 4,		/**< get metadata + data */
+	CMO_PUT			= 6,		/**< put data */
+	CMO_CLOSE		= 7,		/**< close file */
+	CMO_DEL			= 8,		/**< delete file */
+	CMO_LOCK		= 9,		/**< lock */
+	CMO_UNLOCK		= 10,		/**< unlock */
+	CMO_TRYLOCK		= 11,		/**< trylock */
+	CMO_ACK			= 12,		/**< ack of seqid rx'd */
+	CMO_END_SESS		= 13,		/**< end session */
 
 	/* server -> client */
-	cmo_ping		= 30,		/**< server to client ping */
-	cmo_not_master		= 31,		/**< I am not the master! */
-	cmo_event		= 32,		/**< server->cli async event */
-	cmo_ack_frag		= 33,		/**< ack partial msg */
+	CMO_PING		= 30,		/**< server to client ping */
+	CMO_NOT_MASTER		= 31,		/**< I am not the master! */
+	CMO_EVENT		= 32,		/**< server->cli async event */
+	CMO_ACK_FRAG		= 33,		/**< ack partial msg */
 };
 
 /** CLD error codes */

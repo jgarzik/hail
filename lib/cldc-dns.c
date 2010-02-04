@@ -68,7 +68,7 @@ int cldc_saveaddr(struct cldc_host *hp,
 	rc = getaddrinfo(hostname, portstr, &hints, &res0);
 	if (rc) {
 		HAIL_ERR(log, "getaddrinfo(%s,%s) failed: %s",
-		       hostname, portstr, gai_strerror(rc));
+			 hostname, portstr, gai_strerror(rc));
 		rc = -EINVAL;
 		goto err_addr;
 	}
@@ -87,7 +87,7 @@ int cldc_saveaddr(struct cldc_host *hp,
 
 	if (!something_suitable) {
 		HAIL_ERR(log, "Host %s port %u has no addresses",
-		       hostname, port);
+			 hostname, port);
 		rc = -EINVAL;
 		goto err_suitable;
 	}
@@ -97,8 +97,8 @@ int cldc_saveaddr(struct cldc_host *hp,
 	hp->prio = priority;
 	hp->weight = weight;
 
-	HAIL_DEBUG(log, "Found CLD host %s prio %d weight %d",
-			hostname, priority, weight);
+	HAIL_DEBUG(log, "%s: found CLD host %s prio %d weight %d",
+		   __func__, hostname, priority, weight);
 
 	freeaddrinfo(res0);
 	return 0;
@@ -125,26 +125,25 @@ static int cldc_make_fqdn(char *buf, int size, const char *srvname,
 
 	nlen = strlen(srvname);
 	if (nlen >= size-20) {
-		HAIL_INFO(log, "cldc_getaddr: internal error "
-			"(nlen %d size %d)",
-		       nlen, size);
+		HAIL_INFO(log, "%s: internal error (nlen %d size %d)",
+			  __func__, nlen, size);
 		return -1;
 	}
 
 	if (thishost == NULL) {
-		HAIL_INFO(log, "cldc_getaddr: internal error (null hostname)");
+		HAIL_INFO(log, "%s: internal error (null hostname)", __func__);
 		return -1;
 	}
 	if ((s = strchr(thishost, '.')) == NULL) {
-		HAIL_INFO(log, "cldc_getaddr: hostname is not FQDN: \"%s\"",
-			thishost);
+		HAIL_INFO(log, "%s: hostname is not FQDN: \"%s\"",
+			  __func__, thishost);
 		return -1;
 	}
 	s++;
 
 	dlen = strlen(s);
 	if (nlen + 1 + dlen + 1 > size) {
-		HAIL_INFO(log, "cldc_getaddr: domain is too long: \"%s\"", s);
+		HAIL_INFO(log, "%s: domain is too long: \"%s\"", __func__, s);
 		return -1;
 	}
 
@@ -204,11 +203,11 @@ do_try_again:
 	if (rc < 0) {
 		switch (h_errno) {
 		case HOST_NOT_FOUND:
-		  HAIL_INFO(log, "cldc_getaddr: No _cld._udp SRV record");
+			HAIL_INFO(log, "%s: No _cld._udp SRV record", __func__);
 			return -1;
 		case NO_DATA:
-			HAIL_INFO(log, "cldc_getaddr: Cannot find _cld._udp "
-				"SRV record");
+			HAIL_INFO(log, "%s: Cannot find _cld._udp SRV record",
+				  __func__);
 			return -1;
 		case TRY_AGAIN:
 			if (search_retries-- > 0)
@@ -216,21 +215,20 @@ do_try_again:
 			/* fall through */
 		case NO_RECOVERY:
 		default:
-			HAIL_ERR(log, "cldc_getaddr: res_search error "
-				"(%d): %s", h_errno, hstrerror(h_errno));
+			HAIL_ERR(log, "%s: res_search error (%d): %s",
+				 __func__, h_errno, hstrerror(h_errno));
 			return -1;
 		}
 	}
 	rlen = rc;
 
 	if (rlen == 0) {
-		HAIL_INFO(log, "cldc_getaddr: res_search returned "
-			"empty reply");
+		HAIL_INFO(log, "%s: res_search returned empty reply", __func__);
 		return -1;
 	}
 
 	if (ns_initparse(resp, rlen, &nsb) < 0) {
-		HAIL_ERR(log, "cldc_getaddr: ns_initparse error");
+		HAIL_ERR(log, "%s: ns_initparse error", __func__);
 		return -1;
 	}
 
@@ -248,20 +246,20 @@ do_try_again:
 		case ns_t_srv:
 			rrlen = ns_rr_rdlen(rrb);
 			if (rrlen < 8) {	/* 2+2+2 and 2 for host */
-				HAIL_DEBUG(log, "cldc_getaddr: SRV len %d",
-					rrlen);
+				HAIL_DEBUG(log, "%s: SRV len %d",
+					   __func__, rrlen);
 				break;
 			}
 			p = ns_rr_rdata(rrb);
 			rc = dn_expand(resp, resp+rlen, p+6, hostb, hostsz);
 			if (rc < 0) {
-				HAIL_DEBUG(log, "cldc_getaddr: "
-					"dn_expand error %d", rc);
+				HAIL_DEBUG(log, "%s: dn_expand error %d",
+					   __func__, rc);
 				break;
 			}
 			if (rc < 2) {
-				HAIL_DEBUG(log, "cldc_getaddr: "
-					"dn_expand short %d", rc);
+				HAIL_DEBUG(log, "%s: dn_expand short %d",
+					   __func__, rc);
 				break;
 			}
 
@@ -273,7 +271,8 @@ do_try_again:
 			push_host(host_list, &hp);
 			break;
 		case ns_t_cname:	/* impossible, but */
-			HAIL_DEBUG(log, "CNAME in SRV request, ignored");
+			HAIL_DEBUG(log, "%s: CNAME in SRV request, ignored",
+				   __func__);
 			break;
 		default:
 			;

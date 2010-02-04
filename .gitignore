@@ -28,5 +28,9 @@ cldbadm
 cld*.tar.gz
 cld-config.h*
 
+# cscope files
+cscope.*
+ncscope.*
+
 # ignore Doxygen output directory
 gendoc

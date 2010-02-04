@@ -108,20 +108,12 @@ struct cldcli_lock_info {
 	char			path[CLD_PATH_MAX + 1];
 };
 
-struct timer {
-	bool			fired;
-	void			(*cb)(struct timer *);
-	void			*userdata;
-	time_t			expires;
-};
-
 static unsigned long thread_running = 1;
 static GList *host_list;
 static char clicwd[CLD_PATH_MAX + 1] = "/";
 static int to_thread[2], from_thread[2];
 static GThread *cldthr;
 static char our_user[CLD_MAX_USERNAME + 1] = "cli_user";
-static GList *timer_list;
 static bool cldcli_verbose;
 
 /* globals only for use in thread */
@@ -129,7 +121,8 @@ static struct cldc_udp *thr_udp;
 static struct cldc_fh *thr_fh;
 static GList *thr_lock_list;
 static uint64_t thr_lock_id = 2;
-static struct timer thr_timer;
+static struct cld_timer_list thr_list;
+static struct cld_timer thr_timer;
 static int (*cldc_timer_cb)(struct cldc_session *, void *);
 static void *cldc_timer_private;
 
@@ -158,49 +151,6 @@ static struct hail_log cli_log = {
 	.func = applog,
 	.verbose = 0,
 };
-
-static gint timer_cmp(gconstpointer a_, gconstpointer b_)
-{
-	const struct timer *a = a_;
-	const struct timer *b = b_;
-
-	if (a->expires > b->expires)
-		return 1;
-	if (a->expires == b->expires)
-		return 0;
-	return -1;
-}
-
-static void timer_add(struct timer *timer, time_t expires)
-{
-	timer->fired = false;
-	timer->expires = expires;
-	timer_list = g_list_insert_sorted(timer_list, timer, timer_cmp);
-}
-
-static void timer_del(struct timer *timer)
-{
-	timer_list = g_list_remove(timer_list, timer);
-}
-
-static time_t timers_run(void)
-{
-	struct timer *timer;
-	time_t now = time(NULL);
-
-	while (timer_list) {
-		timer = timer_list->data;
-		if (timer->expires > now)
-			return (timer->expires - now);
-
-		timer->fired = true;
-		timer->cb(timer);
-
-		timer_list = g_list_delete_link(timer_list, timer_list);
-	}
-
-	return 0;
-}
 
 static void do_write(int fd, const void *buf, size_t buflen, const char *msg)
 {
@@ -303,7 +253,8 @@ static int cb_ls_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 		}
 
 		s = cldc_dirent_name(&dc);
-		strcpy(lsr.name, s);
+		strncpy(lsr.name, s, sizeof(lsr.name));
+		lsr.name[sizeof(lsr.name) - 1] = 0;
 		free(s);
 
 		write_from_thread(&lsr, sizeof(lsr));
@@ -759,7 +710,7 @@ static int cb_new_sess(struct cldc_call_opts *copts, enum cle_err_codes errc)
 	return 0;
 }
 
-static void cld_p_timer_cb(struct timer *timer)
+static void cld_p_timer_cb(struct cld_timer *timer)
 {
 	int (*timer_cb)(struct cldc_session *, void *) = cldc_timer_cb;
 	void *private = cldc_timer_private;
@@ -785,9 +736,9 @@ static bool cld_p_timer_ctl(void *private, bool add,
 		thr_timer.cb = cld_p_timer_cb;
 		thr_timer.userdata = NULL;
 
-		timer_add(&thr_timer, time(NULL) + secs);
+		cld_timer_add(&thr_list, &thr_timer, time(NULL) + secs);
 	} else {
-		timer_del(&thr_timer);
+		cld_timer_del(&thr_list, &thr_timer);
 	}
 	return true;
 }
@@ -854,7 +805,7 @@ static gpointer cld_thread(gpointer dummy)
 	pfd[1].fd = to_thread[0];
 	pfd[1].events = POLLIN;
 
-	next_timeout = timers_run();
+	next_timeout = cld_timers_run(&thr_list);
 
 	while (thread_running) {
 		int i, rc;
@@ -881,7 +832,7 @@ static gpointer cld_thread(gpointer dummy)
 			}
 		}
 
-		next_timeout = timers_run();
+		next_timeout = cld_timers_run(&thr_list);
 	}
 
 	return NULL;

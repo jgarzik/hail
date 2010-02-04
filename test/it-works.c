@@ -26,12 +26,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <libtimer.h>
 #include <cldc.h>
 #include "test.h"
 
 static struct cldc_udp *udp;
-static struct timer udp_tm;
+static struct cld_timer udp_tm;
+static struct cld_timer_list tlist;
 
 static bool do_timer_ctl(void *priv, bool add,
 			 int (*cb)(struct cldc_session *, void *),
@@ -45,15 +45,15 @@ static bool do_timer_ctl(void *priv, bool add,
 	if (add) {
 		udp->cb = cb;
 		udp->cb_private = cb_priv;
-		timer_add(&udp_tm, time(NULL) + secs);
+		cld_timer_add(&tlist, &udp_tm, time(NULL) + secs);
 	} else {
-		timer_del(&udp_tm);
+		cld_timer_del(&tlist, &udp_tm);
 	}
 
 	return true;
 }
 
-static void timer_udp_event(struct timer *timer)
+static void timer_udp_event(struct cld_timer *timer)
 {
 	if (timer->userdata != udp) {
 		fprintf(stderr, "IE1: misuse of timer\n");
@@ -116,7 +116,7 @@ static int init(void)
 	int port;
 	struct cldc_call_opts copts;
 
-	port = cld_readport("cld.port");	/* FIXME need test.h */
+	port = cld_readport(TEST_PORTFILE_CLD);
 	if (port < 0)
 		return port;
 	if (port == 0)
@@ -126,7 +126,7 @@ static int init(void)
 	if (rc)
 		return rc;
 
-	timer_init(&udp_tm, "udp-timer", timer_udp_event, udp);
+	cld_timer_init(&udp_tm, "udp-timer", timer_udp_event, udp);
 
 	memset(&copts, 0, sizeof(copts));
 	copts.cb = new_sess_cb;
@@ -147,7 +147,7 @@ int main (int argc, char *argv[])
 	cldc_init();
 	if (init())
 		return 1;
-	test_loop(udp);
+	test_loop(&tlist, udp);
 	return 0;
 }
 

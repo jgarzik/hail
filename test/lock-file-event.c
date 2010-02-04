@@ -30,14 +30,14 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <libtimer.h>
 #include <cldc.h>
 #include "test.h"
 
 struct run {
 	struct cldc_udp *udp;
-	struct timer tmr_test;
-	struct timer tmr_udp;
+	struct cld_timer_list tlist;
+	struct cld_timer tmr_test;
+	struct cld_timer tmr_udp;
 	struct cldc_fh *fh;
 	char buf[LOCKLEN];
 };
@@ -59,9 +59,9 @@ static bool do_timer_ctl(void *priv, bool add,
 	if (add) {
 		rp->udp->cb = cb;
 		rp->udp->cb_private = cb_priv;
-		timer_add(&rp->tmr_udp, time(NULL) + secs);
+		cld_timer_add(&rp->tlist, &rp->tmr_udp, time(NULL) + secs);
 	} else {
-		timer_del(&rp->tmr_udp);
+		cld_timer_del(&rp->tlist, &rp->tmr_udp);
 	}
 
 	return true;
@@ -74,7 +74,7 @@ static int do_pkt_send(void *priv, const void *addr, size_t addrlen,
 	return cldc_udp_pkt_send(rp->udp, addr, addrlen, buf, buflen);
 }
 
-static void timer_udp_event(struct timer *timer)
+static void timer_udp_event(struct cld_timer *timer)
 {
 	struct run *rp = timer->userdata;
 	struct cldc_udp *udp = rp->udp;
@@ -176,11 +176,11 @@ static int lock_1_cb(struct cldc_call_opts *coptarg, enum cle_err_codes errc)
 	}
 
 	/* Idle for 40s to verify that session sustains a protocol ping. */
-	timer_add(&rp->tmr_test, time(NULL) + 40);
+	cld_timer_add(&rp->tlist, &rp->tmr_test, time(NULL) + 40);
 	return 0;
 }
 
-static void timer_test_event(struct timer *timer)
+static void timer_test_event(struct cld_timer *timer)
 {
 	struct run *rp = timer->userdata;
 
@@ -259,8 +259,8 @@ static int init(void)
 	if (port == 0)
 		return -1;
 
-	timer_init(&run.tmr_test, "lock-timer", timer_test_event, &run);
-	timer_init(&run.tmr_udp, "udp-timer", timer_udp_event, &run);
+	cld_timer_init(&run.tmr_test, "lock-timer", timer_test_event, &run);
+	cld_timer_init(&run.tmr_udp, "udp-timer", timer_udp_event, &run);
 
 	rc = cldc_udp_new(TEST_HOST, port, &run.udp);
 	if (rc)
@@ -285,7 +285,7 @@ int main (int argc, char *argv[])
 	cldc_init();
 	if (init())
 		return 1;
-	test_loop(run.udp);
+	test_loop(&run.tlist, run.udp);
 	return 0;
 }
 

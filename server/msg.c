@@ -168,7 +168,8 @@ static bool dirdata_append(void **data, size_t *data_len,
 
 	mem = realloc(*data, new_len);
 	if (!mem) {
-		HAIL_CRIT(&srv_log, "out of memory for data [%lz]", new_len);
+		HAIL_CRIT(&srv_log, "%s: out of memory for data [%zu]",
+			  __func__, new_len);
 		return false;
 	}
 
@@ -194,7 +195,6 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 	DB *hand_idx = cld_srv.cldb.handle_idx;
 	DBC *cur;
 	DBT key, val;
-	struct cld_msg_event me;
 	cldino_t inum_le = cldino_to_le(inum);
 	int gflags;
 	struct session *sess;
@@ -210,10 +210,6 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 	val.ulen = sizeof(h);
 	val.flags = DB_DBT_USERMEM;
 
-	memset(&me, 0, sizeof(me));
-	memcpy(me.hdr.magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
-	me.hdr.op = cmo_event;
-
 	rc = hand_idx->cursor(hand_idx, txn, &cur, 0);
 	if (rc) {
 		hand_idx->err(hand_idx, rc, "inode_notify cursor");
@@ -222,6 +218,8 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 
 	gflags = DB_SET;
 	while (1) {
+		struct cld_msg_event me;
+
 		rc = cur->get(cur, &key, &val, gflags);
 		if (rc) {
 			if (rc != DB_NOTFOUND)
@@ -237,17 +235,20 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 
 		sess = g_hash_table_lookup(cld_srv.sessions, h.sid);
 		if (!sess) {
-			HAIL_WARN(&srv_log, "inode_notify BUG");
+			HAIL_WARN(&srv_log, "%s BUG", __func__);
 			continue;
 		}
 
 		if (!sess->sock_fd) {		/* Freshly recovered session */
 			HAIL_DEBUG(&srv_log, "Lost notify sid " SIDFMT
-				" ino %lld", SIDARG(sess->sid),
-				(long long) inum);
+				   " ino %lld", SIDARG(sess->sid),
+				   (long long) inum);
 			continue;
 		}
 
+		memset(&me, 0, sizeof(me));
+		memcpy(me.hdr.magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
+		me.hdr.op = CMO_EVENT;
 		me.fh = h.fh;
 		me.events = cpu_to_le32(deleted ? CE_DELETED : CE_UPDATED);
 
@@ -292,7 +293,6 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 	cldino_t inum_le = cldino_to_le(inum);
 	struct raw_lock lock;
 	uint32_t lflags;
-	struct cld_msg_event me;
 	struct session *sess;
 
 	rc = db_locks->cursor(db_locks, txn, &cur, 0);
@@ -312,15 +312,13 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 	val.ulen = sizeof(lock);
 	val.flags = DB_DBT_USERMEM;
 
-	memset(&me, 0, sizeof(me));
-	memcpy(me.hdr.magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
-	me.hdr.op = cmo_event;
-
 	/* loop through locks associated with this inode, searching
 	 * for pending locks that can be converted into acquired
 	 */
 	gflags = DB_SET | DB_RMW;
 	while (1) {
+		struct cld_msg_event me;
+
 		rc = cur->get(cur, &key, &val, gflags);
 		if (rc) {
 			/* no locks, or no next-dup */
@@ -361,7 +359,7 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 
 		sess = g_hash_table_lookup(cld_srv.sessions, lock.sid);
 		if (!sess) {
-			HAIL_WARN(&srv_log, "inode_lock_rescan BUG");
+			HAIL_WARN(&srv_log, "%s BUG", __func__);
 			break;
 		}
 
@@ -371,11 +369,14 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 
 		if (!sess->sock_fd) {		/* Freshly recovered session */
 			HAIL_DEBUG(&srv_log, "Lost success sid " SIDFMT
-				" ino %lld", SIDARG(sess->sid),
-				(long long) inum);
+				   " ino %lld", SIDARG(sess->sid),
+				   (long long) inum);
 			continue;
 		}
 
+		memset(&me, 0, sizeof(me));
+		memcpy(me.hdr.magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
+		me.hdr.op = CMO_EVENT;
 		me.fh = lock.fh;
 		me.events = cpu_to_le32(CE_LOCKED);
 
@@ -452,10 +453,11 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 		goto err_out;
 	}
 
-	HAIL_DEBUG(&srv_log, "GET-DEBUG: sizeof(resp) %u, name_len %u, "
-		"inode->size %u, resp_len %u",
-		sizeof(*resp), name_len,
-		inode_size, resp_len);
+	HAIL_DEBUG(&srv_log, "%s: sizeof(resp) %zu, name_len %u, "
+		   "inode->size %u, resp_len %zu",
+		   __func__,
+		   sizeof(*resp), name_len,
+		   inode_size, resp_len);
 
 	/* return response containing inode metadata */
 	memset(resp, 0, resp_len);
@@ -522,6 +524,7 @@ err_out_noabort:
 void msg_open(struct msg_params *mp)
 {
 	const struct cld_msg_open *msg = mp->msg;
+	struct session *sess = mp->sess;
 	struct cld_msg_open_resp resp;
 	const char *name;
 	struct raw_session *raw_sess = NULL;
@@ -659,7 +662,7 @@ void msg_open(struct msg_params *mp)
 	inum = cldino_from_le(inode->inum);
 
 	/* alloc & init new handle; updates session's next_fh */
-	h = cldb_handle_new(mp->sess, inum, msg_mode, msg_events);
+	h = cldb_handle_new(sess, inum, msg_mode, msg_events);
 	if (!h) {
 		HAIL_CRIT(&srv_log, "cannot allocate handle");
 		resp_rc = CLE_OOM;
@@ -686,7 +689,7 @@ void msg_open(struct msg_params *mp)
 	}
 
 	/* encode in-memory session to raw database session struct */
-	raw_sess = session_new_raw(mp->sess);
+	raw_sess = session_new_raw(sess);
 
 	if (!raw_sess) {
 		HAIL_CRIT(&srv_log, "cannot allocate session");
@@ -717,7 +720,7 @@ void msg_open(struct msg_params *mp)
 	resp_copy(&resp.resp, mp->msg);
 	resp.resp.code = cpu_to_le32(CLE_OK);
 	resp.fh = cpu_to_le64(fh);
-	sess_sendmsg(mp->sess, &resp, sizeof(resp), NULL, NULL);
+	sess_sendmsg(sess, &resp, sizeof(resp), NULL, NULL);
 
 	return;
 
@@ -755,11 +758,18 @@ void msg_put(struct msg_params *mp)
 
 	/* make sure additional input data as large as expected */
 	data_size = le32_to_cpu(msg->data_size);
+	if (data_size > CLD_MAX_PAYLOAD_SZ) {
+		HAIL_ERR(&srv_log, "%s: can't PUT %d bytes of data: "
+			"%d is the maximum.\n",
+			__func__, data_size, CLD_MAX_PAYLOAD_SZ);
+		resp_rc = CLE_BAD_PKT;
+		goto err_out_noabort;
+	}
 	if (mp->msg_len != (data_size + sizeof(*msg))) {
 		HAIL_INFO(&srv_log, "PUT len mismatch: msg len %zu, "
-			"wanted %zu + %u (== %u)",
-			mp->msg_len,
-			sizeof(*msg), data_size, data_size + sizeof(*msg));
+			  "wanted %zu + %u (== %zu)",
+			  mp->msg_len,
+			  sizeof(*msg), data_size, data_size + sizeof(*msg));
 		resp_rc = CLE_BAD_PKT;
 		goto err_out_noabort;
 	}
@@ -798,7 +808,8 @@ void msg_put(struct msg_params *mp)
 
 	/* store contig. data area in db */
 	mem = (msg + 1);
-	rc = cldb_data_put(txn, inum, mem, data_size, 0);
+	rc = cldb_data_put(txn, inum,
+			   mem, data_size, 0);
 	if (rc) {
 		resp_rc = CLE_DB_ERR;
 		goto err_out;
@@ -884,7 +895,8 @@ void msg_close(struct msg_params *mp)
 	}
 
 	/* remove locks, if any */
-	rc = session_remove_locks(txn, sess->sid, fh, lock_inum, &waiter);
+	rc = session_remove_locks(txn, sess->sid,
+				  fh, lock_inum, &waiter);
 	if (rc) {
 		resp_rc = CLE_DB_ERR;
 		goto err_out;

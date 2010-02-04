@@ -49,7 +49,7 @@ int write_pid_file(const char *pid_fn)
 		err = errno;
 
 		HAIL_ERR(&srv_log, "Cannot open PID file %s: %s",
-			pid_fn, strerror(err));
+			 pid_fn, strerror(err));
 		return -err;
 	}
 
@@ -61,10 +61,10 @@ int write_pid_file(const char *pid_fn)
 		err = errno;
 		if (err == EAGAIN) {
 			HAIL_ERR(&srv_log, "PID file %s is already locked",
-				pid_fn);
+				 pid_fn);
 		} else {
 			HAIL_ERR(&srv_log, "Cannot lock PID file %s: %s",
-				pid_fn, strerror(err));
+				 pid_fn, strerror(err));
 		}
 		close(fd);
 		return -err;
@@ -78,7 +78,7 @@ int write_pid_file(const char *pid_fn)
 		if (rc < 0) {
 			err = errno;
 			HAIL_ERR(&srv_log, "PID number write failed: %s",
-				strerror(err));
+				 strerror(err));
 			goto err_out;
 		}
 
@@ -125,7 +125,7 @@ int fsetflags(const char *prefix, int fd, int or_flags)
 	if (flags != old_flags)
 		if (fcntl(fd, F_SETFL, flags) < 0) {
 			HAIL_ERR(&srv_log, "%s F_SETFL: %s", prefix,
-				strerror(errno));
+				 strerror(errno));
 			rc = -errno;
 		}
 

@@ -172,13 +172,13 @@ int udp_tx(int sock_fd, struct sockaddr *addr, socklen_t addr_len,
 {
 	ssize_t src;
 
-	HAIL_DEBUG(&srv_log, "udp_tx, fd %d", sock_fd);
+	HAIL_DEBUG(&srv_log, "%s, fd %d", __func__, sock_fd);
 
 	src = sendto(sock_fd, data, data_len, 0, addr, addr_len);
 	if (src < 0 && errno != EAGAIN)
-		applog(LOG_ERR, "udp_tx sendto (fd %d, data_len %u): %s",
-		       sock_fd, (unsigned int) data_len,
-		       strerror(errno));
+		HAIL_ERR(&srv_log, "%s sendto (fd %d, data_len %u): %s",
+			 __func__, sock_fd, (unsigned int) data_len,
+			 strerror(errno));
 
 	if (src < 0)
 		return -errno;
@@ -204,7 +204,7 @@ void resp_err(struct session *sess,
 	resp.code = cpu_to_le32(errcode);
 
 	if (sess->sock_fd <= 0) {
-		applog(LOG_ERR, "Nul sock in response");
+		HAIL_ERR(&srv_log, "Nul sock in response");
 		return;
 	}
 
@@ -216,7 +216,7 @@ void resp_ok(struct session *sess, const struct cld_msg_hdr *src)
 	resp_err(sess, src, CLE_OK);
 }
 
-static const char *user_key(const char *user)
+const char *user_key(const char *user)
 {
 	/* TODO: better auth scheme.
 	 * for now, use simple username==password auth scheme
@@ -228,98 +228,29 @@ static const char *user_key(const char *user)
 	return user;	/* our secret key */
 }
 
-static bool authcheck(const struct cld_packet *pkt, size_t pkt_len)
-{
-	const char *key;
-	unsigned char md[SHA_DIGEST_LENGTH];
-	unsigned int md_len = 0;
-	const void *p = pkt;
-
-	key = user_key(pkt->user);
-	if (!key)
-		return false;
-
-	HMAC(EVP_sha1(), key, strlen(key), p, pkt_len - SHA_DIGEST_LENGTH,
-	     md, &md_len);
-
-	if (md_len != SHA_DIGEST_LENGTH)
-		return false; /* BUG */
-
-	if (memcmp(md, p + (pkt_len - SHA_DIGEST_LENGTH), SHA_DIGEST_LENGTH))
-		return false;
-
-	return true;
-}
-
-bool authsign(struct cld_packet *pkt, size_t pkt_len)
-{
-	const char *key;
-	unsigned char md[SHA_DIGEST_LENGTH];
-	unsigned int md_len = 0;
-	void *buf = pkt;
-
-	key = user_key(pkt->user);
-	if (!key)
-		return false;
-
-	HMAC(EVP_sha1(), key, strlen(key), buf, pkt_len - SHA_DIGEST_LENGTH,
-	     md, &md_len);
-
-	if (md_len != SHA_DIGEST_LENGTH)
-		applog(LOG_ERR, "authsign BUG: md_len != SHA_DIGEST_LENGTH");
-
-	memcpy(buf + pkt_len - SHA_DIGEST_LENGTH, md, SHA_DIGEST_LENGTH);
-
-	return true;
-}
-
-const char *opstr(enum cld_msg_ops op)
-{
-	switch (op) {
-	case cmo_nop:		return "cmo_nop";
-	case cmo_new_sess:	return "cmo_new_sess";
-	case cmo_open:		return "cmo_open";
-	case cmo_get_meta:	return "cmo_get_meta";
-	case cmo_get:		return "cmo_get";
-	case cmo_put:		return "cmo_put";
-	case cmo_close:		return "cmo_close";
-	case cmo_del:		return "cmo_del";
-	case cmo_lock:		return "cmo_lock";
-	case cmo_unlock:	return "cmo_unlock";
-	case cmo_trylock:	return "cmo_trylock";
-	case cmo_ack:		return "cmo_ack";
-	case cmo_end_sess:	return "cmo_end_sess";
-	case cmo_ping:		return "cmo_ping";
-	case cmo_not_master:	return "cmo_not_master";
-	case cmo_event:		return "cmo_event";
-	case cmo_ack_frag:	return "cmo_ack_frag";
-	default:		return "(unknown)";
-	}
-}
-
 static void show_msg(const struct cld_msg_hdr *msg)
 {
 	switch (msg->op) {
-	case cmo_nop:
-	case cmo_new_sess:
-	case cmo_open:
-	case cmo_get_meta:
-	case cmo_get:
-	case cmo_put:
-	case cmo_close:
-	case cmo_del:
-	case cmo_lock:
-	case cmo_unlock:
-	case cmo_trylock:
-	case cmo_ack:
-	case cmo_end_sess:
-	case cmo_ping:
-	case cmo_not_master:
-	case cmo_event:
-	case cmo_ack_frag:
+	case CMO_NOP:
+	case CMO_NEW_SESS:
+	case CMO_OPEN:
+	case CMO_GET_META:
+	case CMO_GET:
+	case CMO_PUT:
+	case CMO_CLOSE:
+	case CMO_DEL:
+	case CMO_LOCK:
+	case CMO_UNLOCK:
+	case CMO_TRYLOCK:
+	case CMO_ACK:
+	case CMO_END_SESS:
+	case CMO_PING:
+	case CMO_NOT_MASTER:
+	case CMO_EVENT:
+	case CMO_ACK_FRAG:
 		HAIL_DEBUG(&srv_log, "msg: op %s, xid %llu",
-		       opstr(msg->op),
-		       (unsigned long long) le64_to_cpu(msg->xid));
+			   __cld_opstr(msg->op),
+			   (unsigned long long) le64_to_cpu(msg->xid));
 		break;
 	}
 }
@@ -333,22 +264,22 @@ static void udp_rx_msg(const struct client *cli, const struct cld_packet *pkt,
 		show_msg(msg);
 
 	switch(msg->op) {
-	case cmo_nop:
+	case CMO_NOP:
 		resp_ok(sess, msg);
 		break;
 
-	case cmo_new_sess:	msg_new_sess(mp, cli); break;
-	case cmo_end_sess:	msg_end_sess(mp, cli); break;
-	case cmo_open:		msg_open(mp); break;
-	case cmo_get:		msg_get(mp, false); break;
-	case cmo_get_meta:	msg_get(mp, true); break;
-	case cmo_put:		msg_put(mp); break;
-	case cmo_close:		msg_close(mp); break;
-	case cmo_del:		msg_del(mp); break;
-	case cmo_unlock:	msg_unlock(mp); break;
-	case cmo_lock:		msg_lock(mp, true); break;
-	case cmo_trylock:	msg_lock(mp, false); break;
-	case cmo_ack:		msg_ack(mp); break;
+	case CMO_NEW_SESS:	msg_new_sess(mp, cli); break;
+	case CMO_END_SESS:	msg_end_sess(mp, cli); break;
+	case CMO_OPEN:		msg_open(mp); break;
+	case CMO_GET:		msg_get(mp, false); break;
+	case CMO_GET_META:	msg_get(mp, true); break;
+	case CMO_PUT:		msg_put(mp); break;
+	case CMO_CLOSE:		msg_close(mp); break;
+	case CMO_DEL:		msg_del(mp); break;
+	case CMO_UNLOCK:	msg_unlock(mp); break;
+	case CMO_LOCK:		msg_lock(mp, true); break;
+	case CMO_TRYLOCK:	msg_lock(mp, false); break;
+	case CMO_ACK:		msg_ack(mp); break;
 
 	default:
 		/* do nothing */
@@ -363,6 +294,8 @@ static void pkt_ack_frag(int sock_fd,
 	size_t alloc_len;
 	struct cld_packet *outpkt;
 	struct cld_msg_ack_frag *ack_msg;
+	void *p;
+	const char *secret_key;
 
 	alloc_len = sizeof(*outpkt) + sizeof(*ack_msg) + SHA_DIGEST_LENGTH;
 	outpkt = alloca(alloc_len);
@@ -373,15 +306,19 @@ static void pkt_ack_frag(int sock_fd,
 
 	memcpy(ack_msg->hdr.magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
 	__cld_rand64(&ack_msg->hdr.xid);
-	ack_msg->hdr.op = cmo_ack_frag;
+	ack_msg->hdr.op = CMO_ACK_FRAG;
 	ack_msg->seqid = pkt->seqid;
 
-	authsign(outpkt, alloc_len);
+	p = outpkt;
+	secret_key = user_key(outpkt->user);
+	__cld_authsign(&srv_log, secret_key, p, alloc_len - SHA_DIGEST_LENGTH,
+		       p + alloc_len - SHA_DIGEST_LENGTH);
 
-	HAIL_DEBUG(&srv_log, "ack-partial-msg: "
-		"sid " SIDFMT ", op %s, seqid %llu",
-		SIDARG(outpkt->sid), opstr(ack_msg->hdr.op),
-		(unsigned long long) le64_to_cpu(outpkt->seqid));
+	HAIL_DEBUG(&srv_log, "%s: "
+		   "sid " SIDFMT ", op %s, seqid %llu",
+		   __func__,
+		   SIDARG(outpkt->sid), __cld_opstr(ack_msg->hdr.op),
+		   (unsigned long long) le64_to_cpu(outpkt->seqid));
 
 	/* transmit ack-partial-msg response (once, without retries) */
 	udp_tx(sock_fd, (struct sockaddr *) &cli->addr, cli->addr_len,
@@ -402,9 +339,18 @@ static void udp_rx(int sock_fd,
 	size_t alloc_len;
 	uint32_t pkt_flags;
 	bool first_frag, last_frag, have_new_sess, have_ack, have_put;
+	const char *secret_key;
+	int auth_rc;
+	void *p;
+
+	secret_key = user_key(pkt->user);
 
 	/* verify pkt data integrity and credentials via HMAC signature */
-	if (!authcheck(pkt, pkt_len)) {
+	auth_rc = __cld_authcheck(&srv_log, secret_key, raw_pkt,
+				  pkt_len - SHA_DIGEST_LENGTH,
+				  raw_pkt + pkt_len - SHA_DIGEST_LENGTH);
+	if (auth_rc) {
+		HAIL_DEBUG(&srv_log, "auth failed, code %d", auth_rc);
 		resp_rc = CLE_SIG_INVAL;
 		goto err_out;
 	}
@@ -412,9 +358,9 @@ static void udp_rx(int sock_fd,
 	pkt_flags = le32_to_cpu(pkt->flags);
 	first_frag = pkt_flags & CPF_FIRST;
 	last_frag = pkt_flags & CPF_LAST;
-	have_new_sess = first_frag && (msg->op == cmo_new_sess);
-	have_ack = first_frag && (msg->op == cmo_ack);
-	have_put = first_frag && (msg->op == cmo_put);
+	have_new_sess = first_frag && (msg->op == CMO_NEW_SESS);
+	have_ack = first_frag && (msg->op == CMO_ACK);
+	have_put = first_frag && (msg->op == CMO_PUT);
 
 	/* look up client session, verify it matches IP and username */
 	sess = g_hash_table_lookup(cld_srv.sessions, pkt->sid);
@@ -434,12 +380,13 @@ static void udp_rx(int sock_fd,
 	mp.msg = msg;
 	mp.msg_len = pkt_len - sizeof(*pkt) - SHA_DIGEST_LENGTH;
 
-	HAIL_DEBUG(&srv_log, "pkt: len %zu, seqid %llu, sid " SIDFMT ", "
-		"flags %s%s, user %s",
-		pkt_len, (unsigned long long) le64_to_cpu(pkt->seqid),
-		SIDARG(pkt->sid),
-		first_frag ? "F" : "", last_frag ? "L" : "",
-		pkt->user);
+	HAIL_DEBUG(&srv_log, "%s pkt: len %zu, seqid %llu, sid " SIDFMT ", "
+		   "flags %s%s, user %s",
+		   __func__,
+		   pkt_len, (unsigned long long) le64_to_cpu(pkt->seqid),
+		   SIDARG(pkt->sid),
+		   first_frag ? "F" : "", last_frag ? "L" : "",
+		   pkt->user);
 
 	/* advance sequence id's and update last-contact timestamp */
 	if (!have_new_sess) {
@@ -454,7 +401,7 @@ static void udp_rx(int sock_fd,
 		if (!have_ack) {
 			/* eliminate duplicates; do not return any response */
 			if (le64_to_cpu(pkt->seqid) != sess->next_seqid_in) {
-				HAIL_DEBUG(&srv_log, "dropping dup");
+				HAIL_DEBUG(&srv_log, "%s: dropping dup", __func__);
 				return;
 			}
 
@@ -465,7 +412,7 @@ static void udp_rx(int sock_fd,
 		if (sess) {
 			/* eliminate duplicates; do not return any response */
 			if (le64_to_cpu(pkt->seqid) != sess->next_seqid_in) {
-				HAIL_DEBUG(&srv_log, "dropping dup");
+				HAIL_DEBUG(&srv_log, "%s: dropping dup", __func__);
 				return;
 			}
 
@@ -497,7 +444,7 @@ static void udp_rx(int sock_fd,
 
 		if ((srv_log.verbose > 1) && !first_frag)
 			HAIL_DEBUG(&srv_log, "    final message size %u",
-			       sess->msg_buf_len);
+				   sess->msg_buf_len);
 	}
 
 	if (last_frag)
@@ -516,13 +463,17 @@ err_out:
 	resp_copy(resp, msg);
 	resp->code = cpu_to_le32(resp_rc);
 
-	authsign(outpkt, alloc_len);
+	p = outpkt;
+	secret_key = user_key(outpkt->user);
+	__cld_authsign(&srv_log, secret_key, p, alloc_len - SHA_DIGEST_LENGTH,
+		       p + alloc_len - SHA_DIGEST_LENGTH);
 
-	HAIL_DEBUG(&srv_log, "udp_rx err: "
-		"sid " SIDFMT ", op %s, seqid %llu, code %d",
-		SIDARG(outpkt->sid), opstr(resp->hdr.op),
-		(unsigned long long) le64_to_cpu(outpkt->seqid),
-		resp_rc);
+	HAIL_DEBUG(&srv_log, "%s err: "
+		   "sid " SIDFMT ", op %s, seqid %llu, code %d",
+		   __func__,
+		   SIDARG(outpkt->sid), __cld_opstr(resp->hdr.op),
+		   (unsigned long long) le64_to_cpu(outpkt->seqid),
+		   resp_rc);
 
 	udp_tx(sock_fd, (struct sockaddr *) &cli->addr, cli->addr_len,
 	       outpkt, alloc_len);
@@ -581,6 +532,8 @@ static bool udp_srv_event(int fd, short events, void *userdata)
 		struct cld_msg_hdr *msg = (struct cld_msg_hdr *) (pkt + 1);
 		struct cld_msg_resp *resp;
 		size_t alloc_len;
+		const char *secret_key;
+		void *p;
 
 		alloc_len = sizeof(*outpkt) + sizeof(*resp) + SHA_DIGEST_LENGTH;
 		outpkt = alloca(alloc_len);
@@ -591,9 +544,13 @@ static bool udp_srv_event(int fd, short events, void *userdata)
 		/* transmit not-master error msg */
 		resp = (struct cld_msg_resp *) (outpkt + 1);
 		resp_copy(resp, msg);
-		resp->hdr.op = cmo_not_master;
+		resp->hdr.op = CMO_NOT_MASTER;
 
-		authsign(outpkt, alloc_len);
+		p = outpkt;
+		secret_key = user_key(outpkt->user);
+		__cld_authsign(&srv_log, secret_key, p,
+			       alloc_len - SHA_DIGEST_LENGTH,
+			       p + alloc_len - SHA_DIGEST_LENGTH);
 
 		udp_tx(fd, (struct sockaddr *) &cli.addr, cli.addr_len,
 		       outpkt, alloc_len);
@@ -604,10 +561,11 @@ static bool udp_srv_event(int fd, short events, void *userdata)
 
 static void add_chkpt_timer(void)
 {
-	timer_add(&cld_srv.chkpt_timer, time(NULL) + CLD_CHKPT_SEC);
+	cld_timer_add(&cld_srv.timers, &cld_srv.chkpt_timer,
+		      time(NULL) + CLD_CHKPT_SEC);
 }
 
-static void cldb_checkpoint(struct timer *timer)
+static void cldb_checkpoint(struct cld_timer *timer)
 {
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	int rc;
@@ -633,8 +591,8 @@ static int net_write_port(const char *port_file, const char *port_str)
 	portf = fopen(port_file, "w");
 	if (portf == NULL) {
 		rc = errno;
-		applog(LOG_INFO, "Cannot create port file %s: %s",
-		       port_file, strerror(rc));
+		HAIL_INFO(&srv_log, "Cannot create port file %s: %s",
+			  port_file, strerror(rc));
 		return -rc;
 	}
 	fprintf(portf, "%s\n", port_str);
@@ -654,8 +612,8 @@ static void net_close(void)
 		pfd = &g_array_index(cld_srv.polls, struct pollfd, i);
 		if (pfd->fd >= 0) {
 			if (close(pfd->fd) < 0)
-				applog(LOG_WARNING, "net_close(%d): %s",
-				       pfd->fd, strerror(errno));
+				HAIL_WARN(&srv_log, "%s(%d): %s",
+					  __func__, pfd->fd, strerror(errno));
 			pfd->fd = -1;
 		}
 	}
@@ -770,7 +728,7 @@ static int net_open_any(void)
 		if (getsockname(fd6, (struct sockaddr *) &addr6,
 				&addr_len) != 0) {
 			rc = errno;
-			applog(LOG_ERR, "getsockname failed: %s", strerror(rc));
+			HAIL_ERR(&srv_log, "getsockname failed: %s", strerror(rc));
 			return -rc;
 		}
 		port = ntohs(addr6.sin6_port);
@@ -792,17 +750,17 @@ static int net_open_any(void)
 		if (getsockname(fd4, (struct sockaddr *) &addr4,
 				&addr_len) != 0) {
 			rc = errno;
-			applog(LOG_ERR, "getsockname failed: %s", strerror(rc));
+			HAIL_ERR(&srv_log, "getsockname failed: %s", strerror(rc));
 			return -rc;
 		}
 		port = ntohs(addr4.sin_port);
 	}
 
-	applog(LOG_INFO, "Listening on port %u", port);
+	HAIL_INFO(&srv_log, "Listening on port %u", port);
 
 	if (cld_srv.port_file) {
 		char portstr[7];
-		snprintf(portstr, sizeof(portstr), "%u\n", port);
+		snprintf(portstr, sizeof(portstr), "%u", port);
 		return net_write_port(cld_srv.port_file, portstr);
 	}
 	return 0;
@@ -821,8 +779,8 @@ static int net_open_known(const char *portstr)
 
 	rc = getaddrinfo(NULL, portstr, &hints, &res0);
 	if (rc) {
-		applog(LOG_ERR, "getaddrinfo(*:%s) failed: %s",
-		       portstr, gai_strerror(rc));
+		HAIL_ERR(&srv_log, "getaddrinfo(*:%s) failed: %s",
+			 portstr, gai_strerror(rc));
 		rc = -EINVAL;
 		goto err_addr;
 	}
@@ -861,8 +819,8 @@ static int net_open_known(const char *portstr)
 			    listen_serv, sizeof(listen_serv),
 			    NI_NUMERICHOST | NI_NUMERICSERV);
 
-		applog(LOG_INFO, "Listening on %s port %s",
-		       listen_host, listen_serv);
+		HAIL_INFO(&srv_log, "Listening on %s port %s",
+			  listen_host, listen_serv);
 	}
 
 	freeaddrinfo(res0);
@@ -914,7 +872,7 @@ static void cldb_state_process(enum st_cldb new_state)
 
 static void segv_signal(int signo)
 {
-	applog(LOG_ERR, "SIGSEGV");
+	HAIL_ERR(&srv_log, "SIGSEGV");
 	exit(1);
 }
 
@@ -929,7 +887,7 @@ static void stats_signal(int signo)
 }
 
 #define X(stat) \
-	applog(LOG_INFO, "STAT %s %lu", #stat, cld_srv.stats.stat)
+	HAIL_INFO(&srv_log, "STAT %s %lu", #stat, cld_srv.stats.stat)
 
 static void stats_dump(void)
 {
@@ -1086,7 +1044,7 @@ static int main_loop(void)
 {
 	time_t next_timeout;
 
-	next_timeout = timers_run();
+	next_timeout = cld_timers_run(&cld_srv.timers);
 
 	while (server_running) {
 		struct pollfd *pfd;
@@ -1150,7 +1108,7 @@ static int main_loop(void)
 			stats_dump();
 		}
 
-		next_timeout = timers_run();
+		next_timeout = cld_timers_run(&cld_srv.timers);
 
 		if (cld_srv.state_cldb_new != ST_CLDB_INIT &&
 		    cld_srv.state_cldb_new != cld_srv.state_cldb) {
@@ -1227,18 +1185,16 @@ int main (int argc, char *argv[])
 	signal(SIGTERM, term_signal);
 	signal(SIGUSR1, stats_signal);
 
-	timer_init(&cld_srv.chkpt_timer, "db4-checkpoint",
-		   cldb_checkpoint, NULL);
+	cld_timer_init(&cld_srv.chkpt_timer, "db4-checkpoint",
+		       cldb_checkpoint, NULL);
 
 	rc = 1;
 
 	cld_srv.sessions = g_hash_table_new(sess_hash, sess_equal);
-	cld_srv.timers = g_queue_new();
 	cld_srv.poll_data = g_array_sized_new(FALSE, FALSE,
 					   sizeof(struct server_poll), 4);
 	cld_srv.polls = g_array_sized_new(FALSE,FALSE,sizeof(struct pollfd), 4);
-	if (!cld_srv.sessions || !cld_srv.timers || !cld_srv.poll_data ||
-	    !cld_srv.polls)
+	if (!cld_srv.sessions || !cld_srv.poll_data || !cld_srv.polls)
 		goto err_out_pid;
 
 	if (pipe(cld_srv.rep_pipe) < 0) {
@@ -1293,10 +1249,10 @@ int main (int argc, char *argv[])
 	 */
 	rc = main_loop();
 
-	applog(LOG_INFO, "shutting down");
+	HAIL_INFO(&srv_log, "shutting down");
 
 	if (strict_free)
-		timer_del(&cld_srv.chkpt_timer);
+		cld_timer_del(&cld_srv.timers, &cld_srv.chkpt_timer);
 
 	if (cld_srv.cldb.up)
 		cldb_down(&cld_srv.cldb);
@@ -1311,7 +1267,6 @@ err_out:
 		net_close();
 		g_array_free(cld_srv.polls, TRUE);
 		g_array_free(cld_srv.poll_data, TRUE);
-		g_queue_free(cld_srv.timers);
 		sessions_free();
 		g_hash_table_unref(cld_srv.sessions);
 	}
@@ -1340,11 +1295,11 @@ static void ensure_root()
 	rc = cldb_inode_get_byname(txn, "/", sizeof("/")-1, &inode, false, 0);
 	if (rc == 0) {
 		HAIL_DEBUG(&srv_log, "Root inode found, ino %llu",
-			(unsigned long long) cldino_from_le(inode->inum));
+			   (unsigned long long) cldino_from_le(inode->inum));
 	} else if (rc == DB_NOTFOUND) {
 		inode = cldb_inode_mem("/", sizeof("/")-1, CIFL_DIR, CLD_INO_ROOT);
 		if (!inode) {
-			applog(LOG_CRIT, "Cannot allocate new root inode");
+			HAIL_CRIT(&srv_log, "Cannot allocate new root inode");
 			goto err_;
 		}
 
@@ -1355,12 +1310,12 @@ static void ensure_root()
 		rc = cldb_inode_put(txn, inode, 0);
 		if (rc) {
 			free(inode);
-			applog(LOG_CRIT, "Cannot allocate new root inode");
+			HAIL_CRIT(&srv_log, "Cannot allocate new root inode");
 			goto err_;
 		}
 
 		HAIL_DEBUG(&srv_log, "Root inode created, ino %llu",
-			(unsigned long long) cldino_from_le(inode->inum));
+			   (unsigned long long) cldino_from_le(inode->inum));
 		free(inode);
 	} else {
 		dbenv->err(dbenv, rc, "Root inode lookup");

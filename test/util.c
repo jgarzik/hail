@@ -29,11 +29,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-#include <libtimer.h>
 #include <cldc.h>
 #include "test.h"
 
-void test_loop(struct cldc_udp *udp)
+void test_loop(struct cld_timer_list *tlist, struct cldc_udp *udp)
 {
 	int ufd = udp->fd;
 	fd_set rset;
@@ -45,7 +44,7 @@ void test_loop(struct cldc_udp *udp)
 		FD_ZERO(&rset);
 		FD_SET(ufd, &rset);
 
-		tmo = timers_run();
+		tmo = cld_timers_run(tlist);
 		if (tmo) {
 			tm.tv_sec = tmo;
 			tm.tv_usec = 0;
