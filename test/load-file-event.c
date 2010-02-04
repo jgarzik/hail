@@ -146,6 +146,8 @@ static int read_1_cb(struct cldc_call_opts *coptarg, enum cle_err_codes errc)
 {
 	struct run *rp = coptarg->private;
 	struct cldc_call_opts copts;
+	const char *data;
+	size_t data_len;
 	int rc;
 
 	if (errc != CLE_OK) {
@@ -153,12 +155,14 @@ static int read_1_cb(struct cldc_call_opts *coptarg, enum cle_err_codes errc)
 		exit(1);
 	}
 
-	if (coptarg->u.get.size != TESTLEN) {
-		fprintf(stderr, "Bad CLD file length %d\n", coptarg->u.get.size);
+	cldc_call_opts_get_data(coptarg, &data, &data_len);
+
+	if (data_len != TESTLEN) {
+		fprintf(stderr, "Bad CLD file length %zu\n", data_len);
 		exit(1);
 	}
 
-	if (memcmp(coptarg->u.get.buf, TESTSTR, TESTLEN)) {
+	if (memcmp(data, TESTSTR, TESTLEN)) {
 		fprintf(stderr, "Bad CLD file content\n");
 		exit(1);
 	}

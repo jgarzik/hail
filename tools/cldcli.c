@@ -217,6 +217,8 @@ static int cb_ls_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 	struct cldc_call_opts copts = { NULL, };
 	struct cld_dirent_cur dc;
 	int rc, i;
+	const char *data;
+	size_t data_len;
 	bool first = true;
 
 	if (errc != CLE_OK) {
@@ -224,8 +226,9 @@ static int cb_ls_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 		write_from_thread(&cresp, sizeof(cresp));
 		return 0;
 	}
+	cldc_call_opts_get_data(copts_in, &data, &data_len);
 
-	rc = cldc_dirent_count(copts_in->u.get.buf, copts_in->u.get.size);
+	rc = cldc_dirent_count(data, data_len);
 	if (rc < 0) {
 		write_from_thread(&cresp, sizeof(cresp));
 		return 0;
@@ -236,7 +239,7 @@ static int cb_ls_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 
 	write_from_thread(&cresp, sizeof(cresp));
 
-	cldc_dirent_cur_init(&dc, copts_in->u.get.buf, copts_in->u.get.size);
+	cldc_dirent_cur_init(&dc, data, data_len);
 
 	for (i = 0; i < rc; i++) {
 		struct ls_rec lsr;
@@ -294,6 +297,8 @@ static int cb_cat_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 {
 	struct cresp cresp = { .tcode = TC_FAILED, };
 	struct cldc_call_opts copts = { NULL, };
+	const char *data;
+	size_t data_len;
 
 	if (errc != CLE_OK) {
 		errc_msg(&cresp, errc);
@@ -301,11 +306,13 @@ static int cb_cat_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 		return 0;
 	}
 
+	cldc_call_opts_get_data(copts_in, &data, &data_len);
+
 	cresp.tcode = TC_OK;
-	cresp.u.file_len = copts_in->u.get.size;
+	cresp.u.file_len = data_len;
 
 	write_from_thread(&cresp, sizeof(cresp));
-	write_from_thread(copts_in->u.get.buf, copts_in->u.get.size);
+	write_from_thread(data, data_len);
 
 	/* FIXME: race; should wait until close succeeds/fails before
 	 * returning any data.  'fh' may still be in use, otherwise.
@@ -338,6 +345,8 @@ static int cb_cp_cf_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 {
 	struct cresp cresp = { .tcode = TC_FAILED, };
 	struct cldc_call_opts copts = { NULL, };
+	const char *data;
+	size_t data_len;
 
 	if (errc != CLE_OK) {
 		errc_msg(&cresp, errc);
@@ -345,11 +354,12 @@ static int cb_cp_cf_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 		return 0;
 	}
 
+	cldc_call_opts_get_data(copts_in, &data, &data_len);
 	cresp.tcode = TC_OK;
-	cresp.u.file_len = copts_in->u.get.size;
+	cresp.u.file_len = data_len;
 
 	write_from_thread(&cresp, sizeof(cresp));
-	write_from_thread(copts_in->u.get.buf, copts_in->u.get.size);
+	write_from_thread(data, data_len);
 
 	/* FIXME: race; should wait until close succeeds/fails before
 	 * returning any data.  'fh' may still be in use, otherwise.

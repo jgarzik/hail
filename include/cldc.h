@@ -209,6 +209,8 @@ extern int cldc_dirent_next(struct cld_dirent_cur *dc);
 extern void cldc_dirent_cur_init(struct cld_dirent_cur *dc, const void *buf, size_t buflen);
 extern void cldc_dirent_cur_fini(struct cld_dirent_cur *dc);
 extern char *cldc_dirent_name(struct cld_dirent_cur *dc);
+extern void cldc_call_opts_get_data(const struct cldc_call_opts *copts,
+				    const char **data, size_t *data_len);
 
 /* cldc-udp */
 extern void cldc_udp_free(struct cldc_udp *udp);

@@ -80,6 +80,13 @@ static size_t strnlen(const char *s, size_t maxlen)
 #define EBADE 52
 #endif
 
+void cldc_call_opts_get_data(const struct cldc_call_opts *copts,
+			     const char **data, size_t *data_len)
+{
+	*data = copts->u.get.buf;
+	*data_len = copts->u.get.size;
+}
+
 static void cldc_errlog(int prio, const char *fmt, ...)
 {
 	char buf[200];
