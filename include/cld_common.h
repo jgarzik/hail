@@ -91,7 +91,7 @@ extern int __cld_authsign(struct hail_log *log, const char *key,
 			  const void *buf, size_t buf_len, void *sha);
 
 /* Returns a constant string representing a message operation */
-extern const char *__cld_opstr(enum cld_msg_ops op);
+extern const char *__cld_opstr(enum cld_msg_op);
 
 /*
  * We use a unified format for sid so it can be searched in log files (* in vi).

@@ -68,7 +68,7 @@ int __cld_authsign(struct hail_log *log, const char *key,
 	return 0;
 }
 
-const char *__cld_opstr(enum cld_msg_ops op)
+const char *__cld_opstr(enum cld_msg_op op)
 {
 	switch (op) {
 	case CMO_NOP:		return "CMO_NOP";

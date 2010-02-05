@@ -110,6 +110,7 @@ static int ack_seqid(struct cldc_session *sess, uint64_t seqid_le)
 	pkt = alloca(pkt_len);
 	memset(pkt, 0, pkt_len);
 
+	/* Construct ACK packet */
 	memcpy(pkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
 	pkt->seqid = seqid_le;
 	memcpy(pkt->sid, sess->sid, CLD_SID_SZ);
@@ -256,14 +257,6 @@ static int rxmsg_event(struct cldc_session *sess,
 	return 0;
 }
 
-static int rxmsg_not_master(struct cldc_session *sess,
-			    const struct cld_packet *pkt,
-			    const void *msgbuf, size_t buflen)
-{
-	HAIL_DEBUG(&sess->log, "FIXME: not-master message received");
-	return -1055;	/* FIXME */
-}
-
 static void cldc_msg_free(struct cldc_msg *msg)
 {
 	int i;
@@ -324,6 +317,12 @@ static int cldc_receive_msg(struct cldc_session *sess,
 	}
 
 	switch(msg->op) {
+	case CMO_ACK:
+		HAIL_INFO(&sess->log, "%s: received unexpected ACK", __func__);
+		return -EBADRQC;
+	case CMO_PING:
+		/* send out an ACK */
+		return ack_seqid(sess, pkt->seqid);
 	case CMO_NOP:
 	case CMO_CLOSE:
 	case CMO_DEL:
@@ -338,19 +337,68 @@ static int cldc_receive_msg(struct cldc_session *sess,
 	case CMO_GET:
 		return rxmsg_generic(sess, pkt, msg, msglen);
 	case CMO_NOT_MASTER:
-		return rxmsg_not_master(sess, pkt, msg, msglen);
-	case CMO_ACK_FRAG:
-		return rxmsg_ack_frag(sess, pkt, msg, msglen);
+		HAIL_ERR(&sess->log, "FIXME: not-master message received");
+		return -1055;	/* FIXME */
 	case CMO_EVENT:
 		return rxmsg_event(sess, pkt, msg, msglen);
-	case CMO_PING:
-		return ack_seqid(sess, pkt->seqid);
-	case CMO_ACK:
-		return -EBADRQC;
+	case CMO_ACK_FRAG:
+		return rxmsg_ack_frag(sess, pkt, msg, msglen);
+	default:
+		break;
 	}
 
 	/* unknown op code */
 	return -EBADRQC;
+}
+
+/** Accepts a packet's sequence ID.
+ * Depending on the message op, this may involve initializing the session's
+ * sequence ID, validating that the packet's ID is in range, or doing nothing.
+ *
+ * @param sess		The session
+ * @param seqid		The sequence ID
+ * @param op		The message op
+ *
+ * @return		0 on success; error code otherwise
+ */
+static int accept_seqid(struct cldc_session *sess, uint64_t seqid,
+			enum cld_msg_op op, bool *dupe)
+{
+
+	*dupe = false;
+
+	switch (op) {
+	case CMO_NEW_SESS:
+		/* CMO_NEW_SESS initializes the session's sequence id */
+		sess->next_seqid_in = seqid + 1;
+		sess->next_seqid_in_tr =
+			sess->next_seqid_in - CLDC_MSG_REMEMBER;
+		HAIL_DEBUG(&sess->log, "%s: setting next_seqid_in to %llu",
+			   __func__, (unsigned long long) seqid);
+		return 0;
+
+	case CMO_NOT_MASTER:
+	case CMO_ACK_FRAG:
+		/* Ignore sequence ID of these types */
+		return 0;
+
+	default:
+		/* verify that the sequence id is in range */
+		if (seqid == sess->next_seqid_in) {
+			sess->next_seqid_in++;
+			sess->next_seqid_in_tr++;
+			return 0;
+		}
+
+		if (seqid_in_range(seqid,
+				   sess->next_seqid_in_tr,
+				   sess->next_seqid_in)) {
+			*dupe = true;
+			return 0;
+		}
+
+		return -EBADSLT;
+	}
 }
 
 int cldc_receive_pkt(struct cldc_session *sess,
@@ -365,9 +413,10 @@ int cldc_receive_pkt(struct cldc_session *sess,
 	time_t current_time;
 	uint64_t seqid;
 	uint32_t pkt_flags;
-	bool first_frag, last_frag, have_new_sess, no_seqid;
-	bool have_get;
+	bool first_frag, last_frag;
+	bool dupe = false;
 	int ret;
+	enum cld_msg_op msg_buf_op = CMO_ACK_FRAG;
 
 	gettimeofday(&tv, NULL);
 	current_time = tv.tv_sec;
@@ -382,13 +431,11 @@ int cldc_receive_pkt(struct cldc_session *sess,
 	pkt_flags = le32_to_cpu(pkt->flags);
 	first_frag = pkt_flags & CPF_FIRST;
 	last_frag = pkt_flags & CPF_LAST;
-	have_get = first_frag && (msg->op == CMO_GET);
-	have_new_sess = first_frag && (msg->op == CMO_NEW_SESS);
-	no_seqid = first_frag && ((msg->op == CMO_NOT_MASTER) ||
-				  (msg->op == CMO_ACK_FRAG));
+	if (first_frag)
+		msg_buf_op = msg->op;
 
 	if (sess->log.verbose) {
-		if (have_get) {
+		if (msg_buf_op == CMO_GET) {
 			struct cld_msg_get_resp *dp;
 			dp = (struct cld_msg_get_resp *) msg;
 			HAIL_DEBUG(&sess->log, "%s(len %u, op %s"
@@ -399,7 +446,7 @@ int cldc_receive_pkt(struct cldc_session *sess,
 				   (unsigned long long) le64_to_cpu(pkt->seqid),
 				   pkt->user,
 				   le32_to_cpu(dp->size));
-		} else if (have_new_sess) {
+		} else if (msg_buf_op == CMO_NEW_SESS) {
 			struct cld_msg_resp *dp;
 			dp = (struct cld_msg_resp *) msg;
 			HAIL_DEBUG(&sess->log, "%s(len %u, op %s"
@@ -463,28 +510,14 @@ int cldc_receive_pkt(struct cldc_session *sess,
 
 	/* verify (or set, for new-sess) sequence id */
 	seqid = le64_to_cpu(pkt->seqid);
-	if (have_new_sess) {
-		sess->next_seqid_in = seqid + 1;
-		sess->next_seqid_in_tr =
-			sess->next_seqid_in - CLDC_MSG_REMEMBER;
-
-		HAIL_DEBUG(&sess->log, "%s: "
-			   "setting next_seqid_in to %llu",
+	ret = accept_seqid(sess, seqid, msg_buf_op, &dupe);
+	if (ret) {
+		HAIL_DEBUG(&sess->log, "%s: bad seqid %llu",
 			   __func__, (unsigned long long) seqid);
-	} else if (!no_seqid) {
-		if (seqid != sess->next_seqid_in) {
-			if (seqid_in_range(seqid,
-					   sess->next_seqid_in_tr,
-					   sess->next_seqid_in))
-				return ack_seqid(sess, pkt->seqid);
-
-			HAIL_DEBUG(&sess->log, "%s: bad seqid %llu",
-				   __func__, (unsigned long long) seqid);
-			return -EBADSLT;
-		}
-		sess->next_seqid_in++;
-		sess->next_seqid_in_tr++;
+		return ret;
 	}
+	if (dupe)
+		return ack_seqid(sess, pkt->seqid);
 
 	sess->expire_time = current_time + CLDC_SESS_EXPIRE;
 
@@ -502,7 +535,7 @@ static void sess_next_seqid(struct cldc_session *sess, uint64_t *seqid)
 
 static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 				     const struct cldc_call_opts *copts,
-				     enum cld_msg_ops op,
+				     enum cld_msg_op op,
 				     size_t msg_len)
 {
 	struct cldc_msg *msg;
@@ -528,7 +561,7 @@ static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 
 	msg->n_pkts = n_pkts;
 	__cld_rand64(&msg->xid);
-
+	msg->op = op;
 	msg->sess = sess;
 
 	if (copts)
@@ -1139,10 +1172,10 @@ static ssize_t get_end_cb(struct cldc_msg *msg, const void *resp_p,
 	if (resp_rc == CLE_OK) {
 		bool get_body;
 
-		o = &msg->copts.u.get.resp;
+		o = &msg->copts.resp;
 
 		get_body = (resp->resp.hdr.op == CMO_GET);
-		msg->copts.op = CMO_GET;
+		msg->op = CMO_GET;
 
 		/* copy-and-swap */
 		XC64(inum);

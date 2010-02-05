@@ -41,7 +41,7 @@ enum {
 };
 
 /** available RPC operations */
-enum cld_msg_ops {
+enum cld_msg_op {
 	/* client -> server */
 	CMO_NOP			= 0,		/**< no op */
 	CMO_NEW_SESS		= 1,		/**< new session */

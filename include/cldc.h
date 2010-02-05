@@ -35,15 +35,14 @@ struct cldc_call_opts {
 	void		*private;
 
 	/* private; lib-owned */
-	enum cld_msg_ops op;
 	union {
 		struct {
-			struct cld_msg_get_resp resp;
 			const char *buf;
 			unsigned int size;
 			char inode_name[CLD_INODE_NAME_MAX + 1];
 		} get;
 	} u;
+	struct cld_msg_get_resp resp;
 };
 
 struct cldc_pkt_info {
@@ -58,7 +57,7 @@ struct cldc_pkt_info {
 /** an outgoing message, from client to server */
 struct cldc_msg {
 	uint64_t	xid;
-
+	enum cld_msg_op op;
 	struct cldc_session *sess;
 
 	ssize_t		(*cb)(struct cldc_msg *, const void *, size_t,
