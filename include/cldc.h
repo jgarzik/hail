@@ -22,7 +22,7 @@
 #include <sys/types.h>
 #include <stdbool.h>
 #include <glib.h>
-#include <cld_msg.h>
+#include <cld_msg_rpc.h>
 #include <cld_common.h>
 #include <hail_log.h>
 
@@ -35,23 +35,17 @@ struct cldc_call_opts {
 	void		*private;
 
 	/* private; lib-owned */
-	union {
-		struct {
-			const char *buf;
-			unsigned int size;
-			char inode_name[CLD_INODE_NAME_MAX + 1];
-		} get;
-	} u;
 	struct cld_msg_get_resp resp;
 };
 
 struct cldc_pkt_info {
 	int		pkt_len;
+	int		hdr_len;
 	int		retries;
+	char		user[CLD_MAX_USERNAME];
 
 	/* must be at end of struct */
-	struct cld_packet pkt;
-	uint8_t		data[0];
+	char		data[0];
 };
 
 /** an outgoing message, from client to server */
@@ -70,10 +64,7 @@ struct cldc_msg {
 
 	time_t		expire_time;
 
-	int		data_len;
 	int		n_pkts;
-
-	uint8_t		*data;
 
 	/* must be at end of struct */
 	struct cldc_pkt_info *pkt_info[0];
@@ -81,7 +72,7 @@ struct cldc_msg {
 
 /** an open file handle associated with a session */
 struct cldc_fh {
-	uint64_t	fh_le;			/* fh id, LE */
+	uint64_t	fh;
 	struct cldc_session *sess;
 	bool		valid;
 };
@@ -128,8 +119,11 @@ struct cldc_session {
 
 	bool		confirmed;
 
+	enum cld_msg_op msg_buf_op;
 	unsigned int	msg_buf_len;
 	char		msg_buf[CLD_MAX_MSG_SZ];
+	char		payload[CLD_MAX_PAYLOAD_SZ];
+	char		inode_name_temp[CLD_INODE_NAME_MAX];
 };
 
 /** Information for a single CLD server host */
@@ -209,7 +203,7 @@ extern void cldc_dirent_cur_init(struct cld_dirent_cur *dc, const void *buf, siz
 extern void cldc_dirent_cur_fini(struct cld_dirent_cur *dc);
 extern char *cldc_dirent_name(struct cld_dirent_cur *dc);
 extern void cldc_call_opts_get_data(const struct cldc_call_opts *copts,
-				    const char **data, size_t *data_len);
+				    char **data, size_t *data_len);
 
 /* cldc-udp */
 extern void cldc_udp_free(struct cldc_udp *udp);

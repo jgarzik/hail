@@ -32,5 +32,9 @@ cld-config.h*
 cscope.*
 ncscope.*
 
+# XDR files
+*_rpc.h
+*_rpc_xdr.c
+
 # ignore Doxygen output directory
 gendoc

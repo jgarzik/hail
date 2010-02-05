@@ -146,7 +146,7 @@ static int read_1_cb(struct cldc_call_opts *coptarg, enum cle_err_codes errc)
 {
 	struct run *rp = coptarg->private;
 	struct cldc_call_opts copts;
-	const char *data;
+	char *data;
 	size_t data_len;
 	int rc;
 

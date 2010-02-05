@@ -125,8 +125,6 @@ int udp_tx(int sock_fd, struct sockaddr *addr, socklen_t addr_len,
 {
 	ssize_t src;
 
-	HAIL_DEBUG(&srv_log, "%s, fd %d", __func__, sock_fd);
-
 	src = sendto(sock_fd, data, data_len, 0, addr, addr_len);
 	if (src < 0 && errno != EAGAIN)
 		HAIL_ERR(&srv_log, "%s sendto (fd %d, data_len %u): %s",
@@ -137,36 +135,6 @@ int udp_tx(int sock_fd, struct sockaddr *addr, socklen_t addr_len,
 		return -errno;
 
 	return 0;
-}
-
-void resp_copy(struct cld_msg_resp *resp, const struct cld_msg_hdr *src)
-{
-	memcpy(&resp->hdr, src, sizeof(*src));
-	resp->code = 0;
-	resp->rsv = 0;
-	resp->xid_in = src->xid;
-}
-
-void resp_err(struct session *sess,
-	      const struct cld_msg_hdr *src, enum cle_err_codes errcode)
-{
-	struct cld_msg_resp resp;
-
-	resp_copy(&resp, src);
-	__cld_rand64(&resp.hdr.xid);
-	resp.code = cpu_to_le32(errcode);
-
-	if (sess->sock_fd <= 0) {
-		HAIL_ERR(&srv_log, "Nul sock in response");
-		return;
-	}
-
-	sess_sendmsg(sess, &resp, sizeof(resp), NULL, NULL);
-}
-
-void resp_ok(struct session *sess, const struct cld_msg_hdr *src)
-{
-	resp_err(sess, src, CLE_OK);
 }
 
 const char *user_key(const char *user)
@@ -181,266 +149,428 @@ const char *user_key(const char *user)
 	return user;	/* our secret key */
 }
 
-static void show_msg(const struct cld_msg_hdr *msg)
+static int udp_rx_handle(struct session *sess,
+			 void (*msg_handler)(struct session *, const void *),
+			 xdrproc_t xdrproc, void *xdrdata)
 {
-	switch (msg->op) {
-	case CMO_NOP:
-	case CMO_NEW_SESS:
-	case CMO_OPEN:
-	case CMO_GET_META:
-	case CMO_GET:
-	case CMO_PUT:
-	case CMO_CLOSE:
-	case CMO_DEL:
-	case CMO_LOCK:
-	case CMO_UNLOCK:
-	case CMO_TRYLOCK:
-	case CMO_ACK:
-	case CMO_END_SESS:
-	case CMO_PING:
-	case CMO_NOT_MASTER:
-	case CMO_EVENT:
-	case CMO_ACK_FRAG:
-		HAIL_DEBUG(&srv_log, "msg: op %s, xid %llu",
-			   __cld_opstr(msg->op),
-			   (unsigned long long) le64_to_cpu(msg->xid));
-		break;
+	XDR xin;
+
+	xdrmem_create(&xin, sess->msg_buf, sess->msg_buf_len, XDR_DECODE);
+	if (!xdrproc(&xin, xdrdata)) {
+		HAIL_DEBUG(&srv_log, "%s: couldn't parse %s message",
+			   __func__, __cld_opstr(sess->msg_op));
+		xdr_destroy(&xin);
+		return CLE_BAD_PKT;
 	}
+	msg_handler(sess, xdrdata);
+	xdr_free(xdrproc, xdrdata);
+	xdr_destroy(&xin);
+	return 0;
 }
 
-static void udp_rx_msg(const struct client *cli, const struct cld_packet *pkt,
-		       const struct cld_msg_hdr *msg, struct msg_params *mp)
+/** Recieve a UDP packet
+ *
+ * @param sock_fd	The UDP socket we received the packet on
+ * @param cli		Client address data
+ * @param info		Packet information
+ * @param raw_pkt	The raw packet buffer
+ * @param raw_len	Length of the raw packet buffer
+ *
+ * @return		An error code if we should send an error message
+ *			response. CLE_OK if we are done.
+ */
+static enum cle_err_codes udp_rx(int sock_fd, const struct client *cli,
+				 struct pkt_info *info, const char *raw_pkt,
+				 size_t raw_len)
 {
-	struct session *sess = mp->sess;
+	struct cld_pkt_hdr *pkt = info->pkt;
+	struct session *sess = info->sess;
 
-	if (srv_log.verbose)
-		show_msg(msg);
+	if (sess) {
+		size_t msg_len;
 
-	switch(msg->op) {
-	case CMO_NOP:
-		resp_ok(sess, msg);
-		break;
-
-	case CMO_NEW_SESS:	msg_new_sess(mp, cli); break;
-	case CMO_END_SESS:	msg_end_sess(mp, cli); break;
-	case CMO_OPEN:		msg_open(mp); break;
-	case CMO_GET:		msg_get(mp, false); break;
-	case CMO_GET_META:	msg_get(mp, true); break;
-	case CMO_PUT:		msg_put(mp); break;
-	case CMO_CLOSE:		msg_close(mp); break;
-	case CMO_DEL:		msg_del(mp); break;
-	case CMO_UNLOCK:	msg_unlock(mp); break;
-	case CMO_LOCK:		msg_lock(mp, true); break;
-	case CMO_TRYLOCK:	msg_lock(mp, false); break;
-	case CMO_ACK:		msg_ack(mp); break;
-
-	default:
-		/* do nothing */
-		break;
-	}
-}
-
-static void pkt_ack_frag(int sock_fd,
-			 const struct client *cli,
-			 const struct cld_packet *pkt)
-{
-	size_t alloc_len;
-	struct cld_packet *outpkt;
-	struct cld_msg_ack_frag *ack_msg;
-	void *p;
-	const char *secret_key;
-
-	alloc_len = sizeof(*outpkt) + sizeof(*ack_msg) + SHA_DIGEST_LENGTH;
-	outpkt = alloca(alloc_len);
-	ack_msg = (struct cld_msg_ack_frag *) (outpkt + 1);
-	memset(outpkt, 0, alloc_len);
-
-	pkt_init_pkt(outpkt, pkt);
-
-	memcpy(ack_msg->hdr.magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
-	__cld_rand64(&ack_msg->hdr.xid);
-	ack_msg->hdr.op = CMO_ACK_FRAG;
-	ack_msg->seqid = pkt->seqid;
-
-	p = outpkt;
-	secret_key = user_key(outpkt->user);
-	__cld_authsign(&srv_log, secret_key, p, alloc_len - SHA_DIGEST_LENGTH,
-		       p + alloc_len - SHA_DIGEST_LENGTH);
-
-	HAIL_DEBUG(&srv_log, "%s: "
-		   "sid " SIDFMT ", op %s, seqid %llu",
-		   __func__,
-		   SIDARG(outpkt->sid), __cld_opstr(ack_msg->hdr.op),
-		   (unsigned long long) le64_to_cpu(outpkt->seqid));
-
-	/* transmit ack-partial-msg response (once, without retries) */
-	udp_tx(sock_fd, (struct sockaddr *) &cli->addr, cli->addr_len,
-	       outpkt, alloc_len);
-}
-
-static void udp_rx(int sock_fd,
-		   const struct client *cli,
-		   const void *raw_pkt, size_t pkt_len)
-{
-	const struct cld_packet *pkt = raw_pkt;
-	struct cld_packet *outpkt;
-	const struct cld_msg_hdr *msg = (struct cld_msg_hdr *) (pkt + 1);
-	struct session *sess = NULL;
-	enum cle_err_codes resp_rc = CLE_OK;
-	struct cld_msg_resp *resp;
-	struct msg_params mp;
-	size_t alloc_len;
-	uint32_t pkt_flags;
-	bool first_frag, last_frag, have_new_sess, have_ack, have_put;
-	const char *secret_key;
-	int auth_rc;
-	void *p;
-
-	secret_key = user_key(pkt->user);
-
-	/* verify pkt data integrity and credentials via HMAC signature */
-	auth_rc = __cld_authcheck(&srv_log, secret_key, raw_pkt,
-				  pkt_len - SHA_DIGEST_LENGTH,
-				  raw_pkt + pkt_len - SHA_DIGEST_LENGTH);
-	if (auth_rc) {
-		HAIL_DEBUG(&srv_log, "auth failed, code %d", auth_rc);
-		resp_rc = CLE_SIG_INVAL;
-		goto err_out;
-	}
-
-	pkt_flags = le32_to_cpu(pkt->flags);
-	first_frag = pkt_flags & CPF_FIRST;
-	last_frag = pkt_flags & CPF_LAST;
-	have_new_sess = first_frag && (msg->op == CMO_NEW_SESS);
-	have_ack = first_frag && (msg->op == CMO_ACK);
-	have_put = first_frag && (msg->op == CMO_PUT);
-
-	/* look up client session, verify it matches IP and username */
-	sess = g_hash_table_lookup(cld_srv.sessions, pkt->sid);
-	if (sess &&
-	    ((sess->addr_len != cli->addr_len) ||
-	     memcmp(&sess->addr, &cli->addr, sess->addr_len) ||
-	     strncmp(pkt->user, sess->user, CLD_MAX_USERNAME) ||
-	     sess->dead)) {
-		resp_rc = CLE_SESS_INVAL;
-		goto err_out;
-	}
-
-	mp.sock_fd = sock_fd;
-	mp.cli = cli;
-	mp.sess = sess;
-	mp.pkt = pkt;
-	mp.msg = msg;
-	mp.msg_len = pkt_len - sizeof(*pkt) - SHA_DIGEST_LENGTH;
-
-	HAIL_DEBUG(&srv_log, "%s pkt: len %zu, seqid %llu, sid " SIDFMT ", "
-		   "flags %s%s, user %s",
-		   __func__,
-		   pkt_len, (unsigned long long) le64_to_cpu(pkt->seqid),
-		   SIDARG(pkt->sid),
-		   first_frag ? "F" : "", last_frag ? "L" : "",
-		   pkt->user);
-
-	/* advance sequence id's and update last-contact timestamp */
-	if (!have_new_sess) {
-		if (!sess) {
-			resp_rc = CLE_SESS_INVAL;
-			goto err_out;
-		}
-
+		/* advance sequence id's and update last-contact timestamp */
 		sess->last_contact = current_time.tv_sec;
 		sess->sock_fd = sock_fd;
 
-		if (!have_ack) {
-			/* eliminate duplicates; do not return any response */
-			if (le64_to_cpu(pkt->seqid) != sess->next_seqid_in) {
-				HAIL_DEBUG(&srv_log, "%s: dropping dup", __func__);
-				return;
-			}
-
+		if (info->op != CMO_ACK) {
 			/* received message - update session */
 			sess->next_seqid_in++;
 		}
-	} else {
-		if (sess) {
-			/* eliminate duplicates; do not return any response */
-			if (le64_to_cpu(pkt->seqid) != sess->next_seqid_in) {
-				HAIL_DEBUG(&srv_log, "%s: dropping dup", __func__);
-				return;
-			}
 
-			resp_rc = CLE_SESS_EXISTS;
-			goto err_out;
-		}
-	}
-
-	/* copy message fragment into reassembly buffer */
-	if (sess) {
-		if (first_frag)
+		/* copy message fragment into reassembly buffer */
+		if (pkt->mi.order & CLD_PKT_IS_FIRST) {
+			sess->msg_op = info->op;
+			sess->msg_xid = info->xid;
 			sess->msg_buf_len = 0;
-
-		if ((sess->msg_buf_len + mp.msg_len) > CLD_MAX_MSG_SZ) {
-			resp_rc = CLE_BAD_PKT;
-			goto err_out;
 		}
+		msg_len = raw_len - info->hdr_len - CLD_PKT_FTR_LEN;
+		if ((sess->msg_buf_len + msg_len) > CLD_MAX_MSG_SZ)
+			return CLE_BAD_PKT;
 
-		memcpy(&sess->msg_buf[sess->msg_buf_len], msg, mp.msg_len);
-		sess->msg_buf_len += mp.msg_len;
-
-		if (!last_frag) {
-			pkt_ack_frag(sock_fd, cli, pkt);
-			return;
-		}
-
-		mp.msg = msg = (struct cld_msg_hdr *) sess->msg_buf;
-		mp.msg_len = sess->msg_buf_len;
-
-		if ((srv_log.verbose > 1) && !first_frag)
-			HAIL_DEBUG(&srv_log, "    final message size %u",
-				   sess->msg_buf_len);
+		memcpy(sess->msg_buf + sess->msg_buf_len,
+			raw_pkt + info->hdr_len, msg_len);
+		sess->msg_buf_len += msg_len;
 	}
 
-	if (last_frag)
-		udp_rx_msg(cli, pkt, msg, &mp);
-	return;
+	if (!(pkt->mi.order & CLD_PKT_IS_LAST)) {
+		struct cld_msg_ack_frag ack;
+		ack.seqid = info->seqid;
 
-err_out:
-	/* transmit error response (once, without retries) */
-	alloc_len = sizeof(*outpkt) + sizeof(*resp) + SHA_DIGEST_LENGTH;
-	outpkt = alloca(alloc_len);
-	resp = (struct cld_msg_resp *) (outpkt + 1);
-	memset(outpkt, 0, alloc_len);
+		/* transmit ack-partial-msg response (once, without retries) */
+		simple_sendmsg(sock_fd, cli, pkt->sid,
+			       pkt->user, 0xdeadbeef,
+			       (xdrproc_t)xdr_cld_msg_ack_frag, (void *)&ack,
+			       CMO_ACK_FRAG);
+		return CLE_OK;
+	}
 
-	pkt_init_pkt(outpkt, pkt);
+	/* Handle a complete message */
+	switch (info->op) {
+	case CMO_GET:
+		/* fall through */
+	case CMO_GET_META: {
+		struct cld_msg_get get = {0};
+		return udp_rx_handle(sess, msg_get,
+				     (xdrproc_t)xdr_cld_msg_get, &get);
+	}
+	case CMO_OPEN: {
+		struct cld_msg_open open_msg = {0};
+		return udp_rx_handle(sess, msg_open,
+				     (xdrproc_t)xdr_cld_msg_open, &open_msg);
+	}
+	case CMO_PUT: {
+		struct cld_msg_put put = {0};
+		return udp_rx_handle(sess, msg_put,
+				     (xdrproc_t)xdr_cld_msg_put, &put);
+	}
+	case CMO_CLOSE: {
+		struct cld_msg_close close_msg = {0};
+		return udp_rx_handle(sess, msg_close,
+				     (xdrproc_t)xdr_cld_msg_close, &close_msg);
+	}
+	case CMO_DEL: {
+		struct cld_msg_del del = {0};
+		return udp_rx_handle(sess, msg_del,
+				     (xdrproc_t)xdr_cld_msg_del, &del);
+	}
+	case CMO_UNLOCK: {
+		struct cld_msg_unlock unlock = {0};
+		return udp_rx_handle(sess, msg_unlock,
+				     (xdrproc_t)xdr_cld_msg_unlock, &unlock);
+	}
+	case CMO_TRYLOCK:
+		/* fall through */
+	case CMO_LOCK: {
+		struct cld_msg_lock lock = {0};
+		return udp_rx_handle(sess, msg_lock,
+				     (xdrproc_t)xdr_cld_msg_lock, &lock);
+	}
+	case CMO_ACK:
+		msg_ack(sess, info->seqid);
+		return 0;
+	case CMO_NOP:
+		sess_sendresp_generic(sess, CLE_OK);
+		return 0;
+	case CMO_NEW_SESS:
+		msg_new_sess(sock_fd, cli, info);
+		return 0;
+	case CMO_END_SESS:
+		msg_end_sess(sess, info->xid);
+		return 0;
+	default:
+		HAIL_DEBUG(&srv_log, "%s: unexpected %s packet",
+			   __func__, __cld_opstr(info->op));
+		/* do nothing */
+		return 0;
+	}
+}
 
-	resp_copy(resp, msg);
-	resp->code = cpu_to_le32(resp_rc);
+/** Parse a packet's header. Verify that the magic number is correct.
+ *
+ * @param raw_pkt	Pointer to the packet data
+ * @param raw_len	Length of the raw data
+ * @param pkt		(out param) the packet header
+ * @param hdr_len	(out param) the length of the packet header
+ *
+ * @return		true on success; false if this packet is garbage
+ */
+static bool parse_pkt_header(const char *raw_pkt, int raw_len,
+			     struct cld_pkt_hdr *pkt, ssize_t *hdr_len)
+{
+	XDR xin;
+	static const char * const magic = CLD_PKT_MAGIC;
 
-	p = outpkt;
-	secret_key = user_key(outpkt->user);
-	__cld_authsign(&srv_log, secret_key, p, alloc_len - SHA_DIGEST_LENGTH,
-		       p + alloc_len - SHA_DIGEST_LENGTH);
+	if (raw_len <= CLD_PKT_FTR_LEN) {
+		HAIL_DEBUG(&srv_log, "%s: packet is too short: only "
+			   "%d bytes", __func__, raw_len);
+		return false;
+	}
+	xdrmem_create(&xin, (void *)raw_pkt, raw_len - CLD_PKT_FTR_LEN,
+		      XDR_DECODE);
+	memset(pkt, 0, sizeof(*pkt));
+	if (!xdr_cld_pkt_hdr(&xin, pkt)) {
+		HAIL_DEBUG(&srv_log, "%s: couldn't parse packet header",
+			   __func__);
+		xdr_destroy(&xin);
+		return false;
+	}
+	*hdr_len = xdr_getpos(&xin);
+	xdr_destroy(&xin);
 
-	HAIL_DEBUG(&srv_log, "%s err: "
-		   "sid " SIDFMT ", op %s, seqid %llu, code %d",
-		   __func__,
-		   SIDARG(outpkt->sid), __cld_opstr(resp->hdr.op),
-		   (unsigned long long) le64_to_cpu(outpkt->seqid),
-		   resp_rc);
+	if (memcmp((void *)&pkt->magic, magic, sizeof(pkt->magic))) {
+		HAIL_DEBUG(&srv_log, "%s: bad magic number", __func__);
+		xdr_free((xdrproc_t)xdr_cld_pkt_hdr, (char *)pkt);
+		return false;
+	}
 
-	udp_tx(sock_fd, (struct sockaddr *) &cli->addr, cli->addr_len,
-	       outpkt, alloc_len);
+	return true;
+}
+
+/** Look up some information about a packet, including its session and the
+ * type of message it carries.
+ *
+ * @param pkt		The packet's header
+ * @param raw_pkt	Pointer to the raw packet data
+ * @param raw_len	Length of the raw packet data
+ * @param info		(out param) Information about the packet
+ *
+ * @return		true on success; false if this packet is garbage
+ */
+static bool get_pkt_info(struct cld_pkt_hdr *pkt,
+			 const char *raw_pkt, size_t raw_len,
+			 size_t hdr_len, struct pkt_info *info)
+{
+	struct cld_pkt_ftr *foot;
+	struct session *s;
+
+	memset(info, 0, sizeof(*info));
+	info->pkt = pkt;
+	info->sess = s = g_hash_table_lookup(cld_srv.sessions, &pkt->sid);
+	foot = (struct cld_pkt_ftr *)
+			(raw_pkt + (raw_len - CLD_PKT_FTR_LEN));
+	info->seqid = le64_to_cpu(foot->seqid);
+
+	if (pkt->mi.order & CLD_PKT_IS_FIRST) {
+		info->xid = pkt->mi.cld_pkt_msg_info_u.mi.xid;
+		info->op = pkt->mi.cld_pkt_msg_info_u.mi.op;
+	} else {
+		if (!s) {
+			HAIL_DEBUG(&srv_log, "%s: packet is not first, "
+				"but also not part of an existing session. "
+				"Protocol error.", __func__);
+			return false;
+		}
+		info->xid = s->msg_xid;
+		info->op = s->msg_op;
+	}
+	info->hdr_len = hdr_len;
+	return true;
+}
+
+/** Verify that the client session matches IP and username
+ *
+ * @param info		Packet information
+ * @param cli		Client address data
+ *
+ * @return		0 on success; error code otherwise
+ */
+static enum cle_err_codes validate_pkt_session(const struct pkt_info *info,
+					       const struct client *cli)
+{
+	struct session *sess = info->sess;
+
+	if (!sess) {
+		/* Packets that don't belong to a session must be new-session
+		 * packets attempting to establish a session. */
+		if (info->op != CMO_NEW_SESS) {
+			HAIL_DEBUG(&srv_log, "%s: packet doesn't belong to a "
+				   "session,but has type %d",
+				   __func__, info->op);
+			return CLE_SESS_INVAL;
+		}
+		return 0;
+	}
+
+	if (info->op == CMO_NEW_SESS) {
+		HAIL_DEBUG(&srv_log, "%s: Tried to create a new session, "
+			   "but a session with that ID already exists.",
+			   __func__);
+		return CLE_SESS_EXISTS;
+	}
+
+	/* verify that client session matches IP */
+	if ((sess->addr_len != cli->addr_len) ||
+	     memcmp(&sess->addr, &cli->addr, sess->addr_len)) {
+		HAIL_DEBUG(&srv_log, "%s: sess->addr doesn't match packet "
+			   "addr", __func__);
+		return CLE_SESS_INVAL;
+	}
+
+	/* verify that client session matches username */
+	if (strncmp(info->pkt->user, sess->user, CLD_MAX_USERNAME)) {
+		HAIL_DEBUG(&srv_log, "%s: session doesn't match packet's  "
+			   "username", __func__);
+		return CLE_SESS_INVAL;
+	}
+
+	if (sess->dead) {
+		HAIL_DEBUG(&srv_log, "%s: packet session is dead",
+			   __func__);
+		return CLE_SESS_INVAL;
+	}
+
+	return 0;
+}
+
+/** Check a packet's cryptographic signature
+ *
+ * @param raw_pkt	Pointer to the packet data
+ * @param raw_len	Length of the raw data
+ * @param pkt		the packet header
+ *
+ * @return		0 on success; error code otherwise
+ */
+static enum cle_err_codes pkt_chk_sig(const char *raw_pkt, int raw_len,
+				      const struct cld_pkt_hdr *pkt)
+{
+	struct cld_pkt_ftr *foot;
+	const char *secret_key;
+	int auth_rc;
+
+	foot = (struct cld_pkt_ftr *)
+			(raw_pkt + (raw_len - CLD_PKT_FTR_LEN));
+	secret_key = user_key(pkt->user);
+
+	auth_rc = __cld_authcheck(&srv_log, secret_key, raw_pkt,
+				  raw_len - SHA_DIGEST_LENGTH,
+				  foot->sha);
+	if (auth_rc) {
+		HAIL_DEBUG(&srv_log, "auth failed, code %d", auth_rc);
+		return CLE_SIG_INVAL;
+	}
+
+	return 0;
+}
+
+/** Check if this packet is a duplicate
+ *
+ * @param info		Packet info
+ *
+ * @return		true only if the packet is a duplicate
+ */
+static bool packet_is_dupe(const struct pkt_info *info)
+{
+	if (!info->sess)
+		return false;
+	if (info->op == CMO_ACK)
+		return false;
+
+	/* Check sequence IDs to discover if this packet is a dupe */
+	if (info->seqid != info->sess->next_seqid_in) {
+		HAIL_DEBUG(&srv_log, "dropping dup with seqid %llu "
+			   "(expected %llu).",
+			   (unsigned long long) info->seqid,
+			   (unsigned long long) info->sess->next_seqid_in);
+		return true;
+	}
+
+	return false;
+}
+
+void simple_sendmsg(int fd, const struct client *cli,
+		    uint64_t sid, const char *user, uint64_t seqid,
+		    xdrproc_t xdrproc, const void *xdrdata, enum cld_msg_op op)
+{
+	XDR xhdr, xmsg;
+	struct cld_pkt_hdr pkt;
+	struct cld_pkt_msg_infos *infos;
+	struct cld_pkt_ftr *foot;
+	const char *secret_key;
+	char *buf;
+	size_t msg_len, hdr_len, buf_len;
+	int auth_rc;
+
+	/* Set up the packet header */
+	memset(&pkt, 0, sizeof(cld_pkt_hdr));
+	memcpy(&pkt.magic, CLD_PKT_MAGIC, sizeof(pkt.magic));
+	pkt.sid = sid;
+	pkt.user = (char *)user;
+	pkt.mi.order = CLD_PKT_ORD_FIRST_LAST;
+	infos = &pkt.mi.cld_pkt_msg_info_u.mi;
+	__cld_rand64(&infos->xid);
+	infos->op = op;
+
+	/* Determine sizes */
+	msg_len = xdr_sizeof(xdrproc, (void *)xdrdata);
+	if (msg_len > CLD_MAX_MSG_SZ) {
+		HAIL_ERR(&srv_log, "%s: tried to put %zu message bytes in a "
+			 "single packet. Maximum message bytes per packet "
+			 "is %d", __func__, msg_len, CLD_MAX_PKT_MSG_SZ);
+		return;
+	}
+	hdr_len = xdr_sizeof((xdrproc_t)xdr_cld_pkt_hdr, &pkt);
+	buf_len = msg_len + hdr_len + CLD_PKT_FTR_LEN;
+	buf = alloca(buf_len);
+
+	/* Serialize data */
+	xdrmem_create(&xhdr, buf, hdr_len, XDR_ENCODE);
+	if (!xdr_cld_pkt_hdr(&xhdr, &pkt)) {
+		xdr_destroy(&xhdr);
+		HAIL_ERR(&srv_log, "%s: xdr_cld_pkt_hdr failed",
+			 __func__);
+		return;
+	}
+	xdr_destroy(&xhdr);
+	xdrmem_create(&xmsg, buf + hdr_len, msg_len, XDR_ENCODE);
+	if (!xdrproc(&xmsg, (void *)xdrdata)) {
+		xdr_destroy(&xmsg);
+		HAIL_ERR(&srv_log, "%s: xdrproc failed", __func__);
+		return;
+	}
+	xdr_destroy(&xmsg);
+
+	foot = (struct cld_pkt_ftr *)
+		(buf + (buf_len - SHA_DIGEST_LENGTH));
+	foot->seqid = cpu_to_le64(seqid);
+	secret_key = user_key(user);
+
+	auth_rc =__cld_authsign(&srv_log, secret_key, buf,
+				buf_len - SHA_DIGEST_LENGTH,
+				foot->sha);
+	if (auth_rc)
+		HAIL_ERR(&srv_log, "%s: authsign failed: %d",
+			 __func__, auth_rc);
+
+	udp_tx(fd, (struct sockaddr *) &cli->addr, cli->addr_len,
+		buf, buf_len);
+}
+
+static void simple_sendresp(int sock_fd, const struct client *cli,
+			    const struct pkt_info *info,
+			    enum cle_err_codes code)
+{
+	const struct cld_pkt_hdr *pkt = info->pkt;
+	struct cld_msg_generic_resp resp;
+	resp.code = code;
+	resp.xid_in = info->xid;
+
+	simple_sendmsg(sock_fd, cli, pkt->sid, pkt->user, info->seqid,
+		       (xdrproc_t)xdr_cld_msg_generic_resp, (void *)&resp,
+		       info->op);
 }
 
 static bool udp_srv_event(int fd, short events, void *userdata)
 {
 	struct client cli;
 	char host[64];
-	ssize_t rrc;
+	ssize_t rrc, hdr_len;
 	struct msghdr hdr;
 	struct iovec iov[2];
-	uint8_t raw_pkt[CLD_RAW_MSG_SZ], ctl_msg[CLD_RAW_MSG_SZ];
-	struct cld_packet *pkt = (struct cld_packet *) raw_pkt;
+	char raw_pkt[CLD_RAW_MSG_SZ], ctl_msg[CLD_RAW_MSG_SZ];
+	struct cld_pkt_hdr pkt;
+	struct pkt_info info;
+	enum cle_err_codes err;
 
 	memset(&cli, 0, sizeof(cli));
 
@@ -470,46 +600,52 @@ static bool udp_srv_event(int fd, short events, void *userdata)
 
 	HAIL_DEBUG(&srv_log, "client %s message (%d bytes)", host, (int) rrc);
 
-	/* if it is complete garbage, drop immediately */
-	if ((rrc < (sizeof(*pkt) + SHA_DIGEST_LENGTH)) ||
-	    (memcmp(pkt->magic, CLD_PKT_MAGIC, sizeof(pkt->magic)))) {
+	if (!parse_pkt_header(raw_pkt, rrc, &pkt, &hdr_len)) {
 		cld_srv.stats.garbage++;
-		return true; /* continue main loop; do NOT terminate server */
+		return true;
 	}
 
-	if (cld_srv.cldb.is_master && cld_srv.cldb.up)
-		udp_rx(fd, &cli, raw_pkt, rrc);
-
-	else {
-		struct cld_packet *outpkt;
-		struct cld_msg_hdr *msg = (struct cld_msg_hdr *) (pkt + 1);
-		struct cld_msg_resp *resp;
-		size_t alloc_len;
-		const char *secret_key;
-		void *p;
-
-		alloc_len = sizeof(*outpkt) + sizeof(*resp) + SHA_DIGEST_LENGTH;
-		outpkt = alloca(alloc_len);
-		memset(outpkt, 0, alloc_len);
-
-		pkt_init_pkt(outpkt, pkt);
-
-		/* transmit not-master error msg */
-		resp = (struct cld_msg_resp *) (outpkt + 1);
-		resp_copy(resp, msg);
-		resp->hdr.op = CMO_NOT_MASTER;
-
-		p = outpkt;
-		secret_key = user_key(outpkt->user);
-		__cld_authsign(&srv_log, secret_key, p,
-			       alloc_len - SHA_DIGEST_LENGTH,
-			       p + alloc_len - SHA_DIGEST_LENGTH);
-
-		udp_tx(fd, (struct sockaddr *) &cli.addr, cli.addr_len,
-		       outpkt, alloc_len);
+	if (!get_pkt_info(&pkt, raw_pkt, rrc, hdr_len, &info)) {
+		xdr_free((xdrproc_t)xdr_cld_pkt_hdr, (char *)&pkt);
+		cld_srv.stats.garbage++;
+		return true;
 	}
 
-	return true;	/* continue main loop; do NOT terminate server */
+	if (packet_is_dupe(&info)) {
+		/* silently drop dupes */
+		xdr_free((xdrproc_t)xdr_cld_pkt_hdr, (char *)&pkt);
+		return true;
+	}
+
+	err = validate_pkt_session(&info, &cli);
+	if (err) {
+		simple_sendresp(fd, &cli, &info, err);
+		xdr_free((xdrproc_t)xdr_cld_pkt_hdr, (char *)&pkt);
+		return true;
+	}
+
+	err = pkt_chk_sig(raw_pkt, rrc, &pkt);
+	if (err) {
+		simple_sendresp(fd, &cli, &info, err);
+		xdr_free((xdrproc_t)xdr_cld_pkt_hdr, (char *)&pkt);
+		return true;
+	}
+
+	if (!(cld_srv.cldb.is_master && cld_srv.cldb.up)) {
+		simple_sendmsg(fd, &cli, pkt.sid, pkt.user, 0xdeadbeef,
+			       (xdrproc_t)xdr_void, NULL, CMO_NOT_MASTER);
+		xdr_free((xdrproc_t)xdr_cld_pkt_hdr, (char *)&pkt);
+		return true;
+	}
+
+	err = udp_rx(fd, &cli, &info, raw_pkt, rrc);
+	if (err) {
+		simple_sendresp(fd, &cli, &info, err);
+		xdr_free((xdrproc_t)xdr_cld_pkt_hdr, (char *)&pkt);
+		return true;
+	}
+	xdr_free((xdrproc_t)xdr_cld_pkt_hdr, (char *)&pkt);
+	return true;
 }
 
 static void add_chkpt_timer(void)

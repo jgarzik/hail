@@ -24,6 +24,8 @@
 #include <stdbool.h>
 #include <string.h>
 #include <time.h>
+#include <openssl/sha.h>
+#include <cld_msg_rpc.h>
 
 #define CLD_ALIGN8(n) ((8 - ((n) & 7)) & 7)
 
@@ -98,5 +100,30 @@ extern const char *__cld_opstr(enum cld_msg_op);
  */
 #define SIDFMT		"%016llX"
 #define SIDARG(sid)	cld_sid2llu(sid)
+
+/* Returns a string representation of a packet header
+ *
+ * @param scratch		(out param) buffer of length
+ *				PKT_HDR_TO_STR_SCRATCH_LEN
+ * @param pkt_hdr		packet header
+ * @param pkt_len		length of packet
+ *
+ * @return			pointer to 'scratch'
+ */
+extern const char *__cld_pkt_hdr_to_str(char *scratch,
+					const char *pkt_hdr, size_t pkt_len);
+
+extern void __cld_dump_buf(const void *buf, size_t len);
+
+/** Footer that appears at the end of each packet */
+struct __attribute__((packed)) cld_pkt_ftr {
+	uint64_t seqid;				/**< packet sequence ID */
+	char sha[SHA_DIGEST_LENGTH];		/**< packet signature */
+};
+
+/** Length of the packet footer. This size is fixed */
+#define CLD_PKT_FTR_LEN sizeof(struct cld_pkt_ftr)
+
+#define PKT_HDR_TO_STR_SCRATCH_LEN 128
 
 #endif /* __CLD_COMMON_H__ */

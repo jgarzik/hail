@@ -217,7 +217,7 @@ static int cb_ls_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 	struct cldc_call_opts copts = { NULL, };
 	struct cld_dirent_cur dc;
 	int rc, i;
-	const char *data;
+	char *data;
 	size_t data_len;
 	bool first = true;
 
@@ -297,7 +297,7 @@ static int cb_cat_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 {
 	struct cresp cresp = { .tcode = TC_FAILED, };
 	struct cldc_call_opts copts = { NULL, };
-	const char *data;
+	char *data;
 	size_t data_len;
 
 	if (errc != CLE_OK) {
@@ -345,7 +345,7 @@ static int cb_cp_cf_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
 {
 	struct cresp cresp = { .tcode = TC_FAILED, };
 	struct cldc_call_opts copts = { NULL, };
-	const char *data;
+	char *data;
 	size_t data_len;
 
 	if (errc != CLE_OK) {
