@@ -4,7 +4,13 @@ INCLUDES	= -I$(top_srcdir)/include	\
 		  @GLIB_CFLAGS@
 
 bin_PROGRAMS	= cldcli
+noinst_PROGRAMS	= cldfuse
 
 cldcli_LDADD	= ../lib/libcldc.la		\
 		  @GLIB_LIBS@ @CRYPTO_LIBS@
+
+cldfuse_CFLAGS	= @FUSE_CFLAGS@
+cldfuse_LDADD	= ../lib/libcldc.la		\
+		  @GLIB_LIBS@ @CRYPTO_LIBS@
+cldfuse_LDFLAGS	= @FUSE_LIBS@
 
