@@ -1,7 +1,7 @@
 
 .libs
 libtest.a
-it-works
+basic-session
 save-file-event
 load-file-event
 lock-file-event

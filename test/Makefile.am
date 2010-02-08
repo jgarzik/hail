@@ -15,19 +15,19 @@ TESTS =			\
 	prep-db			\
 	start-daemon		\
 	pid-exists		\
-	it-works		\
+	basic-session		\
 	save-file-event		\
 	load-file-event		\
 	lock-file-event		\
 	stop-daemon		\
 	clean-db
 
-check_PROGRAMS		= it-works \
+check_PROGRAMS		= basic-session \
 			  save-file-event load-file-event lock-file-event
 
 TESTLDADD		= ../lib/libcldc.la	\
 			  @GLIB_LIBS@ @CRYPTO_LIBS@
-it_works_LDADD		= $(TESTLDADD)
+basic_session_LDADD	= $(TESTLDADD)
 save_file_event_LDADD	= $(TESTLDADD)
 load_file_event_LDADD	= $(TESTLDADD)
 lock_file_event_LDADD	= $(TESTLDADD)
