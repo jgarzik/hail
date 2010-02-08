@@ -18,7 +18,7 @@
  */
 
 /*
- * Load a file from CLD.
+ * Load a file from CLD (written there by the previous test).
  */
 
 #define _GNU_SOURCE
@@ -30,206 +30,19 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <cldc.h>
+#include <ncld.h>
 #include "test.h"
 
-struct run {
-	struct cldc_udp *udp;
-	struct cld_timer_list tlist;
-	struct cld_timer tmr_udp;
-	struct cldc_fh *fh;
-	char *fname;
-};
-
-static int new_sess_cb(struct cldc_call_opts *copts, enum cle_err_codes errc);
-static int open_1_cb(struct cldc_call_opts *coptarg, enum cle_err_codes errc);
-static int read_1_cb(struct cldc_call_opts *coptarg, enum cle_err_codes errc);
-static int close_1_cb(struct cldc_call_opts *coptarg, enum cle_err_codes errc);
-static int end_sess_cb(struct cldc_call_opts *copts, enum cle_err_codes errc);
-
-static bool do_timer_ctl(void *priv, bool add,
-			 int (*cb)(struct cldc_session *, void *),
-			 void *cb_priv, time_t secs)
+int main(int argc, char *argv[])
 {
-	struct run *rp = priv;
-
-	if (add) {
-		rp->udp->cb = cb;
-		rp->udp->cb_private = cb_priv;
-		cld_timer_add(&rp->tlist, &rp->tmr_udp, time(NULL) + secs);
-	} else {
-		cld_timer_del(&rp->tlist, &rp->tmr_udp);
-	}
-
-	return true;
-}
-
-static int do_pkt_send(void *priv, const void *addr, size_t addrlen,
-		       const void *buf, size_t buflen)
-{
-	struct run *rp = priv;
-	return cldc_udp_pkt_send(rp->udp, addr, addrlen, buf, buflen);
-}
-
-static void timer_udp_event(struct cld_timer *timer)
-{
-	struct run *rp = timer->userdata;
-	struct cldc_udp *udp = rp->udp;
-
-	if (udp->cb)
-		udp->cb(udp->sess, udp->cb_private);
-}
-
-static void do_event(void *private, struct cldc_session *sess,
-		     struct cldc_fh *fh, uint32_t event_mask)
-{
-	fprintf(stderr, "EVENT(0x%x)\n", event_mask);
-}
-
-static int new_sess_cb(struct cldc_call_opts *coptarg, enum cle_err_codes errc)
-{
-	struct run *rp = coptarg->private;
-	struct cldc_call_opts copts;
-	int rc;
-
-	if (errc != CLE_OK) {
-		fprintf(stderr, "new-sess failed: %d\n", errc);
-		exit(1);
-	}
-
-	/* We use a fixed file name because we contact a private copy of CLD */
-	memset(&copts, 0, sizeof(copts));
-	copts.cb = open_1_cb;
-	copts.private = rp;
-	rc = cldc_open(rp->udp->sess, &copts, rp->fname,
-		       COM_READ,
-		       CE_SESS_FAILED, &rp->fh);
-	if (rc) {
-		fprintf(stderr, "cldc_open call error %d\n", rc);
-		exit(1);
-	}
-	return 0;
-}
-
-static int open_1_cb(struct cldc_call_opts *coptarg, enum cle_err_codes errc)
-{
-	struct run *rp = coptarg->private;
-	struct cldc_call_opts copts;
-	int rc;
-
-	if (errc != CLE_OK) {
-		fprintf(stderr, "first-open failed: %d\n", errc);
-		exit(1);
-	}
-	if (rp->fh == NULL) {
-		fprintf(stderr, "first-open NULL fh\n");
-		exit(1);
-	}
-	if (!rp->fh->valid) {
-		fprintf(stderr, "first-open invalid fh\n");
-		exit(1);
-	}
-
-	memset(&copts, 0, sizeof(copts));
-	copts.cb = read_1_cb;
-	copts.private = rp;
-	rc = cldc_get(rp->fh, &copts, false);
-	if (rc) {
-		fprintf(stderr, "cldc_get call error %d\n", rc);
-		exit(1);
-	}
-
-	return 0;
-}
-
-static int read_1_cb(struct cldc_call_opts *coptarg, enum cle_err_codes errc)
-{
-	struct run *rp = coptarg->private;
-	struct cldc_call_opts copts;
-	char *data;
-	size_t data_len;
-	int rc;
-
-	if (errc != CLE_OK) {
-		fprintf(stderr, "first-get failed: %d\n", errc);
-		exit(1);
-	}
-
-	cldc_call_opts_get_data(coptarg, &data, &data_len);
-
-	if (data_len != TESTLEN) {
-		fprintf(stderr, "Bad CLD file length %zu\n", data_len);
-		exit(1);
-	}
-
-	if (memcmp(data, TESTSTR, TESTLEN)) {
-		fprintf(stderr, "Bad CLD file content\n");
-		exit(1);
-	}
-
-	memset(&copts, 0, sizeof(copts));
-	copts.cb = close_1_cb;
-	copts.private = rp;
-	rc = cldc_close(rp->fh, &copts);
-	if (rc) {
-		fprintf(stderr, "cldc_close call error %d\n", rc);
-		exit(1);
-	}
-
-	return 0;
-}
-
-static int close_1_cb(struct cldc_call_opts *coptarg, enum cle_err_codes errc)
-{
-	struct run *rp = coptarg->private;
-	struct cldc_call_opts copts;
-	int rc;
-
-	if (errc != CLE_OK) {
-		fprintf(stderr, "first-close failed: %d\n", errc);
-		exit(1);
-	}
-	rp->fh = NULL;
-
-	memset(&copts, 0, sizeof(copts));
-	copts.cb = end_sess_cb;
-	copts.private = rp;
-	rc = cldc_end_sess(rp->udp->sess, &copts);
-	if (rc) {
-		fprintf(stderr, "cldc_end_sess call error %d\n", rc);
-		exit(1);
-	}
-	return 0;
-}
-
-static int end_sess_cb(struct cldc_call_opts *copts, enum cle_err_codes errc)
-{
-	if (errc != CLE_OK) {
-		fprintf(stderr, "end-sess failed: %d\n", errc);
-		exit(1);
-	}
-
-	/* session ended; success */
-	exit(0);
-
-	return 0;
-}
-
-static struct run run;
-
-static struct cldc_ops ops = {
-	.timer_ctl		= do_timer_ctl,
-	.pkt_send		= do_pkt_send,
-	.event			= do_event,
-};
-
-static int init(char *name)
-{
-	int rc;
+	struct ncld_sess *nsp;
+	struct ncld_fh *fhp;
+	struct ncld_read *rp;
 	int port;
-	struct cldc_call_opts copts;
+	int error;
 
-	run.fname = name;
+	g_thread_init(NULL);
+	ncld_init();
 
 	port = cld_readport(TEST_PORTFILE_CLD);
 	if (port < 0)
@@ -237,32 +50,41 @@ static int init(char *name)
 	if (port == 0)
 		return -1;
 
-	cld_timer_init(&run.tmr_udp, "udp-timer", timer_udp_event, &run);
+	nsp = ncld_sess_open(TEST_HOST, port, &error, NULL, NULL,
+			     TEST_USER, TEST_USER_KEY);
+	if (!nsp) {
+		fprintf(stderr, "ncld_sess_open(host %s port %u) failed: %d\n",
+			TEST_HOST, port, error);
+		exit(1);
+	}
 
-	rc = cldc_udp_new(TEST_HOST, port, &run.udp);
-	if (rc)
-		return rc;
+	fhp = ncld_open(nsp, TFNAME, COM_READ, &error, 0, NULL, NULL);
+	if (!fhp) {
+		fprintf(stderr, "ncld_open(%s) failed: %d\n", TFNAME, error);
+		exit(1);
+	}
 
-	memset(&copts, 0, sizeof(copts));
-	copts.cb = new_sess_cb;
-	copts.private = &run;
-	rc = cldc_new_sess(&ops, &copts, run.udp->addr, run.udp->addr_len,
-			   TEST_USER, TEST_USER_KEY, &run, &run.udp->sess);
-	if (rc)
-		return rc;
+	rp = ncld_get(fhp, &error);
+	if (!rp) {
+		fprintf(stderr, "ncld_get failed: %d\n", error);
+		exit(1);
+	}
 
-	// run.udp->sess->verbose = true;
+	if (rp->length != TESTLEN) {
+		fprintf(stderr, "Bad CLD file length %ld\n", rp->length);
+		exit(1);
+	}
 
-	return 0;
-}
+	if (memcmp(rp->ptr, TESTSTR, TESTLEN)) {
+		fprintf(stderr, "Bad CLD file content\n");
+		exit(1);
+	}
 
-int main(int argc, char *argv[])
-{
-	g_thread_init(NULL);
-	cldc_init();
-	if (init(TFNAME))
-		return 1;
-	test_loop(&run.tlist, run.udp);
+	ncld_read_free(rp);
+
+	/* These two are perfect places to hang or crash, so don't just exit. */
+	ncld_close(fhp);
+	ncld_sess_close(nsp);
 	return 0;
 }
 

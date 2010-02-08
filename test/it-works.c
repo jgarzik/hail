@@ -26,95 +26,17 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <cldc.h>
+#include <ncld.h>
 #include "test.h"
 
-static struct cldc_udp *udp;
-static struct cld_timer udp_tm;
-static struct cld_timer_list tlist;
-
-static bool do_timer_ctl(void *priv, bool add,
-			 int (*cb)(struct cldc_session *, void *),
-			 void *cb_priv, time_t secs)
+int main (int argc, char *argv[])
 {
-	if (priv != udp) {
-		fprintf(stderr, "IE0: misuse of timer\n");
-		exit(1);
-	}
-
-	if (add) {
-		udp->cb = cb;
-		udp->cb_private = cb_priv;
-		cld_timer_add(&tlist, &udp_tm, time(NULL) + secs);
-	} else {
-		cld_timer_del(&tlist, &udp_tm);
-	}
-
-	return true;
-}
-
-static void timer_udp_event(struct cld_timer *timer)
-{
-	if (timer->userdata != udp) {
-		fprintf(stderr, "IE1: misuse of timer\n");
-		exit(1);
-	}
-
-	if (udp->cb)
-		udp->cb(udp->sess, udp->cb_private);
-}
-
-static void do_event(void *private, struct cldc_session *sess,
-		     struct cldc_fh *fh, uint32_t event_mask)
-{
-	fprintf(stderr, "EVENT(%x)\n", event_mask);
-}
-
-static int end_sess_cb(struct cldc_call_opts *copts, enum cle_err_codes errc)
-{
-	if (errc != CLE_OK) {
-		fprintf(stderr, "end-sess failed: %d\n", errc);
-		exit(1);
-	}
-
-	/* session ended; success */
-	exit(0);
-	return 0;
-}
-
-static int new_sess_cb(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
-{
-	struct cldc_call_opts copts;
-	int rc;
-
-	if (errc != CLE_OK) {
-		fprintf(stderr, "new-sess failed: %d\n", errc);
-		exit(1);
-	}
-
-	memset(&copts, 0, sizeof(copts));
-	copts.cb = end_sess_cb;
-
-	rc = cldc_end_sess(udp->sess, &copts);
-	if (rc) {
-		fprintf(stderr, "cldc_end_sess failed: %d\n", rc);
-		exit(1);
-	}
-
-	return 0;
-}
-
-static struct cldc_ops ops = {
-	.timer_ctl		= do_timer_ctl,
-	.pkt_send		= cldc_udp_pkt_send,
-	.event			= do_event,
-};
-
-static int init(void)
-{
-	int rc;
+	struct ncld_sess *nsp;
+	int error;
 	int port;
-	struct cldc_call_opts copts;
+
+	g_thread_init(NULL);
+	ncld_init();
 
 	port = cld_readport(TEST_PORTFILE_CLD);
 	if (port < 0)
@@ -122,32 +44,15 @@ static int init(void)
 	if (port == 0)
 		return -1;
 
-	rc = cldc_udp_new("localhost", port, &udp);
-	if (rc)
-		return rc;
+	nsp = ncld_sess_open(TEST_HOST, port, &error, NULL, NULL,
+			     TEST_USER, TEST_USER_KEY);
+	if (!nsp) {
+		fprintf(stderr, "ncld_sess_open(host %s port %u) failed: %d\n",
+			TEST_HOST, port, error);
+		exit(1);
+	}
 
-	cld_timer_init(&udp_tm, "udp-timer", timer_udp_event, udp);
-
-	memset(&copts, 0, sizeof(copts));
-	copts.cb = new_sess_cb;
-
-	rc = cldc_new_sess(&ops, &copts, udp->addr, udp->addr_len,
-			   "testuser", "testuser", udp, &udp->sess);
-	if (rc)
-		return rc;
-
-	// udp->sess->verbose = true;
-
-	return 0;
-}
-
-int main (int argc, char *argv[])
-{
-	g_thread_init(NULL);
-	cldc_init();
-	if (init())
-		return 1;
-	test_loop(&tlist, udp);
+	ncld_sess_close(nsp);
 	return 0;
 }
 

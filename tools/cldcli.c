@@ -26,23 +26,15 @@
 #include <errno.h>
 #include <stdio.h>
 #include <argp.h>
-#include <poll.h>
 #include <locale.h>
 #include <stdarg.h>
 #include <ctype.h>
-#include <cldc.h>
-
-#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
+#include <ncld.h>
 
 const char *argp_program_version = PACKAGE_VERSION;
 
 enum {
 	CLD_PATH_MAX		= 1024,
-};
-
-enum thread_codes {
-	TC_OK,
-	TC_FAILED
 };
 
 static struct argp_option options[] = {
@@ -60,81 +52,38 @@ static struct argp_option options[] = {
 static const char doc[] =
 "cldcli - command line interface to coarse locking service";
 
+#define TAG "cldcli"
+
 enum creq_cmd {
-	CREQ_CD,
-	CREQ_CAT,
-	CREQ_LS,
 	CREQ_RM,
 	CREQ_MKDIR,
-	CREQ_CP_FC,		/* cpin: FS-to-CLD copy */
-	CREQ_CP_CF,		/* cpout: CLD-to-FS copy */
-	CREQ_LOCK,
-	CREQ_TRYLOCK,
 	CREQ_UNLOCK,
-	CREQ_LIST_LOCKS,
-};
-
-struct cp_fc_info {
-	void		*mem;
-	size_t		mem_len;
 };
 
 struct creq {
-	enum creq_cmd		cmd;
+	enum creq_cmd		cmd_unused;
 	char			path[CLD_PATH_MAX + 1];
-	struct cp_fc_info	*cfi;
-};
-
-enum { CRESP_MSGSZ = 64 };
-
-struct cresp {
-	enum thread_codes	tcode;
-	char			msg[CRESP_MSGSZ];
-	union {
-		size_t		file_len;
-		unsigned int	n_records;
-		GList		*list;
-	} u;
-};
-
-struct ls_rec {
-	char			name[CLD_INODE_NAME_MAX + 1];
 };
 
 struct cldcli_lock_info {
-	enum creq_cmd		cmd;
-	struct cldc_fh		*fh;
+	bool			is_wait;
+	struct ncld_fh		*fh;
 	uint64_t		id;
 	char			path[CLD_PATH_MAX + 1];
 };
 
-static unsigned long thread_running = 1;
 static GList *host_list;
 static char clicwd[CLD_PATH_MAX + 1] = "/";
-static int to_thread[2], from_thread[2];
-static GThread *cldthr;
 static char our_user[CLD_MAX_USERNAME + 1] = "cli_user";
-static bool cldcli_verbose;
 
 /* globals only for use in thread */
-static struct cldc_udp *thr_udp;
-static struct cldc_fh *thr_fh;
+static struct ncld_sess *nsp;
 static GList *thr_lock_list;
 static uint64_t thr_lock_id = 2;
-static struct cld_timer_list thr_list;
-static struct cld_timer thr_timer;
-static int (*cldc_timer_cb)(struct cldc_session *, void *);
-static void *cldc_timer_private;
 
 static error_t parse_opt (int key, char *arg, struct argp_state *state);
 
 static const struct argp argp = { options, parse_opt, NULL, doc };
-
-static void errc_msg(struct cresp *cresp, enum cle_err_codes errc)
-{
-	strncpy(cresp->msg, cld_errstr(errc), CRESP_MSGSZ);
-	cresp->msg[CRESP_MSGSZ-1] = 0;
-}
 
 static void applog(int prio, const char *fmt, ...)
 {
@@ -142,7 +91,7 @@ static void applog(int prio, const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	snprintf(buf, 200, "%s\n", fmt);
+	snprintf(buf, 200, TAG ": %s\n", fmt);
 	vfprintf(stderr, buf, ap);
 	va_end(ap);
 }
@@ -152,616 +101,7 @@ static struct hail_log cli_log = {
 	.verbose = 0,
 };
 
-static void do_write(int fd, const void *buf, size_t buflen, const char *msg)
-{
-	ssize_t rc;
-
-	rc = write(fd, buf, buflen);
-	if (rc < 0)
-		perror(msg);
-	else if (rc != buflen)
-		fprintf(stderr, "%s: short write\n", msg);
-}
-
-static void do_read(int fd, void *buf, size_t buflen, const char *msg)
-{
-	ssize_t rc;
-
-	rc = read(fd, buf, buflen);
-	if (rc < 0)
-		perror(msg);
-	else if (rc != buflen)
-		fprintf(stderr, "%s: short read\n", msg);
-}
-
-/* send message thread -> main */
-static void write_from_thread(const void *buf, size_t buflen)
-{
-	do_write(from_thread[1], buf, buflen, "write-from-thread");
-}
-
-/* send message main -> thread */
-static void write_to_thread(const void *buf, size_t buflen)
-{
-	do_write(to_thread[1], buf, buflen, "write-to-thread");
-}
-
-/* receive message thread -> main */
-static void read_from_thread(void *buf, size_t buflen)
-{
-	do_read(from_thread[0], buf, buflen, "read-from-thread");
-}
-
-/* receive message main -> thread */
-static void read_to_thread(void *buf, size_t buflen)
-{
-	do_read(to_thread[0], buf, buflen, "read-to-thread");
-}
-
-static int cb_ok_done(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
-{
-	struct cresp cresp = { .tcode = TC_FAILED, };
-
-	if (errc == CLE_OK)
-		cresp.tcode = TC_OK;
-	errc_msg(&cresp, errc);
-
-	write_from_thread(&cresp, sizeof(cresp));
-
-	return 0;
-}
-
-static int cb_ls_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
-{
-	struct cresp cresp = { .tcode = TC_FAILED, };
-	struct cldc_call_opts copts = { NULL, };
-	struct cld_dirent_cur dc;
-	int rc, i;
-	char *data;
-	size_t data_len;
-	bool first = true;
-
-	if (errc != CLE_OK) {
-		errc_msg(&cresp, errc);
-		write_from_thread(&cresp, sizeof(cresp));
-		return 0;
-	}
-	cldc_call_opts_get_data(copts_in, &data, &data_len);
-
-	rc = cldc_dirent_count(data, data_len);
-	if (rc < 0) {
-		write_from_thread(&cresp, sizeof(cresp));
-		return 0;
-	}
-
-	cresp.tcode = TC_OK;
-	cresp.u.n_records = rc;
-
-	write_from_thread(&cresp, sizeof(cresp));
-
-	cldc_dirent_cur_init(&dc, data, data_len);
-
-	for (i = 0; i < rc; i++) {
-		struct ls_rec lsr;
-		char *s;
-
-		if (first) {
-			first = false;
-
-			if (cldc_dirent_first(&dc) < 0)
-				break;
-		} else {
-			if (cldc_dirent_next(&dc) < 0)
-				break;
-		}
-
-		s = cldc_dirent_name(&dc);
-		strncpy(lsr.name, s, sizeof(lsr.name));
-		lsr.name[sizeof(lsr.name) - 1] = 0;
-		free(s);
-
-		write_from_thread(&lsr, sizeof(lsr));
-
-	}
-
-	cldc_dirent_cur_fini(&dc);
-
-	/* FIXME: race; should wait until close succeeds/fails before
-	 * returning any data.  'fh' may still be in use, otherwise.
-	 */
-	cldc_close(thr_fh, &copts);
-
-	return 0;
-}
-
-static int cb_ls_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
-{
-	struct cresp cresp = { .tcode = TC_FAILED, };
-	struct cldc_call_opts copts = { .cb = cb_ls_2, };
-
-	if (errc != CLE_OK) {
-		errc_msg(&cresp, errc);
-		write_from_thread(&cresp, sizeof(cresp));
-		return 0;
-	}
-
-	if (cldc_get(thr_fh, &copts, false)) {
-		write_from_thread(&cresp, sizeof(cresp));
-		return 0;
-	}
-
-	return 0;
-}
-
-static int cb_cat_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
-{
-	struct cresp cresp = { .tcode = TC_FAILED, };
-	struct cldc_call_opts copts = { NULL, };
-	char *data;
-	size_t data_len;
-
-	if (errc != CLE_OK) {
-		errc_msg(&cresp, errc);
-		write_from_thread(&cresp, sizeof(cresp));
-		return 0;
-	}
-
-	cldc_call_opts_get_data(copts_in, &data, &data_len);
-
-	cresp.tcode = TC_OK;
-	cresp.u.file_len = data_len;
-
-	write_from_thread(&cresp, sizeof(cresp));
-	write_from_thread(data, data_len);
-
-	/* FIXME: race; should wait until close succeeds/fails before
-	 * returning any data.  'fh' may still be in use, otherwise.
-	 */
-	cldc_close(thr_fh, &copts);
-
-	return 0;
-}
-
-static int cb_cat_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
-{
-	struct cresp cresp = { .tcode = TC_FAILED, };
-	struct cldc_call_opts copts = { .cb = cb_cat_2, };
-
-	if (errc != CLE_OK) {
-		errc_msg(&cresp, errc);
-		write_from_thread(&cresp, sizeof(cresp));
-		return 0;
-	}
-
-	if (cldc_get(thr_fh, &copts, false)) {
-		write_from_thread(&cresp, sizeof(cresp));
-		return 0;
-	}
-
-	return 0;
-}
-
-static int cb_cp_cf_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
-{
-	struct cresp cresp = { .tcode = TC_FAILED, };
-	struct cldc_call_opts copts = { NULL, };
-	char *data;
-	size_t data_len;
-
-	if (errc != CLE_OK) {
-		errc_msg(&cresp, errc);
-		write_from_thread(&cresp, sizeof(cresp));
-		return 0;
-	}
-
-	cldc_call_opts_get_data(copts_in, &data, &data_len);
-	cresp.tcode = TC_OK;
-	cresp.u.file_len = data_len;
-
-	write_from_thread(&cresp, sizeof(cresp));
-	write_from_thread(data, data_len);
-
-	/* FIXME: race; should wait until close succeeds/fails before
-	 * returning any data.  'fh' may still be in use, otherwise.
-	 */
-	cldc_close(thr_fh, &copts);
-
-	return 0;
-}
-
-static int cb_cp_cf_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
-{
-	struct cresp cresp = { .tcode = TC_FAILED, };
-	struct cldc_call_opts copts = { .cb = cb_cp_cf_2, };
-
-	if (errc != CLE_OK) {
-		errc_msg(&cresp, errc);
-		write_from_thread(&cresp, sizeof(cresp));
-		return 0;
-	}
-
-	if (cldc_get(thr_fh, &copts, false)) {
-		write_from_thread(&cresp, sizeof(cresp));
-		return 0;
-	}
-
-	return 0;
-}
-
-static int cb_cp_fc_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
-{
-	struct cresp cresp = { .tcode = TC_FAILED, };
-	struct cldc_call_opts copts = { .cb = cb_ok_done, };
-	struct cp_fc_info *cfi = copts_in->private;
-
-	if (errc != CLE_OK) {
-		errc_msg(&cresp, errc);
-		write_from_thread(&cresp, sizeof(cresp));
-		return 0;
-	}
-
-	if (cldc_put(thr_fh, &copts, cfi->mem, cfi->mem_len)) {
-		write_from_thread(&cresp, sizeof(cresp));
-		return 0;
-	}
-
-	return 0;
-}
-
-static int cb_cd_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
-{
-	struct cresp cresp = { .tcode = TC_FAILED, };
-	struct cldc_call_opts copts = { .cb = cb_ok_done, };
-
-	if (errc != CLE_OK) {
-		errc_msg(&cresp, errc);
-		write_from_thread(&cresp, sizeof(cresp));
-		return 0;
-	}
-
-	if (cldc_close(thr_fh, &copts)) {
-		write_from_thread(&cresp, sizeof(cresp));
-		return 0;
-	}
-
-	return 0;
-}
-
-static int cb_mkdir_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
-{
-	struct cresp cresp = { .tcode = TC_FAILED, };
-	struct cldc_call_opts copts = { NULL, };
-
-	if (errc == CLE_OK)
-		cresp.tcode = TC_OK;
-	errc_msg(&cresp, errc);
-
-	write_from_thread(&cresp, sizeof(cresp));
-
-	/* FIXME: race; should wait until close succeeds/fails before
-	 * returning any data.  'fh' may still be in use, otherwise.
-	 */
-	cldc_close(thr_fh, &copts);
-
-	return 0;
-}
-
-static int cb_lock_2(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
-{
-	struct cldcli_lock_info *li = copts_in->private;
-
-	if ((errc == CLE_OK) ||
-	    ((li->cmd == CREQ_LOCK) && (errc == CLE_LOCK_PENDING)))
-		thr_lock_list = g_list_append(thr_lock_list, li);
-	else
-		free(li);
-
-	return cb_ok_done(copts_in, errc);
-}
-
-static int cb_lock_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
-{
-	struct cresp cresp = { .tcode = TC_FAILED, };
-	struct cldc_call_opts copts = { .cb = cb_lock_2, };
-	struct cldcli_lock_info *li = copts_in->private;
-	bool wait_for_lock = (li->cmd == CREQ_LOCK);
-
-	if (errc != CLE_OK) {
-		errc_msg(&cresp, errc);
-		write_from_thread(&cresp, sizeof(cresp));
-		return 0;
-	}
-
-	copts.private = li;
-
-	if (cldc_lock(li->fh, &copts, 0, wait_for_lock)) {
-		write_from_thread(&cresp, sizeof(cresp));
-		free(li);
-		return 0;
-	}
-
-	return 0;
-}
-
-static int cb_unlock_1(struct cldc_call_opts *copts_in, enum cle_err_codes errc)
-{
-	struct cresp cresp = { .tcode = TC_FAILED, };
-	struct cldc_call_opts copts = { NULL, };
-	struct cldcli_lock_info *li = copts_in->private;
-
-	if (errc != CLE_OK) {
-		errc_msg(&cresp, errc);
-		write_from_thread(&cresp, sizeof(cresp));
-		goto out;
-	}
-
-	cresp.tcode = TC_OK;
-
-	write_from_thread(&cresp, sizeof(cresp));
-
-out:
-	cldc_close(li->fh, &copts);
-
-	free(li);
-	return 0;
-}
-
-static void handle_user_command(void)
-{
-	struct creq creq;
-	struct cresp cresp = { .tcode = TC_FAILED, };
-	struct cldc_call_opts copts = { NULL, };
-	int rc;
-
-	read_to_thread(&creq, sizeof(creq));
-
-	if (cli_log.verbose)
-		switch (creq.cmd) {
-		case CREQ_CD:
-		case CREQ_CAT:
-		case CREQ_LS:
-		case CREQ_RM:
-		case CREQ_MKDIR:
-		case CREQ_CP_FC:
-		case CREQ_CP_CF:
-		case CREQ_LOCK:
-		case CREQ_TRYLOCK:
-		case CREQ_UNLOCK:
-			fprintf(stderr, "DEBUG: thr rx'd path '%s'\n",
-				creq.path);
-			break;
-		case CREQ_LIST_LOCKS:
-			fprintf(stderr, "DEBUG: thr rx'd no path\n");
-			break;
-		}
-
-	switch (creq.cmd) {
-	case CREQ_CD:
-		copts.cb = cb_cd_1;
-		rc = cldc_open(thr_udp->sess, &copts, creq.path,
-			       COM_DIRECTORY, 0, &thr_fh);
-		if (rc) {
-			snprintf(cresp.msg, sizeof(cresp.msg),
-				 "cldc_open rc %d", rc);
-			write_from_thread(&cresp, sizeof(cresp));
-			return;
-		}
-		break;
-	case CREQ_CAT:
-		copts.cb = cb_cat_1;
-		rc = cldc_open(thr_udp->sess, &copts, creq.path,
-			       COM_READ, 0, &thr_fh);
-		if (rc) {
-			snprintf(cresp.msg, sizeof(cresp.msg),
-				 "cldc_open rc %d", rc);
-			write_from_thread(&cresp, sizeof(cresp));
-			return;
-		}
-		break;
-	case CREQ_CP_CF:
-		copts.cb = cb_cp_cf_1;
-		rc = cldc_open(thr_udp->sess, &copts, creq.path,
-			       COM_READ, 0, &thr_fh);
-		if (rc) {
-			snprintf(cresp.msg, sizeof(cresp.msg),
-				 "cldc_open rc %d", rc);
-			write_from_thread(&cresp, sizeof(cresp));
-			return;
-		}
-		break;
-	case CREQ_CP_FC:
-		copts.cb = cb_cp_fc_1;
-		copts.private = creq.cfi;
-		rc = cldc_open(thr_udp->sess, &copts, creq.path,
-			       COM_CREATE | COM_WRITE, 0, &thr_fh);
-		if (rc) {
-			snprintf(cresp.msg, sizeof(cresp.msg),
-				 "cldc_open rc %d", rc);
-			write_from_thread(&cresp, sizeof(cresp));
-			return;
-		}
-		break;
-	case CREQ_LS:
-		copts.cb = cb_ls_1;
-		rc = cldc_open(thr_udp->sess, &copts, creq.path,
-			       COM_DIRECTORY | COM_READ, 0, &thr_fh);
-		if (rc) {
-			snprintf(cresp.msg, sizeof(cresp.msg),
-				 "cldc_open rc %d", rc);
-			write_from_thread(&cresp, sizeof(cresp));
-			return;
-		}
-		break;
-	case CREQ_RM:
-		copts.cb = cb_ok_done;
-		rc = cldc_del(thr_udp->sess, &copts, creq.path);
-		if (rc) {
-			snprintf(cresp.msg, sizeof(cresp.msg),
-				 "cldc_del rc %d", rc);
-			write_from_thread(&cresp, sizeof(cresp));
-			return;
-		}
-		break;
-	case CREQ_MKDIR:
-		copts.cb = cb_mkdir_1;
-		rc = cldc_open(thr_udp->sess, &copts, creq.path,
-			       COM_DIRECTORY | COM_CREATE | COM_EXCL, 0,
-			       &thr_fh);
-		if (rc) {
-			snprintf(cresp.msg, sizeof(cresp.msg),
-				 "cldc_open rc %d", rc);
-			write_from_thread(&cresp, sizeof(cresp));
-			return;
-		}
-		break;
-	case CREQ_TRYLOCK:
-	case CREQ_LOCK: {
-		struct cldcli_lock_info *li;
-
-		li = calloc(1, sizeof(*li));
-		if (!li) {
-			strcpy(cresp.msg, "OOM");
-			write_from_thread(&cresp, sizeof(cresp));
-			return;
-		}
-
-		li->cmd = creq.cmd;
-		li->id = thr_lock_id++;
-		strncpy(li->path, creq.path, sizeof(li->path));
-
-		copts.cb = cb_lock_1;
-		copts.private = li;
-		rc = cldc_open(thr_udp->sess, &copts, creq.path,
-			       COM_LOCK, 0, &li->fh);
-		if (rc) {
-			snprintf(cresp.msg, sizeof(cresp.msg),
-				 "cldc_open rc %d", rc);
-			write_from_thread(&cresp, sizeof(cresp));
-			free(li);
-			return;
-		}
-
-		break;
-		}
-
-	case CREQ_UNLOCK: {
-		GList *tmp;
-		struct cldcli_lock_info *li = NULL;
-
-		tmp = thr_lock_list;
-		while (tmp) {
-			li = tmp->data;
-
-			if (!strncmp(li->path, creq.path, sizeof(li->path)))
-				break;
-
-			tmp = tmp->next;
-		}
-		if (!tmp) {
-			write_from_thread(&cresp, sizeof(cresp));
-			return;
-		}
-
-		thr_lock_list = g_list_delete_link(thr_lock_list, tmp);
-
-		copts.cb = cb_unlock_1;
-		copts.private = li;
-		rc = cldc_unlock(li->fh, &copts);
-		if (rc) {
-			snprintf(cresp.msg, sizeof(cresp.msg),
-				 "cldc_unlock rc %d", rc);
-			write_from_thread(&cresp, sizeof(cresp));
-			free(li);
-			return;
-		}
-
-		break;
-		}
-
-	case CREQ_LIST_LOCKS: {
-		GList *tmp, *content = NULL;
-
-		tmp = thr_lock_list;
-		while (tmp) {
-			char *s;
-			struct cldcli_lock_info *li;
-
-			li = tmp->data;
-			tmp = tmp->next;
-
-			s = g_strdup_printf("%llu %s\n",
-				 (unsigned long long) li->id,
-				 li->path);
-
-			content = g_list_append(content, s);
-		}
-
-		cresp.tcode = TC_OK;
-		cresp.u.list = content;
-		write_from_thread(&cresp, sizeof(cresp));
-		break;
-		}
-	}
-}
-
-static int cb_new_sess(struct cldc_call_opts *copts, enum cle_err_codes errc)
-{
-	char tcode = TC_FAILED;
-
-	if (errc != CLE_OK) {
-		write_from_thread(&tcode, 1);
-		return 0;
-	}
-
-	/* signal we are up and ready for commands */
-	tcode = TC_OK;
-	write_from_thread(&tcode, 1);
-
-	return 0;
-}
-
-static void cld_p_timer_cb(struct cld_timer *timer)
-{
-	int (*timer_cb)(struct cldc_session *, void *) = cldc_timer_cb;
-	void *private = cldc_timer_private;
-
-	if (!timer_cb)
-		return;
-
-	cldc_timer_cb = NULL;
-	cldc_timer_private = NULL;
-
-	timer_cb(thr_udp->sess, private);
-}
-
-static bool cld_p_timer_ctl(void *private, bool add,
-			    int (*cb)(struct cldc_session *, void *),
-			    void *cb_private, time_t secs)
-{
-	if (add) {
-		cldc_timer_cb = cb;
-		cldc_timer_private = cb_private;
-
-		thr_timer.fired = false;
-		thr_timer.cb = cld_p_timer_cb;
-		thr_timer.userdata = NULL;
-
-		cld_timer_add(&thr_list, &thr_timer, time(NULL) + secs);
-	} else {
-		cld_timer_del(&thr_list, &thr_timer);
-	}
-	return true;
-}
-
-static int cld_p_pkt_send(void *priv, const void *addr, size_t addrlen,
-			       const void *buf, size_t buflen)
-{
-	struct cldc_udp *udp = priv;
-	return cldc_udp_pkt_send(udp, addr, addrlen, buf, buflen);
-}
-
-static void cld_p_event(void *private, struct cldc_session *sess,
-			struct cldc_fh *fh, uint32_t what)
+static void sess_event(void *private, uint32_t what)
 {
 	fprintf(stderr, "FIXME: handle event(s) %s%s%s%s%s\n",
 		(what & CE_UPDATED) ? "updated " : "",
@@ -769,83 +109,6 @@ static void cld_p_event(void *private, struct cldc_session *sess,
 		(what & CE_LOCKED) ? "locked " : "",
 		(what & CE_MASTER_FAILOVER) ? "master-fail " : "",
 		(what & CE_SESS_FAILED) ? "sess-fail " : "");
-}
-
-static struct cldc_ops cld_ops = {
-	.timer_ctl	= cld_p_timer_ctl,
-	.pkt_send	= cld_p_pkt_send,
-	.event		= cld_p_event,
-	.errlog		= applog,
-};
-
-static gpointer cld_thread(gpointer dummy)
-{
-	struct cldc_host *dr;
-	struct cldc_call_opts copts = { .cb = cb_new_sess };
-	char tcode = TC_FAILED;
-	struct pollfd pfd[2];
-	time_t next_timeout;
-
-	if (!host_list) {
-		fprintf(stderr, "cldthr: no host list\n");
-		write_from_thread(&tcode, 1);
-		return NULL;
-	}
-
-	dr = host_list->data;
-
-	if (cldc_udp_new(dr->host, dr->port, &thr_udp)) {
-		fprintf(stderr, "cldthr: UDP create failed\n");
-		write_from_thread(&tcode, 1);
-		return NULL;
-	}
-
-	if (cldc_new_sess(&cld_ops, &copts, thr_udp->addr, thr_udp->addr_len,
-			  "cldcli", "cldcli", thr_udp, &thr_udp->sess)) {
-		fprintf(stderr, "cldthr: new_sess failed\n");
-		write_from_thread(&tcode, 1);
-		return NULL;
-	}
-
-	thr_udp->sess->log.verbose = cldcli_verbose;
-
-	pfd[0].fd = thr_udp->fd;
-	pfd[0].events = POLLIN;
-
-	pfd[1].fd = to_thread[0];
-	pfd[1].events = POLLIN;
-
-	next_timeout = cld_timers_run(&thr_list);
-
-	while (thread_running) {
-		int i, rc;
-
-		/* zero revents.  necessary??? */
-		for (i = 0; i < ARRAY_SIZE(pfd); i++)
-			pfd[i].revents = 0;
-
-		/* poll for activity */
-		rc = poll(pfd, 2,
-			  next_timeout ? (next_timeout * 1000) : -1);
-		if (rc < 0) {
-			perror("poll");
-			return NULL;
-		}
-
-		/* dispatch if activity found */
-		for (i = 0; i < ARRAY_SIZE(pfd); i++) {
-			if (pfd[i].revents) {
-				if (i == 0)
-					cldc_udp_receive_pkt(thr_udp);
-				else
-					handle_user_command();
-			}
-		}
-
-		next_timeout = cld_timers_run(&thr_list);
-	}
-
-	return NULL;
 }
 
 static bool make_abs_path(char *dest, size_t dest_len, const char *src)
@@ -870,76 +133,128 @@ static bool make_abs_path(char *dest, size_t dest_len, const char *src)
 
 static void cmd_cd(const char *arg)
 {
-	struct creq creq = { CREQ_CD, };
-	struct cresp cresp;
+	struct creq creq = { 0, };
+	struct ncld_fh *fhp;
+	int error;
 
 	if (!*arg)
 		arg = "/";
 
 	if (!make_abs_path(creq.path, sizeof(creq.path), arg)) {
-		fprintf(stderr, "%s: path too long\n", arg);
+		fprintf(stderr, TAG ": %s: path too long\n", arg);
 		return;
 	}
 
-	/* send message to thread */
-	write_to_thread(&creq, sizeof(creq));
-
-	/* wait for and receive response from thread */
-	read_from_thread(&cresp, sizeof(cresp));
-
-	if (cresp.tcode != TC_OK) {
-		fprintf(stderr, "%s: change dir failed: %s\n", arg, cresp.msg);
+	fhp = ncld_open(nsp, creq.path, COM_DIRECTORY, &error, 0, NULL, NULL);
+	if (!fhp) {
+		if (error < 1000) {
+			fprintf(stderr, TAG ": cannot open path `%s': %s\n",
+				creq.path, strerror(error));
+		} else {
+			fprintf(stderr, TAG ": cannot open path `%s': %d\n",
+				creq.path, error);
+		}
 		return;
 	}
+	ncld_close(fhp);
 
 	strcpy(clicwd, creq.path);
 }
 
-static void show_lsr(const struct ls_rec *lsr)
-{
-	fprintf(stdout, "%s\n", lsr->name);
-}
-
 static void cmd_ls(const char *arg)
 {
-	struct creq creq = { CREQ_LS, };
-	struct cresp cresp;
+	struct creq creq = { 0, };
+	struct ncld_fh *fhp;
+	struct ncld_read *rp;
+	const char *data;
+	size_t data_len;
+	unsigned int n_records;
+	struct cld_dirent_cur dc;
+	bool first;
+	int error;
 	int i;
+	int rc;
 
 	if (!*arg)
 		arg = clicwd;
 
 	if (!make_abs_path(creq.path, sizeof(creq.path), arg)) {
-		fprintf(stderr, "%s: path too long\n", arg);
+		fprintf(stderr, TAG ": %s: path too long\n", arg);
 		return;
 	}
 
-	/* send message to thread */
-	write_to_thread(&creq, sizeof(creq));
-
-	/* wait for and receive response from thread */
-	read_from_thread(&cresp, sizeof(cresp));
-
-	if (cresp.tcode != TC_OK) {
-		fprintf(stderr, "ls(%s) failed: %s\n", creq.path, cresp.msg);
+	fhp = ncld_open(nsp, creq.path, COM_DIRECTORY | COM_READ, &error,
+			0, NULL, NULL);
+	if (!fhp) {
+		if (error < 1000) {
+			fprintf(stderr, TAG ": cannot open path `%s': %s\n",
+				creq.path, strerror(error));
+		} else {
+			fprintf(stderr, TAG ": cannot open path `%s': %d\n",
+				creq.path, error);
+		}
 		return;
 	}
 
-	for (i = 0; i < cresp.u.n_records; i++) {
-		struct ls_rec lsr;
-
-		read_from_thread(&lsr, sizeof(lsr));
-
-		show_lsr(&lsr);
+	rp = ncld_get(fhp, &error);
+	if (!rp) {
+		if (error < 1000) {
+			fprintf(stderr, TAG ": cannot get on path `%s': %s\n",
+				creq.path, strerror(error));
+		} else {
+			fprintf(stderr, TAG ": cannot get on path `%s': %d\n",
+				creq.path, error);
+		}
+		ncld_close(fhp);
+		return;
 	}
+
+	data = rp->ptr;
+	data_len = rp->length;
+
+	rc = cldc_dirent_count(data, data_len);
+	if (rc < 0) {
+		fprintf(stderr, TAG ": cldc_dirent_count failed on path `%s'\n",
+				creq.path);
+		ncld_read_free(rp);
+		ncld_close(fhp);
+		return;
+	}
+	n_records = rc;
+
+	cldc_dirent_cur_init(&dc, data, data_len);
+
+	first = true;
+	for (i = 0; i < n_records; i++) {
+		char *s;
+
+		if (first) {
+			first = false;
+
+			if (cldc_dirent_first(&dc) < 0)
+				break;
+		} else {
+			if (cldc_dirent_next(&dc) < 0)
+				break;
+		}
+
+		s = cldc_dirent_name(&dc);
+		printf("%s\n", s);
+		free(s);
+	}
+
+	cldc_dirent_cur_fini(&dc);
+
+	ncld_read_free(rp);
+	ncld_close(fhp);
 }
 
 static void cmd_cat(const char *arg)
 {
-	struct creq creq = { CREQ_CAT, };
-	struct cresp cresp;
-	size_t len;
-	void *mem;
+	struct creq creq = { 0, };
+	struct ncld_fh *fhp;
+	struct ncld_read *rp;
+	int error;
 
 	if (!*arg) {
 		fprintf(stderr, "cat: argument required\n");
@@ -947,77 +262,63 @@ static void cmd_cat(const char *arg)
 	}
 
 	if (!make_abs_path(creq.path, sizeof(creq.path), arg)) {
-		fprintf(stderr, "%s: path too long\n", arg);
+		fprintf(stderr, TAG ": %s: path too long\n", arg);
 		return;
 	}
 
-	/* send message to thread */
-	write_to_thread(&creq, sizeof(creq));
-
-	/* wait for and receive response from thread */
-	read_from_thread(&cresp, sizeof(cresp));
-
-	if (cresp.tcode != TC_OK) {
-		fprintf(stderr, "%s: cat failed: %s\n", arg, cresp.msg);
+	fhp = ncld_open(nsp, creq.path, COM_READ, &error, 0, NULL, NULL);
+	if (!fhp) {
+		if (error < 1000) {
+			fprintf(stderr, TAG ": cannot open path `%s': %s\n",
+				creq.path, strerror(error));
+		} else {
+			fprintf(stderr, TAG ": cannot open path `%s': %d\n",
+				creq.path, error);
+		}
 		return;
 	}
 
-	len = cresp.u.file_len;
-	mem = malloc(len);
-	if (!mem) {
-		fprintf(stderr, "%s: OOM (%u)\n", __func__, (unsigned int) len);
+	rp = ncld_get(fhp, &error);
+	if (!rp) {
+		fprintf(stderr, TAG ": cannot read from path `%s': %d\n",
+			creq.path, error);
+		ncld_close(fhp);
 		return;
 	}
 
-	/* read file data from thread */
-	read_from_thread(mem, len);
-
-	/* write file data to stdout */
-	(void) fwrite(mem, len, 1, stdout);
+	(void) fwrite(rp->ptr, rp->length, 1, stdout);
 	fprintf(stdout, "\n");
 
-	free(mem);
+	ncld_read_free(rp);
+	ncld_close(fhp);
 }
 
 static void cmd_list_locks(void)
 {
-	struct creq creq = { CREQ_LIST_LOCKS, };
-	struct cresp cresp;
-	GList *tmp, *content;
+	GList *tmp;
 
-	/* send message to thread */
-	write_to_thread(&creq, sizeof(creq));
-
-	/* wait for and receive response from thread */
-	read_from_thread(&cresp, sizeof(cresp));
-
-	if (cresp.tcode != TC_OK) {
-		fprintf(stderr, "list-locks failed: %s\n", cresp.msg);
-		return;
-	}
-
-	content = tmp = cresp.u.list;
+	tmp = thr_lock_list;
 	while (tmp) {
-		char *s;
+		struct cldcli_lock_info *li;
 
-		s = tmp->data;
+		li = tmp->data;
 		tmp = tmp->next;
 
-		printf("%s", s);
-
-		free(s);
+		printf("%llu %s\n", (unsigned long long) li->id, li->path);
 	}
-
-	g_list_free(content);
 }
 
-static void cmd_cp_io(const char *cmd, const char *arg, bool read_cld_file)
+static void cmd_cpin(const char *cmd, const char *arg)
 {
 	struct creq creq;
-	struct cresp cresp;
+	struct ncld_fh *fhp;
 	gchar **sv = NULL, *cld_path, *fs_path;
-	void *mem = NULL;
-	size_t flen = 0;
+	gchar *fs_content = NULL;
+	gsize fs_len = 0;
+	int error;
+	int rc;
+
+	memset(&creq, 0, sizeof(creq));
 
 	if (!*arg) {
 		fprintf(stderr, "%s: argument required\n", cmd);
@@ -1030,86 +331,104 @@ static void cmd_cp_io(const char *cmd, const char *arg, bool read_cld_file)
 		goto out;
 	}
 
-	memset(&creq, 0, sizeof(creq));
+	cld_path = sv[1];
+	fs_path = sv[0];
 
-	if (read_cld_file) {
-		creq.cmd = CREQ_CP_CF;
-		cld_path = sv[0];
-		fs_path = sv[1];
-	} else {
-		gchar *fs_content = NULL;
-		gsize fs_len = 0;
-
-		creq.cmd = CREQ_CP_FC;
-		cld_path = sv[1];
-		fs_path = sv[0];
-
-		if (!g_file_get_contents(fs_path, &fs_content,
-					 &fs_len, NULL)) {
-			fprintf(stderr, "Failed to read data from FS path %s\n",
-				fs_path);
-			goto out;
-		}
-
-		mem = fs_content;
-		flen = fs_len;
+	if (!g_file_get_contents(fs_path, &fs_content, &fs_len, NULL)) {
+		fprintf(stderr, TAG ": Failed to read data from FS path %s\n",
+			fs_path);
+		goto out;
 	}
 
 	if (!make_abs_path(creq.path, sizeof(creq.path), cld_path)) {
-		fprintf(stderr, "%s: path too long\n", arg);
+		fprintf(stderr, TAG ": %s: path too long\n", arg);
 		goto out;
 	}
 
-	creq.cfi = calloc(1, sizeof(*creq.cfi));
-	if (!creq.cfi) {
-		fprintf(stderr, "OOM\n");
+	fhp = ncld_open(nsp, creq.path, COM_CREATE | COM_WRITE,
+			&error, 0, NULL, NULL);
+	if (!fhp) {
+		fprintf(stderr, TAG ": %s: cannot open: %d\n", creq.path, error);
 		goto out;
 	}
 
-	creq.cfi->mem = mem;
-	creq.cfi->mem_len = flen;
-
-	/* send message to thread */
-	write_to_thread(&creq, sizeof(creq));
-
-	/* wait for and receive response from thread */
-	read_from_thread(&cresp, sizeof(cresp));
-
-	if (cresp.tcode != TC_OK) {
-		fprintf(stderr, "%s(%s -> %s) failed: %s\n",
-			cmd, sv[0], sv[1], cresp.msg);
+	rc = ncld_write(fhp, fs_content, fs_len);
+	if (rc) {
+		fprintf(stderr, TAG ": %s(%s -> %s) failed: %d\n",
+			cmd, sv[0], sv[1], rc);
+		ncld_close(fhp);
 		goto out;
 	}
 
-	if (read_cld_file) {
-		flen = cresp.u.file_len;
-		mem = malloc(flen);
-		if (!mem) {
-			fprintf(stderr, "%s: OOM (%u)\n",
-				__func__, (unsigned int) flen);
-			exit(1);
-		}
-
-		read_from_thread(mem, flen);
-
-		if (!g_file_set_contents(fs_path, mem, flen, NULL)) {
-			fprintf(stderr, "Successfully read CLD data from %s,\n"
-				"but failed to write data to FS path %s\n",
-				cld_path,
-				fs_path);
-		}
-	}
+	ncld_close(fhp);
 
 out:
-	free(creq.cfi);
 	g_strfreev(sv);
-	free(mem);
+	free(fs_content);
 }
 
-static void basic_cmd(const char *cmd, const char *arg, enum creq_cmd cmd_no)
+static void cmd_cpout(const char *cmd, const char *arg)
 {
-	struct creq creq = { cmd_no, };
-	struct cresp cresp;
+	struct creq creq;
+	struct ncld_fh *fhp;
+	struct ncld_read *rp;
+	gchar **sv = NULL, *cld_path, *fs_path;
+	int error;
+
+	memset(&creq, 0, sizeof(creq));
+
+	if (!*arg) {
+		fprintf(stderr, "%s: argument required\n", cmd);
+		return;
+	}
+
+	sv = g_strsplit_set(arg, " \t\f\r\n", 2);
+	if (!sv || !sv[0] || !sv[1]) {
+		fprintf(stderr, "%s: two arguments required\n", cmd);
+		goto out;
+	}
+
+	cld_path = sv[0];
+	fs_path = sv[1];
+
+	if (!make_abs_path(creq.path, sizeof(creq.path), cld_path)) {
+		fprintf(stderr, TAG ": %s: path too long\n", arg);
+		goto out;
+	}
+
+	fhp = ncld_open(nsp, creq.path, COM_READ, &error, 0, NULL, NULL);
+	if (!fhp) {
+		fprintf(stderr, TAG ": %s: cannot open: %d\n", creq.path, error);
+		goto out;
+	}
+	rp = ncld_get(fhp, &error);
+	if (!rp) {
+		fprintf(stderr, TAG ": cannot read from path `%s': %d\n",
+			creq.path, error);
+		ncld_close(fhp);
+		goto out;
+	}
+
+	if (!g_file_set_contents(fs_path, rp->ptr, rp->length, NULL)) {
+		fprintf(stderr, "Successfully read CLD data from %s,\n"
+			"but failed to write data to FS path %s\n",
+			cld_path, fs_path);
+	}
+
+	ncld_read_free(rp);
+	ncld_close(fhp);
+
+out:
+	g_strfreev(sv);
+}
+
+static void cmd_lock(const char *cmd, const char *arg, bool wait_for_lock)
+{
+	struct creq creq = { 0, };
+	struct ncld_fh *fhp;
+	struct cldcli_lock_info *li;
+	int error;
+	int rc;
 
 	if (!*arg) {
 		fprintf(stderr, "%s: argument required\n", cmd);
@@ -1117,18 +436,110 @@ static void basic_cmd(const char *cmd, const char *arg, enum creq_cmd cmd_no)
 	}
 
 	if (!make_abs_path(creq.path, sizeof(creq.path), arg)) {
-		fprintf(stderr, "%s: path too long\n", arg);
+		fprintf(stderr, TAG ": %s: path too long\n", arg);
 		return;
 	}
 
-	/* send message to thread */
-	write_to_thread(&creq, sizeof(creq));
+	li = calloc(1, sizeof(*li));
+	if (!li) {
+		fprintf(stderr, TAG ": OOM\n");
+		return;
+	}
 
-	/* wait for and receive response from thread */
-	read_from_thread(&cresp, sizeof(cresp));
+	li->is_wait = wait_for_lock;
+	li->id = thr_lock_id++;
+	strncpy(li->path, creq.path, CLD_PATH_MAX);
 
-	if (cresp.tcode != TC_OK) {
-		fprintf(stderr, "%s(%s) failed: %s\n", cmd, arg, cresp.msg);
+	fhp = ncld_open(nsp, creq.path, COM_LOCK, &error, 0, NULL, NULL);
+	if (!fhp) {
+		fprintf(stderr, TAG ": %s: cannot open: %d\n", creq.path, error);
+		free(li);
+		return;
+	}
+	li->fh = fhp;
+
+	if (wait_for_lock)
+		rc = ncld_qlock(fhp);
+	else
+		rc = ncld_trylock(fhp);
+
+	if (rc < 0) {
+		fprintf(stderr, TAG ": %s: cannot lock: %d\n", creq.path, error);
+		ncld_close(fhp);
+		free(li);
+		return;
+	}
+
+	if (rc > 0)
+		printf("lock %ld queued\n", (long)li->id);
+
+	thr_lock_list = g_list_append(thr_lock_list, li);
+}
+
+static void basic_cmd(const char *cmd, const char *arg, enum creq_cmd cmd_no)
+{
+	struct creq creq = { 0, };
+	struct ncld_fh *fhp;
+	int error;
+	int rc;
+
+	if (!*arg) {
+		fprintf(stderr, "%s: argument required\n", cmd);
+		return;
+	}
+
+	if (!make_abs_path(creq.path, sizeof(creq.path), arg)) {
+		fprintf(stderr, TAG ": %s: path too long\n", arg);
+		return;
+	}
+
+	switch (cmd_no) {
+	case CREQ_RM:
+		rc = ncld_del(nsp, creq.path);
+		break;
+	case CREQ_MKDIR:
+		rc = 0;
+		fhp = ncld_open(nsp, creq.path,
+				COM_DIRECTORY | COM_CREATE | COM_EXCL, &error,
+				0, NULL, NULL);
+		if (fhp)
+			ncld_close(fhp);
+		else
+			rc = error;
+		break;
+
+	case CREQ_UNLOCK: {
+		GList *tmp;
+		struct cldcli_lock_info *li = NULL;
+
+		tmp = thr_lock_list;
+		while (tmp) {
+			li = tmp->data;
+
+			if (!strncmp(li->path, creq.path, sizeof(li->path)))
+				break;
+
+			tmp = tmp->next;
+		}
+		if (!tmp) {
+			fprintf(stderr, TAG ": no lock found\n");
+			return;
+		}
+
+		thr_lock_list = g_list_delete_link(thr_lock_list, tmp);
+
+		rc = ncld_unlock(li->fh);
+		ncld_close(li->fh);
+		free(li);
+		break;
+		}
+	default:
+		fprintf(stderr, TAG ": IE unknown cmd %d\n", cmd_no);
+		return;
+	}
+
+	if (rc) {
+		fprintf(stderr, TAG ": %s(%s) failed: %d\n", cmd, arg, rc);
 		return;
 	}
 }
@@ -1222,7 +633,8 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 		if (atoi(arg) >= 0 && atoi(arg) <= 2)
 			cli_log.verbose = atoi(arg);
 		else {
-			fprintf(stderr, "invalid debug level: '%s'\n", arg);
+			fprintf(stderr, TAG ": invalid debug level: '%s'\n",
+				arg);
 			argp_usage(state);
 		}
 		break;
@@ -1232,13 +644,13 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 		break;
 	case 'u':
 		if (strlen(arg) >= CLD_MAX_USERNAME) {
-			fprintf(stderr, "invalid user: '%s'\n", arg);
+			fprintf(stderr, TAG ": invalid user: '%s'\n", arg);
 			argp_usage(state);
 		} else
 			strcpy(our_user, arg);
 		break;
 	case 'v':
-		cldcli_verbose = true;
+		cli_log.verbose = true;
 		break;
 	case ARGP_KEY_ARG:
 		argp_usage(state);	/* too many args */
@@ -1254,27 +666,27 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 
 static void prompt(void)
 {
-	fprintf(stderr, "[%s %s]$ ", our_user, clicwd);
-	fflush(stderr);
+	printf("[%s %s]$ ", our_user, clicwd);
+	fflush(stdout);
 }
-
-static char linebuf[CLD_PATH_MAX + 1];
 
 int main (int argc, char *argv[])
 {
+	char linebuf[CLD_PATH_MAX + 1];
+	struct cldc_host *dr;
 	error_t aprc;
-	char tcode;
+	int error;
 
 	/* isspace() and strcasecmp() consistency requires this */
 	setlocale(LC_ALL, "C");
 
 	g_thread_init(NULL);
 
-	cldc_init();
+	ncld_init();
 
 	aprc = argp_parse(&argp, argc, argv, 0, NULL, NULL);
 	if (aprc) {
-		fprintf(stderr, "argp_parse failed: %s\n", strerror(aprc));
+		fprintf(stderr, TAG ": argp_parse failed: %s\n", strerror(aprc));
 		return 1;
 	}
 
@@ -1283,39 +695,35 @@ int main (int argc, char *argv[])
 		char hostb[hostsz];
 
 		if (gethostname(hostb, hostsz-1) < 0) {
-			fprintf(stderr, "gethostname error: %s\n",
+			fprintf(stderr, TAG ": gethostname error: %s\n",
 				strerror(errno));
 			return 1;
 		}
 		hostb[hostsz-1] = 0;
 		if (cldc_getaddr(&host_list, hostb, &cli_log)) {
-			fprintf(stderr, "Unable to find a CLD host\n");
+			fprintf(stderr, TAG ": Unable to find a CLD host\n");
 			return 1;
 		}
 	}
 
-	if ((pipe(from_thread) < 0) || (pipe(to_thread) < 0)) {
-		perror("pipe");
+	printf("Waiting for session startup...\n");
+	fflush(stdout);
+	dr = host_list->data;
+
+	nsp = ncld_sess_open(dr->host, dr->port, &error, sess_event, NULL,
+			     "cldcli", "cldcli");
+	if (!nsp) {
+		if (error < 1000) {
+			fprintf(stderr, TAG ": cannot open CLD session: %s\n",
+				strerror(error));
+		} else {
+			fprintf(stderr, TAG ": cannot open CLD session: %d\n",
+				error);
+		}
 		return 1;
 	}
 
-	cldthr = g_thread_create(cld_thread, NULL, TRUE, NULL);
-	if (!cldthr) {
-		fprintf(stderr, "thread creation failed\n");
-		return 1;
-	}
-
-	fprintf(stderr, "Waiting for thread startup...\n");
-	if (read(from_thread[0], &tcode, 1) != 1) {
-		perror("read");
-		return 1;
-	}
-	if (tcode != TC_OK) {
-		fprintf(stderr, "thread startup failed\n");
-		return 1;
-	}
-
-	fprintf(stderr, "Type 'help' at the prompt to list commands.\n");
+	printf("Type 'help' at the prompt to list commands.\n");
 	prompt();
 
 	while (fgets(linebuf, sizeof(linebuf), stdin) != NULL) {
@@ -1364,13 +772,13 @@ int main (int argc, char *argv[])
 		else if (!strcmp(tok1, "cat"))
 			cmd_cat(tok2);
 		else if (!strcmp(tok1, "cpin"))
-			cmd_cp_io(tok1, tok2, false);
+			cmd_cpin(tok1, tok2);
 		else if (!strcmp(tok1, "cpout"))
-			cmd_cp_io(tok1, tok2, true);
+			cmd_cpout(tok1, tok2);
 		else if (!strcmp(tok1, "lock"))
-			basic_cmd(tok1, tok2, CREQ_LOCK);
+			cmd_lock(tok1, tok2, true);
 		else if (!strcmp(tok1, "trylock"))
-			basic_cmd(tok1, tok2, CREQ_TRYLOCK);
+			cmd_lock(tok1, tok2, false);
 		else if (!strcmp(tok1, "unlock"))
 			basic_cmd(tok1, tok2, CREQ_UNLOCK);
 		else if ((!strcmp(tok1, "list")) && tok2 &&
@@ -1388,8 +796,7 @@ int main (int argc, char *argv[])
 		prompt();
 	}
 
-	thread_running = 0;
-
+	ncld_sess_close(nsp);
 	return 0;
 }
 
