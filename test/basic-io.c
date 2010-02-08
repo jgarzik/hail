@@ -18,7 +18,7 @@
  */
 
 /*
- * Load a file from CLD (written there by the previous test).
+ * Create and read back file in CLD.
  */
 
 #define _GNU_SOURCE
@@ -33,22 +33,45 @@
 #include <ncld.h>
 #include "test.h"
 
-int main(int argc, char *argv[])
+static int test_write(int port)
+{
+	struct ncld_sess *nsp;
+	struct ncld_fh *fhp;
+	int error;
+
+	nsp = ncld_sess_open(TEST_HOST, port, &error, NULL, NULL,
+			     TEST_USER, TEST_USER_KEY);
+	if (!nsp) {
+		fprintf(stderr, "ncld_sess_open(host %s port %u) failed: %d\n",
+			TEST_HOST, port, error);
+		exit(1);
+	}
+
+	fhp = ncld_open(nsp, TFNAME, COM_WRITE | COM_CREATE,
+			&error, 0, NULL, NULL);
+	if (!fhp) {
+		fprintf(stderr, "ncld_open(%s) failed: %d\n", TFNAME, error);
+		exit(1);
+	}
+
+	error = ncld_write(fhp, TESTSTR, TESTLEN);
+	if (error) {
+		fprintf(stderr, "ncld_write failed: %d\n", error);
+		exit(1);
+	}
+
+	/* These two are perfect places to hang or crash, so don't just exit. */
+	ncld_close(fhp);
+	ncld_sess_close(nsp);
+	return 0;
+}
+
+static int test_read(int port)
 {
 	struct ncld_sess *nsp;
 	struct ncld_fh *fhp;
 	struct ncld_read *rp;
-	int port;
 	int error;
-
-	g_thread_init(NULL);
-	ncld_init();
-
-	port = cld_readport(TEST_PORTFILE_CLD);
-	if (port < 0)
-		return port;
-	if (port == 0)
-		return -1;
 
 	nsp = ncld_sess_open(TEST_HOST, port, &error, NULL, NULL,
 			     TEST_USER, TEST_USER_KEY);
@@ -85,6 +108,27 @@ int main(int argc, char *argv[])
 	/* These two are perfect places to hang or crash, so don't just exit. */
 	ncld_close(fhp);
 	ncld_sess_close(nsp);
+	return 0;
+}
+
+int main(int argc, char *argv[])
+{
+	int port;
+
+	g_thread_init(NULL);
+	ncld_init();
+
+	port = cld_readport(TEST_PORTFILE_CLD);
+	if (port < 0)
+		return 1;
+	if (port == 0)
+		return 1;
+
+	if (test_write(port))
+		return 1;
+	if (test_read(port))
+		return 1;
+
 	return 0;
 }
 

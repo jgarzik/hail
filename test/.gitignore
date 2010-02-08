@@ -1,8 +1,5 @@
 
-.libs
-libtest.a
 basic-session
-save-file-event
-load-file-event
+basic-io
 lock-file-event
 

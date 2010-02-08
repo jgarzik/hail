@@ -16,20 +16,19 @@ TESTS =			\
 	start-daemon		\
 	pid-exists		\
 	basic-session		\
-	save-file-event		\
-	load-file-event		\
+	basic-io		\
 	lock-file-event		\
 	stop-daemon		\
 	clean-db
 
 check_PROGRAMS		= basic-session \
-			  save-file-event load-file-event lock-file-event
+			  basic-io	\
+			  lock-file-event
 
 TESTLDADD		= ../lib/libcldc.la	\
 			  @GLIB_LIBS@ @CRYPTO_LIBS@
 basic_session_LDADD	= $(TESTLDADD)
-save_file_event_LDADD	= $(TESTLDADD)
-load_file_event_LDADD	= $(TESTLDADD)
+basic_io_LDADD		= $(TESTLDADD)
 lock_file_event_LDADD	= $(TESTLDADD)
 
 TESTS_ENVIRONMENT=top_srcdir=$(top_srcdir)
