@@ -10,10 +10,10 @@ INCLUDES		= -I$(top_srcdir)/include	\
 mostlyclean-local:
 	rm -f *_rpc.h *_rpc_xdr.c
 
-%_rpc.h: %_rpc.x
+cld_msg_rpc.h: $(srcdir)/cld_msg_rpc.x
 	rpcgen -h $< > $@
 
-%_rpc_xdr.c: %_rpc.x
+cld_msg_rpc_xdr.c: $(srcdir)/cld_msg_rpc.x
 	rpcgen -c $< | grep -v 'register int32_t.*buf' > $@
 
 LINK = $(LIBTOOL) --mode=link $(CC) $(CFLAGS) $(LDFLAGS) -o $@
