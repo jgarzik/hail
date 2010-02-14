@@ -72,7 +72,83 @@ static int cld_fuse_getattr(const char *path, struct stat *stbuf)
 static int cld_fuse_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
                          off_t offset, struct fuse_file_info *fi)
 {
-	return -EOPNOTSUPP;
+	struct ncld_fh *fh;
+	struct ncld_read *nr;
+	struct cld_dirent_cur dc;
+	const char *data;
+	size_t data_len;
+	unsigned int n_records;
+	int error, i, rc;
+	bool first;
+
+	fh = ncld_open(sess, path, COM_DIRECTORY, &error, 0, NULL, NULL);
+	if (!fh) {
+		if (error < 1000) {
+			fprintf(stderr, TAG ": cannot open path `%s': %s\n",
+				path, strerror(error));
+		} else {
+			fprintf(stderr, TAG ": cannot open path `%s': %d\n",
+				path, error);
+		}
+
+		return -EINVAL;
+	}
+
+	nr = ncld_get(fh, &error);
+	if (!nr) {
+		if (error < 1000) {
+			fprintf(stderr, TAG ": cannot get on path `%s': %s\n",
+				path, strerror(error));
+		} else {
+			fprintf(stderr, TAG ": cannot get on path `%s': %d\n",
+				path, error);
+		}
+		ncld_close(fh);
+		return -EINVAL;
+	}
+
+	data = nr->ptr;
+	data_len = nr->length;
+
+	rc = cldc_dirent_count(data, data_len);
+	if (rc < 0) {
+		fprintf(stderr, TAG ": cldc_dirent_count failed on path `%s'\n",
+			path);
+		ncld_read_free(nr);
+		ncld_close(fh);
+		return -EINVAL;
+	}
+	n_records = rc;
+
+	cldc_dirent_cur_init(&dc, data, data_len);
+
+	first = true;
+	for (i = 0; i < n_records; i++) {
+		char *s;
+
+		if (first) {
+			first = false;
+
+			if (cldc_dirent_first(&dc) < 0)
+				break;
+		} else {
+			if (cldc_dirent_next(&dc) < 0)
+				break;
+		}
+
+		s = cldc_dirent_name(&dc);
+
+		/* return directory entry name to FUSE */
+		filler(buf, s, NULL, 0);
+
+		free(s);
+	}
+
+	cldc_dirent_cur_fini(&dc);
+
+	ncld_read_free(nr);
+	ncld_close(fh);
+	return 0;
 }
 
 static int cld_fuse_read(const char *path, char *buf, size_t size, off_t offset,
