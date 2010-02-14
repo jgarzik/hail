@@ -154,7 +154,61 @@ static int cld_fuse_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 static int cld_fuse_read(const char *path, char *buf, size_t size, off_t offset,
                       struct fuse_file_info *fi)
 {
-	return -EOPNOTSUPP;
+	struct ncld_fh *fh;
+	struct ncld_read *nr;
+	const char *data;
+	size_t data_len, copy_len;
+	int error;
+	int rc = 0;
+
+	fh = ncld_open(sess, path, COM_READ, &error, 0, NULL, NULL);
+	if (!fh) {
+		if (error < 1000) {
+			fprintf(stderr, TAG ": cannot open path `%s': %s\n",
+				path, strerror(error));
+		} else {
+			fprintf(stderr, TAG ": cannot open path `%s': %d\n",
+				path, error);
+		}
+
+		return -EINVAL;
+	}
+
+	nr = ncld_get(fh, &error);
+	if (!nr) {
+		if (error < 1000) {
+			fprintf(stderr, TAG ": cannot get on path `%s': %s\n",
+				path, strerror(error));
+		} else {
+			fprintf(stderr, TAG ": cannot get on path `%s': %d\n",
+				path, error);
+		}
+		ncld_close(fh);
+		return -EINVAL;
+	}
+
+	data = nr->ptr;
+	data_len = nr->length;
+
+	/* verify offset within file size */
+	if (offset > data_len) {
+		rc = -EINVAL;
+		goto out;
+	}
+
+	/* truncate returned data, if requesting more bytes than available */
+	if ((data_len - offset) > size)
+		copy_len = data_len - offset;
+	else
+		copy_len = size;
+
+	/* fill FUSE return buffer */
+	memcpy(buf, data + offset, copy_len);
+
+out:
+	ncld_read_free(nr);
+	ncld_close(fh);
+	return rc;
 }
 
 static void cld_fuse_destroy(void *dummy)
