@@ -66,7 +66,51 @@ static void sess_event(void *private, uint32_t what)
 
 static int cld_fuse_getattr(const char *path, struct stat *stbuf)
 {
-	return -EOPNOTSUPP;
+	struct ncld_fh *fh;
+	struct ncld_read *nr;
+	int error;
+	int rc = 0;
+
+	fh = ncld_open(sess, path, COM_READ, &error, 0, NULL, NULL);
+	if (!fh) {
+		if (error < 1000) {
+			fprintf(stderr, TAG ": cannot open path `%s': %s\n",
+				path, strerror(error));
+		} else {
+			fprintf(stderr, TAG ": cannot open path `%s': %d\n",
+				path, error);
+		}
+
+		return -EINVAL;
+	}
+
+	nr = ncld_get_meta(fh, &error);
+	if (!nr) {
+		if (error < 1000) {
+			fprintf(stderr, TAG ": cannot get on path `%s': %s\n",
+				path, strerror(error));
+		} else {
+			fprintf(stderr, TAG ": cannot get on path `%s': %d\n",
+				path, error);
+		}
+		ncld_close(fh);
+		return -EINVAL;
+	}
+
+	memset(stbuf, 0, sizeof(*stbuf));
+	stbuf->st_ino = nr->meta.inum;
+	/* FIXME: stbuf->st_mode */
+	/* FIXME: stbuf->st_nlink */
+	/* FIXME: stbuf->st_size = nr->meta.size; */
+	stbuf->st_blksize = 512;
+	/* FIXME: stbuf->st_blocks = nr->meta.size / 512; */
+	stbuf->st_atime = nr->meta.time_modify;
+	stbuf->st_mtime = nr->meta.time_modify;
+	stbuf->st_ctime = nr->meta.time_modify;
+
+	ncld_read_free(nr);
+	ncld_close(fh);
+	return rc;
 }
 
 static int cld_fuse_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
