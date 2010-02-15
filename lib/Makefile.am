@@ -1,7 +1,7 @@
 
 BUILT_SOURCES		= cld_msg_rpc.h
 
-EXTRA_DIST =
+EXTRA_DIST = \
 	libcldc.pc.in libcldc-uninstalled.pc.in cld_msg_rpc.x
 
 INCLUDES		= -I$(top_srcdir)/include	\
