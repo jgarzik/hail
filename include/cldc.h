@@ -38,6 +38,15 @@ struct cldc_call_opts {
 	struct cld_msg_get_resp resp;
 };
 
+struct cldc_node_metadata {
+	quad_t		inum;
+	quad_t		vers;
+	quad_t		time_create;
+	quad_t		time_modify;
+	int		flags;
+	const char	*inode_name;
+};
+
 struct cldc_pkt_info {
 	int		pkt_len;
 	int		hdr_len;
@@ -202,8 +211,10 @@ extern int cldc_dirent_next(struct cld_dirent_cur *dc);
 extern void cldc_dirent_cur_init(struct cld_dirent_cur *dc, const void *buf, size_t buflen);
 extern void cldc_dirent_cur_fini(struct cld_dirent_cur *dc);
 extern char *cldc_dirent_name(struct cld_dirent_cur *dc);
-extern void cldc_call_opts_get_data(const struct cldc_call_opts *copts,
+extern void cldc_copts_get_data(const struct cldc_call_opts *copts,
 				    char **data, size_t *data_len);
+extern void cldc_copts_get_metadata(const struct cldc_call_opts *copts,
+				    struct cldc_node_metadata *md);
 
 /* cldc-udp */
 extern void cldc_udp_free(struct cldc_udp *udp);

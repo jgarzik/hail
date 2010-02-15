@@ -80,11 +80,22 @@ static size_t strnlen(const char *s, size_t maxlen)
 #define EBADE 52
 #endif
 
-void cldc_call_opts_get_data(const struct cldc_call_opts *copts,
+void cldc_copts_get_data(const struct cldc_call_opts *copts,
 			     char **data, size_t *data_len)
 {
 	*data = copts->resp.data.data_val;
 	*data_len = copts->resp.data.data_len;
+}
+
+void cldc_copts_get_metadata(const struct cldc_call_opts *copts,
+			     struct cldc_node_metadata *md)
+{
+	md->inum = copts->resp.inum;
+	md->vers = copts->resp.vers;
+	md->time_create = copts->resp.time_create;
+	md->time_modify = copts->resp.time_modify;
+	md->flags = copts->resp.flags;
+	md->inode_name = copts->resp.inode_name;
 }
 
 static void cldc_errlog(int prio, const char *fmt, ...)
@@ -1791,7 +1802,8 @@ static int ncld_read_cb(struct cldc_call_opts *copts, enum cle_err_codes errc)
 	} else {
 		char *p;
 		size_t l;
-		cldc_call_opts_get_data(copts, &p, &l);
+		cldc_copts_get_data(copts, &p, &l);
+		cldc_copts_get_metadata(copts, &rp->meta);
 		/* use assignments to defeat dumb gcc warnings. */
 		rp->ptr = p;
 		rp->length = l;
@@ -1862,12 +1874,80 @@ struct ncld_read *ncld_get(struct ncld_fh *fhp, int *error)
 	return rp;
 }
 
+static int ncld_read_meta_cb(struct cldc_call_opts *copts, enum cle_err_codes errc)
+{
+	struct ncld_read *rp = copts->private;
+	struct ncld_fh *fh = rp->fh;
+
+	if (errc) {
+		rp->errc = errc;
+	} else {
+		cldc_copts_get_metadata(copts, &rp->meta);
+		rp->ptr = NULL;
+		rp->length = 0;
+	}
+	rp->is_done = true;
+	g_cond_broadcast(fh->ses->cond);
+	return 0;
+}
+
+/*
+ * @error Error code buffer.
+ * @return Pointer to struct ncld_read or NULL if error.
+ */
+struct ncld_read *ncld_get_meta(struct ncld_fh *fh, int *error)
+{
+	struct ncld_sess *nsp = fh->ses;
+	struct ncld_read *rp;
+	struct cldc_call_opts copts;
+	int rc;
+
+	if (!fh->is_open) {
+		*error = EBUSY;
+		return NULL;
+	}
+
+	rp = malloc(sizeof(struct ncld_read));
+	if (!rp) {
+		*error = ENOMEM;
+		return NULL;
+	}
+	memset(rp, 0, sizeof(struct ncld_read));
+	rp->fh = fh;
+
+	g_mutex_lock(nsp->mutex);
+	memset(&copts, 0, sizeof(copts));
+	copts.cb = ncld_read_meta_cb;
+	copts.private = rp;
+	rc = cldc_get(fh->fh, &copts, true);
+	if (rc) {
+		g_mutex_unlock(nsp->mutex);
+		free(rp);
+		*error = -rc;
+		return NULL;
+	}
+	fh->nios++;
+	g_mutex_unlock(nsp->mutex);
+
+	rc = ncld_wait_read(rp);
+	if (rc) {
+		free(rp);
+		*error = rc + 1100;
+		return NULL;
+	}
+
+	return rp;
+}
+
 void ncld_read_free(struct ncld_read *rp)
 {
-
 	/*
 	 * FIXME: Actually the rp->ptr points to sess->msg_buf, so we
-	 * cannot issue 2 cldc_get independently.
+	 * cannot issue 2 cldc_get independently.  Ditto for inode_name
+	 * in rp->meta.
+	 *
+	 * Note also that ncld_read is used for get_meta, and data
+	 * buffer may not be present/filled in.
 	 */
 	/* free(rp->ptr); */
 

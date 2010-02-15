@@ -62,6 +62,8 @@ struct ncld_read {
 	const void	*ptr;
 	long		length;
 
+	struct cldc_node_metadata meta;
+
 	struct ncld_fh	*fh;
 	/* GCond	*cond; -- abusing conditional of file handle for now */
 	bool		is_done;
@@ -76,6 +78,7 @@ extern struct ncld_fh *ncld_open(struct ncld_sess *s, const char *fname,
 	void (*event)(void *, unsigned int), void *ev_arg);
 extern int ncld_del(struct ncld_sess *nsp, const char *fname);
 extern struct ncld_read *ncld_get(struct ncld_fh *fhp, int *error);
+extern struct ncld_read *ncld_get_meta(struct ncld_fh *fh, int *error);
 extern void ncld_read_free(struct ncld_read *rp);
 extern int ncld_write(struct ncld_fh *, const void *data, long len);
 extern int ncld_trylock(struct ncld_fh *);
