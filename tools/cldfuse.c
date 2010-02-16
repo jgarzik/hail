@@ -99,8 +99,15 @@ static int cld_fuse_getattr(const char *path, struct stat *stbuf)
 
 	memset(stbuf, 0, sizeof(*stbuf));
 	stbuf->st_ino = nr->meta.inum;
-	/* FIXME: stbuf->st_mode */
-	/* FIXME: stbuf->st_nlink */
+
+	if (nr->meta.flags & CIFL_DIR) {
+		stbuf->st_mode = S_IFDIR | 0555;
+		stbuf->st_nlink = 2;
+	} else {
+		stbuf->st_mode = S_IFREG | 0444;
+		stbuf->st_nlink = 1;
+	}
+
 	/* FIXME: stbuf->st_size = nr->meta.size; */
 	stbuf->st_blksize = 512;
 	/* FIXME: stbuf->st_blocks = nr->meta.size / 512; */
