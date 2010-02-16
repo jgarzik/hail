@@ -104,6 +104,10 @@ enum cld_events {
 	CE_SESS_FAILED		= 0x10
 };
 
+enum cld_inode_flags {
+	CIFL_DIR		= 0x01  /**< inode is a directory */
+};
+
 /** LOCK flags */
 enum cld_lock_flags {
 	CLF_SHARED		= 0x01	/**< a shared (read) lock */

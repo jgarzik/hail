@@ -67,10 +67,6 @@ enum {
 	CLD_INO_RESERVED_LAST	= 50,
 };
 
-enum inode_flags {
-	CIFL_DIR		= (1 << 0),	/* is a directory */
-};
-
 /*
  * inode record key:		cldino_t inum
  * inode secondary index key:	inode name
