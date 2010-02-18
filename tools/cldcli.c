@@ -77,7 +77,7 @@ static char clicwd[CLD_PATH_MAX + 1] = "/";
 static char our_user[CLD_MAX_USERNAME + 1] = "cli_user";
 
 /* globals only for use in thread */
-static struct ncld_sess *nsp;
+static struct ncld_sess *nsess;
 static GList *thr_lock_list;
 static uint64_t thr_lock_id = 2;
 
@@ -134,7 +134,7 @@ static bool make_abs_path(char *dest, size_t dest_len, const char *src)
 static void cmd_cd(const char *arg)
 {
 	struct creq creq = { 0, };
-	struct ncld_fh *fhp;
+	struct ncld_fh *fh;
 	int error;
 
 	if (!*arg)
@@ -145,8 +145,8 @@ static void cmd_cd(const char *arg)
 		return;
 	}
 
-	fhp = ncld_open(nsp, creq.path, COM_DIRECTORY, &error, 0, NULL, NULL);
-	if (!fhp) {
+	fh = ncld_open(nsess, creq.path, COM_DIRECTORY, &error, 0, NULL, NULL);
+	if (!fh) {
 		if (error < 1000) {
 			fprintf(stderr, TAG ": cannot open path `%s': %s\n",
 				creq.path, strerror(error));
@@ -156,7 +156,7 @@ static void cmd_cd(const char *arg)
 		}
 		return;
 	}
-	ncld_close(fhp);
+	ncld_close(fh);
 
 	strcpy(clicwd, creq.path);
 }
@@ -164,7 +164,7 @@ static void cmd_cd(const char *arg)
 static void cmd_ls(const char *arg)
 {
 	struct creq creq = { 0, };
-	struct ncld_fh *fhp;
+	struct ncld_fh *fh;
 	struct ncld_read *rp;
 	const char *data;
 	size_t data_len;
@@ -183,9 +183,9 @@ static void cmd_ls(const char *arg)
 		return;
 	}
 
-	fhp = ncld_open(nsp, creq.path, COM_DIRECTORY | COM_READ, &error,
+	fh = ncld_open(nsess, creq.path, COM_DIRECTORY | COM_READ, &error,
 			0, NULL, NULL);
-	if (!fhp) {
+	if (!fh) {
 		if (error < 1000) {
 			fprintf(stderr, TAG ": cannot open path `%s': %s\n",
 				creq.path, strerror(error));
@@ -196,7 +196,7 @@ static void cmd_ls(const char *arg)
 		return;
 	}
 
-	rp = ncld_get(fhp, &error);
+	rp = ncld_get(fh, &error);
 	if (!rp) {
 		if (error < 1000) {
 			fprintf(stderr, TAG ": cannot get on path `%s': %s\n",
@@ -205,7 +205,7 @@ static void cmd_ls(const char *arg)
 			fprintf(stderr, TAG ": cannot get on path `%s': %d\n",
 				creq.path, error);
 		}
-		ncld_close(fhp);
+		ncld_close(fh);
 		return;
 	}
 
@@ -217,7 +217,7 @@ static void cmd_ls(const char *arg)
 		fprintf(stderr, TAG ": cldc_dirent_count failed on path `%s'\n",
 				creq.path);
 		ncld_read_free(rp);
-		ncld_close(fhp);
+		ncld_close(fh);
 		return;
 	}
 	n_records = rc;
@@ -246,13 +246,13 @@ static void cmd_ls(const char *arg)
 	cldc_dirent_cur_fini(&dc);
 
 	ncld_read_free(rp);
-	ncld_close(fhp);
+	ncld_close(fh);
 }
 
 static void cmd_cat(const char *arg)
 {
 	struct creq creq = { 0, };
-	struct ncld_fh *fhp;
+	struct ncld_fh *fh;
 	struct ncld_read *rp;
 	int error;
 
@@ -266,8 +266,8 @@ static void cmd_cat(const char *arg)
 		return;
 	}
 
-	fhp = ncld_open(nsp, creq.path, COM_READ, &error, 0, NULL, NULL);
-	if (!fhp) {
+	fh = ncld_open(nsess, creq.path, COM_READ, &error, 0, NULL, NULL);
+	if (!fh) {
 		if (error < 1000) {
 			fprintf(stderr, TAG ": cannot open path `%s': %s\n",
 				creq.path, strerror(error));
@@ -278,11 +278,11 @@ static void cmd_cat(const char *arg)
 		return;
 	}
 
-	rp = ncld_get(fhp, &error);
+	rp = ncld_get(fh, &error);
 	if (!rp) {
 		fprintf(stderr, TAG ": cannot read from path `%s': %d\n",
 			creq.path, error);
-		ncld_close(fhp);
+		ncld_close(fh);
 		return;
 	}
 
@@ -290,7 +290,7 @@ static void cmd_cat(const char *arg)
 	fprintf(stdout, "\n");
 
 	ncld_read_free(rp);
-	ncld_close(fhp);
+	ncld_close(fh);
 }
 
 static void cmd_list_locks(void)
@@ -311,7 +311,7 @@ static void cmd_list_locks(void)
 static void cmd_cpin(const char *cmd, const char *arg)
 {
 	struct creq creq;
-	struct ncld_fh *fhp;
+	struct ncld_fh *fh;
 	gchar **sv = NULL, *cld_path, *fs_path;
 	gchar *fs_content = NULL;
 	gsize fs_len = 0;
@@ -345,22 +345,22 @@ static void cmd_cpin(const char *cmd, const char *arg)
 		goto out;
 	}
 
-	fhp = ncld_open(nsp, creq.path, COM_CREATE | COM_WRITE,
+	fh = ncld_open(nsess, creq.path, COM_CREATE | COM_WRITE,
 			&error, 0, NULL, NULL);
-	if (!fhp) {
+	if (!fh) {
 		fprintf(stderr, TAG ": %s: cannot open: %d\n", creq.path, error);
 		goto out;
 	}
 
-	rc = ncld_write(fhp, fs_content, fs_len);
+	rc = ncld_write(fh, fs_content, fs_len);
 	if (rc) {
 		fprintf(stderr, TAG ": %s(%s -> %s) failed: %d\n",
 			cmd, sv[0], sv[1], rc);
-		ncld_close(fhp);
+		ncld_close(fh);
 		goto out;
 	}
 
-	ncld_close(fhp);
+	ncld_close(fh);
 
 out:
 	g_strfreev(sv);
@@ -370,7 +370,7 @@ out:
 static void cmd_cpout(const char *cmd, const char *arg)
 {
 	struct creq creq;
-	struct ncld_fh *fhp;
+	struct ncld_fh *fh;
 	struct ncld_read *rp;
 	gchar **sv = NULL, *cld_path, *fs_path;
 	int error;
@@ -396,16 +396,16 @@ static void cmd_cpout(const char *cmd, const char *arg)
 		goto out;
 	}
 
-	fhp = ncld_open(nsp, creq.path, COM_READ, &error, 0, NULL, NULL);
-	if (!fhp) {
+	fh = ncld_open(nsess, creq.path, COM_READ, &error, 0, NULL, NULL);
+	if (!fh) {
 		fprintf(stderr, TAG ": %s: cannot open: %d\n", creq.path, error);
 		goto out;
 	}
-	rp = ncld_get(fhp, &error);
+	rp = ncld_get(fh, &error);
 	if (!rp) {
 		fprintf(stderr, TAG ": cannot read from path `%s': %d\n",
 			creq.path, error);
-		ncld_close(fhp);
+		ncld_close(fh);
 		goto out;
 	}
 
@@ -416,7 +416,7 @@ static void cmd_cpout(const char *cmd, const char *arg)
 	}
 
 	ncld_read_free(rp);
-	ncld_close(fhp);
+	ncld_close(fh);
 
 out:
 	g_strfreev(sv);
@@ -425,7 +425,7 @@ out:
 static void cmd_lock(const char *cmd, const char *arg, bool wait_for_lock)
 {
 	struct creq creq = { 0, };
-	struct ncld_fh *fhp;
+	struct ncld_fh *fh;
 	struct cldcli_lock_info *li;
 	int error;
 	int rc;
@@ -450,22 +450,22 @@ static void cmd_lock(const char *cmd, const char *arg, bool wait_for_lock)
 	li->id = thr_lock_id++;
 	strncpy(li->path, creq.path, CLD_PATH_MAX);
 
-	fhp = ncld_open(nsp, creq.path, COM_LOCK, &error, 0, NULL, NULL);
-	if (!fhp) {
+	fh = ncld_open(nsess, creq.path, COM_LOCK, &error, 0, NULL, NULL);
+	if (!fh) {
 		fprintf(stderr, TAG ": %s: cannot open: %d\n", creq.path, error);
 		free(li);
 		return;
 	}
-	li->fh = fhp;
+	li->fh = fh;
 
 	if (wait_for_lock)
-		rc = ncld_qlock(fhp);
+		rc = ncld_qlock(fh);
 	else
-		rc = ncld_trylock(fhp);
+		rc = ncld_trylock(fh);
 
 	if (rc < 0) {
 		fprintf(stderr, TAG ": %s: cannot lock: %d\n", creq.path, error);
-		ncld_close(fhp);
+		ncld_close(fh);
 		free(li);
 		return;
 	}
@@ -479,7 +479,7 @@ static void cmd_lock(const char *cmd, const char *arg, bool wait_for_lock)
 static void basic_cmd(const char *cmd, const char *arg, enum creq_cmd cmd_no)
 {
 	struct creq creq = { 0, };
-	struct ncld_fh *fhp;
+	struct ncld_fh *fh;
 	int error;
 	int rc;
 
@@ -495,15 +495,15 @@ static void basic_cmd(const char *cmd, const char *arg, enum creq_cmd cmd_no)
 
 	switch (cmd_no) {
 	case CREQ_RM:
-		rc = ncld_del(nsp, creq.path);
+		rc = ncld_del(nsess, creq.path);
 		break;
 	case CREQ_MKDIR:
 		rc = 0;
-		fhp = ncld_open(nsp, creq.path,
+		fh = ncld_open(nsess, creq.path,
 				COM_DIRECTORY | COM_CREATE | COM_EXCL, &error,
 				0, NULL, NULL);
-		if (fhp)
-			ncld_close(fhp);
+		if (fh)
+			ncld_close(fh);
 		else
 			rc = error;
 		break;
@@ -710,9 +710,9 @@ int main (int argc, char *argv[])
 	fflush(stdout);
 	dr = host_list->data;
 
-	nsp = ncld_sess_open(dr->host, dr->port, &error, sess_event, NULL,
+	nsess = ncld_sess_open(dr->host, dr->port, &error, sess_event, NULL,
 			     "cldcli", "cldcli");
-	if (!nsp) {
+	if (!nsess) {
 		if (error < 1000) {
 			fprintf(stderr, TAG ": cannot open CLD session: %s\n",
 				strerror(error));
@@ -796,7 +796,7 @@ int main (int argc, char *argv[])
 		prompt();
 	}
 
-	ncld_sess_close(nsp);
+	ncld_sess_close(nsess);
 	return 0;
 }
 

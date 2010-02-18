@@ -33,8 +33,8 @@
 
 int main (int argc, char *argv[])
 {
-	struct ncld_sess *nsp;
-	struct ncld_fh *fhp;
+	struct ncld_sess *nsess;
+	struct ncld_fh *fh;
 	int port;
 	struct timespec tm;
 	int error;
@@ -49,28 +49,28 @@ int main (int argc, char *argv[])
 	if (port == 0)
 		return -1;
 
-	nsp = ncld_sess_open(TEST_HOST, port, &error, NULL, NULL,
+	nsess = ncld_sess_open(TEST_HOST, port, &error, NULL, NULL,
 			     TEST_USER, TEST_USER_KEY);
-	if (!nsp) {
+	if (!nsess) {
 		fprintf(stderr, "ncld_sess_open(host %s port %u) failed: %d\n",
 			TEST_HOST, port, error);
 		exit(1);
 	}
 
-	fhp = ncld_open(nsp, TLNAME, COM_WRITE | COM_LOCK | COM_CREATE,
+	fh = ncld_open(nsess, TLNAME, COM_WRITE | COM_LOCK | COM_CREATE,
 			&error, 0, NULL, NULL);
-	if (!fhp) {
+	if (!fh) {
 		fprintf(stderr, "ncld_open(%s) failed: %d\n", TLNAME, error);
 		exit(1);
 	}
 
-	rc = ncld_write(fhp, LOCKSTR, LOCKLEN);
+	rc = ncld_write(fh, LOCKSTR, LOCKLEN);
 	if (rc) {
 		fprintf(stderr, "ncld_write failed: %d\n", rc);
 		exit(1);
 	}
 
-	rc = ncld_trylock(fhp);
+	rc = ncld_trylock(fh);
 	if (rc) {
 		fprintf(stderr, "ncld_trylock failed: %d\n", rc);
 		exit(1);
@@ -82,15 +82,15 @@ int main (int argc, char *argv[])
 	tm.tv_nsec = 0;
 	nanosleep(&tm, NULL);
 
-	rc = ncld_unlock(fhp);
+	rc = ncld_unlock(fh);
 	if (rc) {
 		fprintf(stderr, "ncld_unlock failed: %d\n", rc);
 		exit(1);
 	}
 
 	/* These two are perfect places to hang or crash, so don't just exit. */
-	ncld_close(fhp);
-	ncld_sess_close(nsp);
+	ncld_close(fh);
+	ncld_sess_close(nsess);
 	return 0;
 }
 

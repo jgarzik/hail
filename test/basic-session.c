@@ -31,7 +31,7 @@
 
 int main (int argc, char *argv[])
 {
-	struct ncld_sess *nsp;
+	struct ncld_sess *nsess;
 	int error;
 	int port;
 
@@ -44,15 +44,15 @@ int main (int argc, char *argv[])
 	if (port == 0)
 		return -1;
 
-	nsp = ncld_sess_open(TEST_HOST, port, &error, NULL, NULL,
+	nsess = ncld_sess_open(TEST_HOST, port, &error, NULL, NULL,
 			     TEST_USER, TEST_USER_KEY);
-	if (!nsp) {
+	if (!nsess) {
 		fprintf(stderr, "ncld_sess_open(host %s port %u) failed: %d\n",
 			TEST_HOST, port, error);
 		exit(1);
 	}
 
-	ncld_sess_close(nsp);
+	ncld_sess_close(nsess);
 	return 0;
 }
 

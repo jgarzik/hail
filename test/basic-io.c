@@ -35,59 +35,59 @@
 
 static int test_write(int port)
 {
-	struct ncld_sess *nsp;
-	struct ncld_fh *fhp;
+	struct ncld_sess *nsess;
+	struct ncld_fh *fh;
 	int error;
 
-	nsp = ncld_sess_open(TEST_HOST, port, &error, NULL, NULL,
+	nsess = ncld_sess_open(TEST_HOST, port, &error, NULL, NULL,
 			     TEST_USER, TEST_USER_KEY);
-	if (!nsp) {
+	if (!nsess) {
 		fprintf(stderr, "ncld_sess_open(host %s port %u) failed: %d\n",
 			TEST_HOST, port, error);
 		exit(1);
 	}
 
-	fhp = ncld_open(nsp, TFNAME, COM_WRITE | COM_CREATE,
+	fh = ncld_open(nsess, TFNAME, COM_WRITE | COM_CREATE,
 			&error, 0, NULL, NULL);
-	if (!fhp) {
+	if (!fh) {
 		fprintf(stderr, "ncld_open(%s) failed: %d\n", TFNAME, error);
 		exit(1);
 	}
 
-	error = ncld_write(fhp, TESTSTR, TESTLEN);
+	error = ncld_write(fh, TESTSTR, TESTLEN);
 	if (error) {
 		fprintf(stderr, "ncld_write failed: %d\n", error);
 		exit(1);
 	}
 
 	/* These two are perfect places to hang or crash, so don't just exit. */
-	ncld_close(fhp);
-	ncld_sess_close(nsp);
+	ncld_close(fh);
+	ncld_sess_close(nsess);
 	return 0;
 }
 
 static int test_read(int port)
 {
-	struct ncld_sess *nsp;
-	struct ncld_fh *fhp;
+	struct ncld_sess *nsess;
+	struct ncld_fh *fh;
 	struct ncld_read *rp;
 	int error;
 
-	nsp = ncld_sess_open(TEST_HOST, port, &error, NULL, NULL,
+	nsess = ncld_sess_open(TEST_HOST, port, &error, NULL, NULL,
 			     TEST_USER, TEST_USER_KEY);
-	if (!nsp) {
+	if (!nsess) {
 		fprintf(stderr, "ncld_sess_open(host %s port %u) failed: %d\n",
 			TEST_HOST, port, error);
 		exit(1);
 	}
 
-	fhp = ncld_open(nsp, TFNAME, COM_READ, &error, 0, NULL, NULL);
-	if (!fhp) {
+	fh = ncld_open(nsess, TFNAME, COM_READ, &error, 0, NULL, NULL);
+	if (!fh) {
 		fprintf(stderr, "ncld_open(%s) failed: %d\n", TFNAME, error);
 		exit(1);
 	}
 
-	rp = ncld_get(fhp, &error);
+	rp = ncld_get(fh, &error);
 	if (!rp) {
 		fprintf(stderr, "ncld_get failed: %d\n", error);
 		exit(1);
@@ -106,8 +106,8 @@ static int test_read(int port)
 	ncld_read_free(rp);
 
 	/* These two are perfect places to hang or crash, so don't just exit. */
-	ncld_close(fhp);
-	ncld_sess_close(nsp);
+	ncld_close(fh);
+	ncld_sess_close(nsess);
 	return 0;
 }
 

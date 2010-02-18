@@ -47,7 +47,7 @@ struct ncld_sess {
 };
 
 struct ncld_fh {
-	struct ncld_sess	*ses;
+	struct ncld_sess	*sess;
 	struct cldc_fh		*fh;	/* FIXME cldc_open2 take direct & */
 	bool			is_open;
 	int			errc;
@@ -76,8 +76,8 @@ extern struct ncld_sess *ncld_sess_open(const char *host, int port,
 extern struct ncld_fh *ncld_open(struct ncld_sess *s, const char *fname,
 	unsigned int mode, int *error, unsigned int events,
 	void (*event)(void *, unsigned int), void *ev_arg);
-extern int ncld_del(struct ncld_sess *nsp, const char *fname);
-extern struct ncld_read *ncld_get(struct ncld_fh *fhp, int *error);
+extern int ncld_del(struct ncld_sess *nsess, const char *fname);
+extern struct ncld_read *ncld_get(struct ncld_fh *fh, int *error);
 extern struct ncld_read *ncld_get_meta(struct ncld_fh *fh, int *error);
 extern void ncld_read_free(struct ncld_read *rp);
 extern int ncld_write(struct ncld_fh *, const void *data, long len);

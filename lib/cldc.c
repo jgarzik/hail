@@ -1343,8 +1343,8 @@ static int ncld_gethost(char **hostp, unsigned short *portp,
 
 static void ncld_udp_timer_event(struct cld_timer *timer)
 {
-	struct ncld_sess *nsp = timer->userdata;
-	struct cldc_udp *udp = nsp->udp;
+	struct ncld_sess *nsess = timer->userdata;
+	struct cldc_udp *udp = nsess->udp;
 
 	if (udp->cb)
 		udp->cb(udp->sess, udp->cb_private);
@@ -1361,13 +1361,13 @@ enum {
  * went wrong, so system features should report it (usualy as a core).
  * When debugging, strace or -F mode will capture the output.
  */
-static void ncld_thread_command(struct ncld_sess *nsp)
+static void ncld_thread_command(struct ncld_sess *nsess)
 {
 	ssize_t rrc;
 	unsigned char cmd;
 	uint32_t what;
 
-	rrc = read(nsp->to_thread[0], &cmd, 1);
+	rrc = read(nsess->to_thread[0], &cmd, 1);
 	if (rrc < 0) {
 		fprintf(stderr, "read error: %s\n", strerror(errno));
 		abort();
@@ -1381,13 +1381,13 @@ static void ncld_thread_command(struct ncld_sess *nsp)
 		/* No answer to requestor. Wait with g_thread_join. */
 		g_thread_exit(NULL);
 	} else if (cmd == NCLD_CMD_SESEV) {
-		rrc = read(nsp->to_thread[0], &what, sizeof(uint32_t));
+		rrc = read(nsess->to_thread[0], &what, sizeof(uint32_t));
 		if (rrc < sizeof(uint32_t)) {
 			fprintf(stderr, "bad read param\n");
 			g_thread_exit(NULL);
 		}
-		if (nsp->event)
-			(*nsp->event)(nsp->event_arg, what);
+		if (nsess->event)
+			nsess->event(nsess->event_arg, what);
 	} else {
 		fprintf(stderr, "bad command 0x%x\n", cmd);
 		abort();
@@ -1396,21 +1396,21 @@ static void ncld_thread_command(struct ncld_sess *nsp)
 
 static gpointer ncld_sess_thr(gpointer data)
 {
-	struct ncld_sess *nsp = data;
+	struct ncld_sess *nsess = data;
 	struct pollfd pfd[2];
 	time_t tmo;
 	int i;
 	int rc;
 
 	for (;;) {
-		g_mutex_lock(nsp->mutex);
-		tmo = cld_timers_run(&nsp->tlist);
-		g_mutex_unlock(nsp->mutex);
+		g_mutex_lock(nsess->mutex);
+		tmo = cld_timers_run(&nsess->tlist);
+		g_mutex_unlock(nsess->mutex);
 
 		memset(pfd, 0, sizeof(pfd));
-		pfd[0].fd = nsp->to_thread[0];
+		pfd[0].fd = nsess->to_thread[0];
 		pfd[0].events = POLLIN;
-		pfd[1].fd = nsp->udp->fd;
+		pfd[1].fd = nsess->udp->fd;
 		pfd[1].events = POLLIN;
 
 		rc = poll(pfd, 2, tmo ? tmo*1000 : -1);
@@ -1424,11 +1424,11 @@ static gpointer ncld_sess_thr(gpointer data)
 		for (i = 0; i < ARRAY_SIZE(pfd); i++) {
 			if (pfd[i].revents) {
 				if (i == 0) {
-					ncld_thread_command(nsp);
+					ncld_thread_command(nsess);
 				} else {
-					g_mutex_lock(nsp->mutex);
-					cldc_udp_receive_pkt(nsp->udp);
-					g_mutex_unlock(nsp->mutex);
+					g_mutex_lock(nsess->mutex);
+					cldc_udp_receive_pkt(nsess->udp);
+					g_mutex_unlock(nsess->mutex);
 				}
 			}
 		}
@@ -1440,28 +1440,28 @@ static gpointer ncld_sess_thr(gpointer data)
 /*
  * Ask the thread to exit and wait until it does.
  */
-static void ncld_thr_end(struct ncld_sess *nsp)
+static void ncld_thr_end(struct ncld_sess *nsess)
 {
 	unsigned char cmd;
 
 	cmd = NCLD_CMD_END;
-	write(nsp->to_thread[1], &cmd, 1);
-	g_thread_join(nsp->thread);
+	write(nsess->to_thread[1], &cmd, 1);
+	g_thread_join(nsess->thread);
 }
 
 static bool ncld_p_timer_ctl(void *priv, bool add,
 			     int (*cb)(struct cldc_session *, void *),
 			     void *cb_priv, time_t secs)
 {
-	struct ncld_sess *nsp = priv;
-	struct cldc_udp *udp = nsp->udp;
+	struct ncld_sess *nsess = priv;
+	struct cldc_udp *udp = nsess->udp;
 
 	if (add) {
 		udp->cb = cb;
 		udp->cb_private = cb_priv;
-		cld_timer_add(&nsp->tlist, &nsp->udp_timer, time(NULL) + secs);
+		cld_timer_add(&nsess->tlist, &nsess->udp_timer, time(NULL) + secs);
 	} else {
-		cld_timer_del(&nsp->tlist, &nsp->udp_timer);
+		cld_timer_del(&nsess->tlist, &nsess->udp_timer);
 	}
 	return true;
 }
@@ -1469,31 +1469,31 @@ static bool ncld_p_timer_ctl(void *priv, bool add,
 static int ncld_p_pkt_send(void *priv, const void *addr, size_t addrlen,
 			       const void *buf, size_t buflen)
 {
-	struct ncld_sess *nsp = priv;
-	return cldc_udp_pkt_send(nsp->udp, addr, addrlen, buf, buflen);
+	struct ncld_sess *nsess = priv;
+	return cldc_udp_pkt_send(nsess->udp, addr, addrlen, buf, buflen);
 }
 
 static void ncld_p_event(void *priv, struct cldc_session *csp,
 			 struct cldc_fh *fh, uint32_t what)
 {
-	struct ncld_sess *nsp = priv;
+	struct ncld_sess *nsess = priv;
 	unsigned char cmd;
 
 	if (what == CE_SESS_FAILED) {
-		if (nsp->udp->sess != csp)
+		if (nsess->udp->sess != csp)
 			abort();
-		nsp->is_up = false;
+		nsess->is_up = false;
 		/* XXX wake up all I/O waiters here */
 		/*
 		 * This is a trick. As a direct callback from clcd layer,
-		 * we are running under nsp->mutex, so we cannot call back
+		 * we are running under nsess->mutex, so we cannot call back
 		 * into a user of ncld. If we do, it may invoke another
 		 * ncld operation and deadlock. So, bump session callbacks
 		 * into the part of the helper thread that runs unlocked.
 		 */
 		cmd = NCLD_CMD_SESEV;
-		write(nsp->to_thread[1], &cmd, 1);
-		write(nsp->to_thread[1], &what, sizeof(what));
+		write(nsess->to_thread[1], &cmd, 1);
+		write(nsess->to_thread[1], &what, sizeof(what));
 	}
 }
 
@@ -1506,25 +1506,25 @@ static struct cldc_ops ncld_ops = {
 
 static int ncld_new_sess(struct cldc_call_opts *copts, enum cle_err_codes errc)
 {
-	struct ncld_sess *nsp = copts->private;
+	struct ncld_sess *nsess = copts->private;
 
 	/*
 	 * All callbacks from cldc layer run on the context of the thread
-	 * with nsp->mutex locked, so we don't lock it again here.
+	 * with nsess->mutex locked, so we don't lock it again here.
 	 */
-	nsp->errc = errc;
-	nsp->is_up = true;
-	g_cond_broadcast(nsp->cond);
+	nsess->errc = errc;
+	nsess->is_up = true;
+	g_cond_broadcast(nsess->cond);
 	return 0;
 }
 
-static int ncld_wait_session(struct ncld_sess *nsp)
+static int ncld_wait_session(struct ncld_sess *nsess)
 {
-	g_mutex_lock(nsp->mutex);
-	while (!nsp->is_up)
-		g_cond_wait(nsp->cond, nsp->mutex);
-	g_mutex_unlock(nsp->mutex);
-	return nsp->errc;
+	g_mutex_lock(nsess->mutex);
+	while (!nsess->is_up)
+		g_cond_wait(nsess->cond, nsess->mutex);
+	g_mutex_unlock(nsess->mutex);
+	return nsess->errc;
 }
 
 /*
@@ -1553,91 +1553,91 @@ struct ncld_sess *ncld_sess_open(const char *host, int port, int *error,
 				 void *ev_arg, const char *cld_user,
 				 const char *cld_key)
 {
-	struct ncld_sess *nsp;
+	struct ncld_sess *nsess;
 	struct cldc_call_opts copts;
 	int err;
 	GError *gerr;
 	int rc;
 
 	err = ENOMEM;
-	nsp = malloc(sizeof(struct ncld_sess));
-	if (!nsp)
+	nsess = malloc(sizeof(struct ncld_sess));
+	if (!nsess)
 		goto out_sesalloc;
-	memset(nsp, 0, sizeof(struct ncld_sess));
-	cld_timer_init(&nsp->udp_timer, "nsp-udp-timer", ncld_udp_timer_event,
-		       nsp);
-	nsp->mutex = g_mutex_new();
-	if (!nsp->mutex)
+	memset(nsess, 0, sizeof(struct ncld_sess));
+	cld_timer_init(&nsess->udp_timer, "nsess-udp-timer", ncld_udp_timer_event,
+		       nsess);
+	nsess->mutex = g_mutex_new();
+	if (!nsess->mutex)
 		goto out_mutex;
-	nsp->cond = g_cond_new();
-	if (!nsp->cond)
+	nsess->cond = g_cond_new();
+	if (!nsess->cond)
 		goto out_cond;
 
 	if (!host) {
-		err = ncld_getsrv(&nsp->host, &nsp->port);
+		err = ncld_getsrv(&nsess->host, &nsess->port);
 		if (err)
 			goto out_srv;
 	} else {
-		err = ncld_gethost(&nsp->host, &nsp->port, host, port);
+		err = ncld_gethost(&nsess->host, &nsess->port, host, port);
 		if (err)
 			goto out_srv;
 	}
 
-	nsp->event = ev_func;
-	nsp->event_arg = ev_arg;
+	nsess->event = ev_func;
+	nsess->event_arg = ev_arg;
 
-	if (pipe(nsp->to_thread) < 0) {
+	if (pipe(nsess->to_thread) < 0) {
 		err = errno;
 		goto out_pipe_to;
 	}
 
-	if (cldc_udp_new(nsp->host, nsp->port, &nsp->udp)) {
+	if (cldc_udp_new(nsess->host, nsess->port, &nsess->udp)) {
 		err = 1023;
 		goto out_udp;
 	}
 
-	nsp->thread = g_thread_create(ncld_sess_thr, nsp, TRUE, &gerr);
-	if (nsp->thread == NULL) {
+	nsess->thread = g_thread_create(ncld_sess_thr, nsess, TRUE, &gerr);
+	if (nsess->thread == NULL) {
 		err = 1022;
 		goto out_thread;
 	}
 
 	memset(&copts, 0, sizeof(copts));
 	copts.cb = ncld_new_sess;
-	copts.private = nsp;
-	if (cldc_new_sess(&ncld_ops, &copts, nsp->udp->addr, nsp->udp->addr_len,
-			  cld_user, cld_key, nsp, &nsp->udp->sess)) {
+	copts.private = nsess;
+	if (cldc_new_sess(&ncld_ops, &copts, nsess->udp->addr, nsess->udp->addr_len,
+			  cld_user, cld_key, nsess, &nsess->udp->sess)) {
 		err = 1024;
 		goto out_session;
 	}
 
-	/* nsp->udp->sess->log.verbose = 1; */
+	/* nsess->udp->sess->log.verbose = 1; */
 
-	rc = ncld_wait_session(nsp);
+	rc = ncld_wait_session(nsess);
 	if (rc) {
 		err = 1100 + rc % 1000;
 		goto out_start;
 	}
 
-	return nsp;
+	return nsess;
 
 out_start:
-	cldc_kill_sess(nsp->udp->sess);
+	cldc_kill_sess(nsess->udp->sess);
 out_session:
-	ncld_thr_end(nsp);
+	ncld_thr_end(nsess);
 out_thread:
-	cldc_udp_free(nsp->udp);
+	cldc_udp_free(nsess->udp);
 out_udp:
-	close(nsp->to_thread[0]);
-	close(nsp->to_thread[1]);
+	close(nsess->to_thread[0]);
+	close(nsess->to_thread[1]);
 out_pipe_to:
-	free(nsp->host);
+	free(nsess->host);
 out_srv:
-	g_cond_free(nsp->cond);
+	g_cond_free(nsess->cond);
 out_cond:
-	g_mutex_free(nsp->mutex);
+	g_mutex_free(nsess->mutex);
 out_mutex:
-	free(nsp);
+	free(nsess);
 out_sesalloc:
 	*error = err;
 	return NULL;
@@ -1645,23 +1645,23 @@ out_sesalloc:
 
 static int ncld_open_cb(struct cldc_call_opts *copts, enum cle_err_codes errc)
 {
-	struct ncld_fh *fhp = copts->private;
+	struct ncld_fh *fh = copts->private;
 
-	fhp->errc = errc;
-	fhp->is_open = true;
-	g_cond_broadcast(fhp->ses->cond);
+	fh->errc = errc;
+	fh->is_open = true;
+	g_cond_broadcast(fh->sess->cond);
 	return 0;
 }
 
-static int ncld_wait_open(struct ncld_fh *fhp)
+static int ncld_wait_open(struct ncld_fh *fh)
 {
-	struct ncld_sess *nsp = fhp->ses;
+	struct ncld_sess *nsess = fh->sess;
 
-	g_mutex_lock(nsp->mutex);
-	while (!fhp->is_open)
-		g_cond_wait(nsp->cond, nsp->mutex);
-	g_mutex_unlock(nsp->mutex);
-	return fhp->errc;
+	g_mutex_lock(nsess->mutex);
+	while (!fh->is_open)
+		g_cond_wait(nsess->cond, nsess->mutex);
+	g_mutex_unlock(nsess->mutex);
+	return fh->errc;
 }
 
 /*
@@ -1674,49 +1674,49 @@ static int ncld_wait_open(struct ncld_fh *fhp)
  *
  * On error, return NULL and set the error code (can be errno or our own code).
  */
-struct ncld_fh *ncld_open(struct ncld_sess *nsp, const char *fname,
+struct ncld_fh *ncld_open(struct ncld_sess *nsess, const char *fname,
 			  unsigned int mode, int *error, unsigned int events,
 			  void (*ev_func)(void *, unsigned int), void *ev_arg)
 {
-	struct ncld_fh *fhp;
+	struct ncld_fh *fh;
 	struct cldc_call_opts copts;
 	int err;
 	int rc;
 
 	err = EBUSY;
-	if (!nsp->is_up)
+	if (!nsess->is_up)
 		goto out_session;
 
 	err = ENOMEM;
-	fhp = malloc(sizeof(struct ncld_fh));
-	if (!fhp)
+	fh = malloc(sizeof(struct ncld_fh));
+	if (!fh)
 		goto out_alloc;
-	memset(fhp, 0, sizeof(struct ncld_fh));
-	fhp->ses = nsp;
-	fhp->event_mask = events;
-	fhp->event_func = ev_func;
-	fhp->event_arg = ev_arg;
+	memset(fh, 0, sizeof(struct ncld_fh));
+	fh->sess = nsess;
+	fh->event_mask = events;
+	fh->event_func = ev_func;
+	fh->event_arg = ev_arg;
 
-	g_mutex_lock(nsp->mutex);
+	g_mutex_lock(nsess->mutex);
 	memset(&copts, 0, sizeof(copts));
 	copts.cb = ncld_open_cb;
-	copts.private = fhp;
-	rc = cldc_open(nsp->udp->sess, &copts, fname, mode, events, &fhp->fh);
+	copts.private = fh;
+	rc = cldc_open(nsess->udp->sess, &copts, fname, mode, events, &fh->fh);
 	if (rc) {
 		err = -rc;
-		g_mutex_unlock(nsp->mutex);
+		g_mutex_unlock(nsess->mutex);
 		goto out_open;
 	}
-	g_mutex_unlock(nsp->mutex);
+	g_mutex_unlock(nsess->mutex);
 
-	rc = ncld_wait_open(fhp);
+	rc = ncld_wait_open(fh);
 	if (rc) {
 		err = 1100 + rc;
 		goto out_start;
 	}
 
-	nsp->handles = g_list_prepend(nsp->handles, fhp);
-	return fhp;
+	nsess->handles = g_list_prepend(nsess->handles, fh);
+	return fh;
 
 out_start:
 	/*
@@ -1726,7 +1726,7 @@ out_start:
 	 * garbage-collected if we're lucky).
 	 */
 out_open:
-	free(fhp);
+	free(fh);
 out_alloc:
 out_session:
 	*error = err;
@@ -1734,7 +1734,7 @@ out_session:
 }
 
 struct ncld_delio {
-	struct ncld_sess *ses;
+	struct ncld_sess *sess;
 	bool is_done;
 	int errc;
 };
@@ -1742,48 +1742,48 @@ struct ncld_delio {
 static int ncld_del_cb(struct cldc_call_opts *copts, enum cle_err_codes errc)
 {
 	struct ncld_delio *dp = copts->private;
-	struct ncld_sess *nsp = dp->ses;
+	struct ncld_sess *nsess = dp->sess;
 
 	dp->errc = errc;
 	dp->is_done = true;
-	g_cond_broadcast(nsp->cond);
+	g_cond_broadcast(nsess->cond);
 	return 0;
 }
 
 static int ncld_wait_del(struct ncld_delio *dp)
 {
-	struct ncld_sess *nsp = dp->ses;
+	struct ncld_sess *nsess = dp->sess;
 
-	g_mutex_lock(nsp->mutex);
+	g_mutex_lock(nsess->mutex);
 	while (!dp->is_done)
-		g_cond_wait(nsp->cond, nsp->mutex);
-	g_mutex_unlock(nsp->mutex);
+		g_cond_wait(nsess->cond, nsess->mutex);
+	g_mutex_unlock(nsess->mutex);
 	return dp->errc;
 }
 
-int ncld_del(struct ncld_sess *nsp, const char *fname)
+int ncld_del(struct ncld_sess *nsess, const char *fname)
 {
 	struct cldc_call_opts copts;
 	struct ncld_delio dpb;
 	int rc;
 
-	if (!nsp->is_up)
+	if (!nsess->is_up)
 		return -EBUSY;
 
 	memset(&dpb, 0, sizeof(struct ncld_delio));
-	dpb.ses = nsp;
+	dpb.sess = nsess;
 
-	g_mutex_lock(nsp->mutex);
+	g_mutex_lock(nsess->mutex);
 	memset(&copts, 0, sizeof(copts));
 	copts.cb = ncld_del_cb;
 	copts.private = &dpb;
-	rc = cldc_del(nsp->udp->sess, &copts, fname);
+	rc = cldc_del(nsess->udp->sess, &copts, fname);
 	if (rc) {
-		g_mutex_unlock(nsp->mutex);
+		g_mutex_unlock(nsess->mutex);
 		return -rc;
 	}
 	/* XXX A delete operation is not accounted for end-session */
-	g_mutex_unlock(nsp->mutex);
+	g_mutex_unlock(nsess->mutex);
 
 	rc = ncld_wait_del(&dpb);
 	if (rc)
@@ -1795,7 +1795,7 @@ int ncld_del(struct ncld_sess *nsp, const char *fname)
 static int ncld_read_cb(struct cldc_call_opts *copts, enum cle_err_codes errc)
 {
 	struct ncld_read *rp = copts->private;
-	struct ncld_fh *fhp = rp->fh;
+	struct ncld_fh *fh = rp->fh;
 
 	if (errc) {
 		rp->errc = errc;
@@ -1809,20 +1809,20 @@ static int ncld_read_cb(struct cldc_call_opts *copts, enum cle_err_codes errc)
 		rp->length = l;
 	}
 	rp->is_done = true;
-	g_cond_broadcast(fhp->ses->cond);
+	g_cond_broadcast(fh->sess->cond);
 	return 0;
 }
 
 static int ncld_wait_read(struct ncld_read *rp)
 {
-	struct ncld_fh *fhp = rp->fh;
-	struct ncld_sess *nsp = fhp->ses;
+	struct ncld_fh *fh = rp->fh;
+	struct ncld_sess *nsess = fh->sess;
 
-	g_mutex_lock(nsp->mutex);
+	g_mutex_lock(nsess->mutex);
 	while (!rp->is_done)
-		g_cond_wait(nsp->cond, nsp->mutex);
-	--fhp->nios;
-	g_mutex_unlock(nsp->mutex);
+		g_cond_wait(nsess->cond, nsess->mutex);
+	--fh->nios;
+	g_mutex_unlock(nsess->mutex);
 	return rp->errc;
 }
 
@@ -1830,14 +1830,14 @@ static int ncld_wait_read(struct ncld_read *rp)
  * @error Error code buffer.
  * @return Pointer to struct ncld_read or NULL if error.
  */
-struct ncld_read *ncld_get(struct ncld_fh *fhp, int *error)
+struct ncld_read *ncld_get(struct ncld_fh *fh, int *error)
 {
-	struct ncld_sess *nsp = fhp->ses;
+	struct ncld_sess *nsess = fh->sess;
 	struct ncld_read *rp;
 	struct cldc_call_opts copts;
 	int rc;
 
-	if (!fhp->is_open) {
+	if (!fh->is_open) {
 		*error = EBUSY;
 		return NULL;
 	}
@@ -1848,21 +1848,21 @@ struct ncld_read *ncld_get(struct ncld_fh *fhp, int *error)
 		return NULL;
 	}
 	memset(rp, 0, sizeof(struct ncld_read));
-	rp->fh = fhp;
+	rp->fh = fh;
 
-	g_mutex_lock(nsp->mutex);
+	g_mutex_lock(nsess->mutex);
 	memset(&copts, 0, sizeof(copts));
 	copts.cb = ncld_read_cb;
 	copts.private = rp;
-	rc = cldc_get(fhp->fh, &copts, false);
+	rc = cldc_get(fh->fh, &copts, false);
 	if (rc) {
-		g_mutex_unlock(nsp->mutex);
+		g_mutex_unlock(nsess->mutex);
 		free(rp);
 		*error = -rc;
 		return NULL;
 	}
-	fhp->nios++;
-	g_mutex_unlock(nsp->mutex);
+	fh->nios++;
+	g_mutex_unlock(nsess->mutex);
 
 	rc = ncld_wait_read(rp);
 	if (rc) {
@@ -1887,7 +1887,7 @@ static int ncld_read_meta_cb(struct cldc_call_opts *copts, enum cle_err_codes er
 		rp->length = 0;
 	}
 	rp->is_done = true;
-	g_cond_broadcast(fh->ses->cond);
+	g_cond_broadcast(fh->sess->cond);
 	return 0;
 }
 
@@ -1897,7 +1897,7 @@ static int ncld_read_meta_cb(struct cldc_call_opts *copts, enum cle_err_codes er
  */
 struct ncld_read *ncld_get_meta(struct ncld_fh *fh, int *error)
 {
-	struct ncld_sess *nsp = fh->ses;
+	struct ncld_sess *nsess = fh->sess;
 	struct ncld_read *rp;
 	struct cldc_call_opts copts;
 	int rc;
@@ -1915,19 +1915,19 @@ struct ncld_read *ncld_get_meta(struct ncld_fh *fh, int *error)
 	memset(rp, 0, sizeof(struct ncld_read));
 	rp->fh = fh;
 
-	g_mutex_lock(nsp->mutex);
+	g_mutex_lock(nsess->mutex);
 	memset(&copts, 0, sizeof(copts));
 	copts.cb = ncld_read_meta_cb;
 	copts.private = rp;
 	rc = cldc_get(fh->fh, &copts, true);
 	if (rc) {
-		g_mutex_unlock(nsp->mutex);
+		g_mutex_unlock(nsess->mutex);
 		free(rp);
 		*error = -rc;
 		return NULL;
 	}
 	fh->nios++;
-	g_mutex_unlock(nsp->mutex);
+	g_mutex_unlock(nsess->mutex);
 
 	rc = ncld_wait_read(rp);
 	if (rc) {
@@ -1963,54 +1963,54 @@ struct ncld_genio {
 static int ncld_genio_cb(struct cldc_call_opts *copts, enum cle_err_codes errc)
 {
 	struct ncld_genio *ap = copts->private;
-	struct ncld_fh *fhp = ap->fh;
+	struct ncld_fh *fh = ap->fh;
 
 	ap->errc = errc;
 	ap->is_done = true;
-	g_cond_broadcast(fhp->ses->cond);
+	g_cond_broadcast(fh->sess->cond);
 	return 0;
 }
 
 static int ncld_wait_genio(struct ncld_genio *ap)
 {
-	struct ncld_fh *fhp = ap->fh;
-	struct ncld_sess *nsp = fhp->ses;
+	struct ncld_fh *fh = ap->fh;
+	struct ncld_sess *nsess = fh->sess;
 
-	g_mutex_lock(nsp->mutex);
+	g_mutex_lock(nsess->mutex);
 	while (!ap->is_done)
-		g_cond_wait(nsp->cond, nsp->mutex);
-	--fhp->nios;
-	g_mutex_unlock(nsp->mutex);
+		g_cond_wait(nsess->cond, nsess->mutex);
+	--fh->nios;
+	g_mutex_unlock(nsess->mutex);
 	return ap->errc;
 }
 
 /*
  * @return: Zero or error code.
  */
-int ncld_write(struct ncld_fh *fhp, const void *data, long len)
+int ncld_write(struct ncld_fh *fh, const void *data, long len)
 {
-	struct ncld_sess *nsp = fhp->ses;
+	struct ncld_sess *nsess = fh->sess;
 	struct cldc_call_opts copts;
 	struct ncld_genio apb;
 	int rc;
 
-	if (!fhp->is_open)
+	if (!fh->is_open)
 		return -EBUSY;
 
 	memset(&apb, 0, sizeof(struct ncld_genio));
-	apb.fh = fhp;
+	apb.fh = fh;
 
-	g_mutex_lock(nsp->mutex);
+	g_mutex_lock(nsess->mutex);
 	memset(&copts, 0, sizeof(copts));
 	copts.cb = ncld_genio_cb;
 	copts.private = &apb;
-	rc = cldc_put(fhp->fh, &copts, data, len);
+	rc = cldc_put(fh->fh, &copts, data, len);
 	if (rc) {
-		g_mutex_unlock(nsp->mutex);
+		g_mutex_unlock(nsess->mutex);
 		return -rc;
 	}
-	fhp->nios++;
-	g_mutex_unlock(nsp->mutex);
+	fh->nios++;
+	g_mutex_unlock(nsess->mutex);
 
 	rc = ncld_wait_genio(&apb);
 	if (rc)
@@ -2019,30 +2019,30 @@ int ncld_write(struct ncld_fh *fhp, const void *data, long len)
 	return 0;
 }
 
-int ncld_trylock(struct ncld_fh *fhp)
+int ncld_trylock(struct ncld_fh *fh)
 {
-	struct ncld_sess *nsp = fhp->ses;
+	struct ncld_sess *nsess = fh->sess;
 	struct cldc_call_opts copts;
 	struct ncld_genio apb;
 	int rc;
 
-	if (!fhp->is_open)
+	if (!fh->is_open)
 		return -EBUSY;
 
 	memset(&apb, 0, sizeof(struct ncld_genio));
-	apb.fh = fhp;
+	apb.fh = fh;
 
-	g_mutex_lock(nsp->mutex);
+	g_mutex_lock(nsess->mutex);
 	memset(&copts, 0, sizeof(copts));
 	copts.cb = ncld_genio_cb;
 	copts.private = &apb;
-	rc = cldc_lock(fhp->fh, &copts, 0, false);
+	rc = cldc_lock(fh->fh, &copts, 0, false);
 	if (rc) {
-		g_mutex_unlock(nsp->mutex);
+		g_mutex_unlock(nsess->mutex);
 		return -rc;
 	}
-	fhp->nios++;
-	g_mutex_unlock(nsp->mutex);
+	fh->nios++;
+	g_mutex_unlock(nsess->mutex);
 
 	rc = ncld_wait_genio(&apb);
 	if (rc)
@@ -2051,30 +2051,30 @@ int ncld_trylock(struct ncld_fh *fhp)
 	return 0;
 }
 
-int ncld_unlock(struct ncld_fh *fhp)
+int ncld_unlock(struct ncld_fh *fh)
 {
-	struct ncld_sess *nsp = fhp->ses;
+	struct ncld_sess *nsess = fh->sess;
 	struct cldc_call_opts copts;
 	struct ncld_genio apb;
 	int rc;
 
-	if (!fhp->is_open)
+	if (!fh->is_open)
 		return -EBUSY;
 
 	memset(&apb, 0, sizeof(struct ncld_genio));
-	apb.fh = fhp;
+	apb.fh = fh;
 
-	g_mutex_lock(nsp->mutex);
+	g_mutex_lock(nsess->mutex);
 	memset(&copts, 0, sizeof(copts));
 	copts.cb = ncld_genio_cb;
 	copts.private = &apb;
-	rc = cldc_unlock(fhp->fh, &copts);
+	rc = cldc_unlock(fh->fh, &copts);
 	if (rc) {
-		g_mutex_unlock(nsp->mutex);
+		g_mutex_unlock(nsess->mutex);
 		return -rc;
 	}
-	fhp->nios++;
-	g_mutex_unlock(nsp->mutex);
+	fh->nios++;
+	g_mutex_unlock(nsess->mutex);
 
 	rc = ncld_wait_genio(&apb);
 	if (rc)
@@ -2090,30 +2090,30 @@ int ncld_unlock(struct ncld_fh *fhp)
  * Applications using this supply a callback and a mask to ncld_open.
  * FIXME: This does not work at present, since server does not post them.
  */
-int ncld_qlock(struct ncld_fh *fhp)
+int ncld_qlock(struct ncld_fh *fh)
 {
-	struct ncld_sess *nsp = fhp->ses;
+	struct ncld_sess *nsess = fh->sess;
 	struct cldc_call_opts copts;
 	struct ncld_genio apb;
 	int rc;
 
-	if (!fhp->is_open)
+	if (!fh->is_open)
 		return -EBUSY;
 
 	memset(&apb, 0, sizeof(struct ncld_genio));
-	apb.fh = fhp;
+	apb.fh = fh;
 
-	g_mutex_lock(nsp->mutex);
+	g_mutex_lock(nsess->mutex);
 	memset(&copts, 0, sizeof(copts));
 	copts.cb = ncld_genio_cb;
 	copts.private = &apb;
-	rc = cldc_lock(fhp->fh, &copts, 0, true);
+	rc = cldc_lock(fh->fh, &copts, 0, true);
 	if (rc) {
-		g_mutex_unlock(nsp->mutex);
+		g_mutex_unlock(nsess->mutex);
 		return -rc;
 	}
-	fhp->nios++;
-	g_mutex_unlock(nsp->mutex);
+	fh->nios++;
+	g_mutex_unlock(nsess->mutex);
 
 	rc = ncld_wait_genio(&apb);
 	if (rc) {
@@ -2126,11 +2126,11 @@ int ncld_qlock(struct ncld_fh *fhp)
 
 static int ncld_close_cb(struct cldc_call_opts *copts, enum cle_err_codes errc)
 {
-	struct ncld_fh *fhp = copts->private;
+	struct ncld_fh *fh = copts->private;
 
-	fhp->errc = errc;
-	fhp->is_open = false;
-	g_cond_broadcast(fhp->ses->cond);
+	fh->errc = errc;
+	fh->is_open = false;
+	g_cond_broadcast(fh->sess->cond);
 	return 0;
 }
 
@@ -2140,28 +2140,28 @@ static int ncld_close_cb(struct cldc_call_opts *copts, enum cle_err_codes errc)
  * for us, because users keep pointers, not file descriptor numbers.
  * Applications should stop application I/O first, then close.
  */
-void ncld_close(struct ncld_fh *fhp)
+void ncld_close(struct ncld_fh *fh)
 {
-	struct ncld_sess *nsp = fhp->ses;
+	struct ncld_sess *nsess = fh->sess;
 	struct cldc_call_opts copts;
 	int rc;
 
-	if (!fhp->is_open)
+	if (!fh->is_open)
 		abort();
 
-	g_mutex_lock(nsp->mutex);
+	g_mutex_lock(nsess->mutex);
 	memset(&copts, 0, sizeof(copts));
 	copts.cb = ncld_close_cb;
-	copts.private = fhp;
-	rc = cldc_close(fhp->fh, &copts);
-	g_mutex_unlock(nsp->mutex);
+	copts.private = fh;
+	rc = cldc_close(fh->fh, &copts);
+	g_mutex_unlock(nsess->mutex);
 
 	if (rc == 0) {
-		g_mutex_lock(nsp->mutex);
-		while (fhp->is_open)
-			g_cond_wait(nsp->cond, nsp->mutex);
-		g_mutex_unlock(nsp->mutex);
-		/* At this point, we ignore fhp->errc. */
+		g_mutex_lock(nsess->mutex);
+		while (fh->is_open)
+			g_cond_wait(nsess->cond, nsess->mutex);
+		g_mutex_unlock(nsess->mutex);
+		/* At this point, we ignore fh->errc. */
 	}
 
 	/*
@@ -2171,13 +2171,13 @@ void ncld_close(struct ncld_fh *fhp)
 	 * N.B.: this is making use of the fact that we only have one
 	 * conditional per session, and therefore end-of-I/O pokes us here.
 	 */
-	g_mutex_lock(nsp->mutex);
-	while (fhp->nios)
-		g_cond_wait(nsp->cond, nsp->mutex);
-	g_mutex_unlock(nsp->mutex);
+	g_mutex_lock(nsess->mutex);
+	while (fh->nios)
+		g_cond_wait(nsess->cond, nsess->mutex);
+	g_mutex_unlock(nsess->mutex);
 
-	nsp->handles = g_list_remove_all(nsp->handles, fhp);
-	free(fhp);
+	nsess->handles = g_list_remove_all(nsess->handles, fh);
+	free(fh);
 }
 
 static void ncld_func_close(gpointer data, gpointer priv)
@@ -2185,20 +2185,20 @@ static void ncld_func_close(gpointer data, gpointer priv)
 	ncld_close(data);
 }
 
-void ncld_sess_close(struct ncld_sess *nsp)
+void ncld_sess_close(struct ncld_sess *nsess)
 {
-	g_list_foreach(nsp->handles, ncld_func_close, NULL);
-	g_list_free(nsp->handles);
+	g_list_foreach(nsess->handles, ncld_func_close, NULL);
+	g_list_free(nsess->handles);
 
-	cldc_kill_sess(nsp->udp->sess);
-	ncld_thr_end(nsp);
-	cldc_udp_free(nsp->udp);
-	close(nsp->to_thread[0]);
-	close(nsp->to_thread[1]);
-	g_cond_free(nsp->cond);
-	g_mutex_free(nsp->mutex);
-	free(nsp->host);
-	free(nsp);
+	cldc_kill_sess(nsess->udp->sess);
+	ncld_thr_end(nsess);
+	cldc_udp_free(nsess->udp);
+	close(nsess->to_thread[0]);
+	close(nsess->to_thread[1]);
+	g_cond_free(nsess->cond);
+	g_mutex_free(nsess->mutex);
+	free(nsess->host);
+	free(nsess);
 }
 
 void ncld_init(void)
