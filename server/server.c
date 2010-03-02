@@ -142,6 +142,10 @@ static struct {
 	[che_InvalidTable] =
 	{ "che_InvalidTable", 400,
 	  "Invalid table requested, or table not open" },
+
+	[che_Busy] =
+	{ "che_Busy", 500,
+	  "Temporarily unable to process the command" },
 };
 
 void applog(int prio, const char *fmt, ...)
@@ -753,6 +757,56 @@ static bool cli_resp_xml(struct client *cli, GList *content)
 	return rcb;
 }
 
+static bool cli_resp_bin(struct client *cli, void *data, size_t content_len)
+{
+	int rc;
+	bool rcb;
+	struct chunksrv_resp *resp = NULL;
+	void *bin;
+
+	resp = malloc(sizeof(*resp));
+	if (!resp) {
+		cli->state = evt_dispose;
+		return true;
+	}
+
+	bin = malloc(content_len);
+	if (!bin) {
+		free(resp);
+		cli->state = evt_dispose;
+		return true;
+	}
+	memcpy(bin, data, content_len);
+
+	resp_init_req(resp, &cli->creq);
+
+	resp->data_len = cpu_to_le64(content_len);
+
+	cli->state = evt_recycle;
+
+	rc = cli_writeq(cli, resp, sizeof(*resp), cli_cb_free, resp);
+	if (rc) {
+		free(resp);
+		free(bin);
+		cli->state = evt_dispose;
+		return true;
+	}
+
+	rc = cli_writeq(cli, bin, content_len, cli_cb_free, bin);
+	if (rc) {
+		free(bin);
+		cli->state = evt_dispose;
+		return true;
+	}
+
+	rcb = cli_write_start(cli);
+
+	if (cli->state == evt_recycle)
+		return true;
+
+	return rcb;
+}
+
 static bool volume_list(struct client *cli)
 {
 	char *s;
@@ -880,6 +934,57 @@ err_out:
 	return cli_err(cli, err, false);
 }
 
+static bool chk_poke(struct client *cli)
+{
+	unsigned char cmd;
+	int rc;
+
+	g_mutex_lock(chunkd_srv.bigmutex);
+	switch (chunkd_srv.chk_state) {
+	case CHK_ST_OFF:
+		chunkd_srv.chk_state = CHK_ST_INIT;
+		g_mutex_unlock(chunkd_srv.bigmutex);
+		rc = chk_spawn(chunkd_srv.chk_period, chunkd_srv.tbl_master);
+		if (rc)
+			return cli_err(cli, che_InternalError, true);
+		break;
+	case CHK_ST_INIT:
+	case CHK_ST_RUNNING:
+		g_mutex_unlock(chunkd_srv.bigmutex);
+		return cli_err(cli, che_Busy, true);
+	default:
+		chunkd_srv.chk_state = CHK_ST_RUNNING;
+		g_mutex_unlock(chunkd_srv.bigmutex);
+	}
+
+	cmd = CHK_CMD_RESCAN;
+	write(chunkd_srv.chk_pipe[1], &cmd, 1);
+	return cli_err(cli, che_Success, true);
+}
+
+static bool chk_status(struct client *cli)
+{
+	struct chunk_check_status outbuf;
+
+	memset(&outbuf, 0, sizeof(struct chunk_check_status));
+	g_mutex_lock(chunkd_srv.bigmutex);
+	outbuf.lastdone = cpu_to_le64(chunkd_srv.chk_done);
+	switch (chunkd_srv.chk_state) {
+	case CHK_ST_IDLE:
+		outbuf.state = chk_Idle;
+		break;
+	case CHK_ST_INIT:
+	case CHK_ST_RUNNING:
+		outbuf.state = chk_Active;
+		break;
+	default:
+		outbuf.state = chk_Off;
+	}
+	g_mutex_unlock(chunkd_srv.bigmutex);
+
+	return cli_resp_bin(cli, &outbuf, sizeof(struct chunk_check_status));
+}
+
 static bool valid_req_hdr(const struct chunksrv_req *req)
 {
 	size_t len;
@@ -905,6 +1010,8 @@ static const char *op2str(enum chunksrv_ops op)
 	case CHO_LIST:		return "CHO_LIST";
 	case CHO_LOGIN:		return "CHO_LOGIN";
 	case CHO_TABLE_OPEN:	return "CHO_TABLE_OPEN";
+	case CHO_CHECK_START:	return "CHO_CHECK_START";
+	case CHO_CHECK_STATUS:	return "CHO_CHECK_STATUS";
 
 	default:
 		return "BUG/UNKNOWN!";
@@ -974,7 +1081,7 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 	}
 
 	/*
-	 * operations on objects
+	 * operations
 	 */
 	switch (req->op) {
 	case CHO_LOGIN:
@@ -1002,6 +1109,12 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 		break;
 	case CHO_TABLE_OPEN:
 		rcb = volume_open(cli);
+		break;
+	case CHO_CHECK_START:
+		rcb = chk_poke(cli);
+		break;
+	case CHO_CHECK_STATUS:
+		rcb = chk_status(cli);
 		break;
 	default:
 		rcb = cli_err(cli, che_InvalidURI, true);
@@ -1580,6 +1693,7 @@ int main (int argc, char *argv[])
 	error_t aprc;
 	int rc = 1;
 	GList *tmpl;
+	unsigned char cmd;
 
 	/* isspace() and strcasecmp() consistency requires this */
 	setlocale(LC_ALL, "C");
@@ -1609,6 +1723,7 @@ int main (int argc, char *argv[])
 	cldu_hail_log.verbose = debugging;
 
 	g_thread_init(NULL);
+	chunkd_srv.bigmutex = g_mutex_new();
 	SSL_library_init();
 
 	/* init SSL */
@@ -1666,8 +1781,18 @@ int main (int argc, char *argv[])
 		goto err_out_session;
 	}
 
+	if (objcache_init(&chunkd_srv.actives) != 0) {
+		rc = 1;
+		goto err_out_objcache;
+	}
+
 	INIT_LIST_HEAD(&chunkd_srv.wr_trash);
 	chunkd_srv.trash_sz = 0;
+
+	if (pipe(chunkd_srv.chk_pipe) < 0) {
+		rc = 1;
+		goto err_out_pipe;
+	}
 
 	if (fs_open()) {
 		rc = 1;
@@ -1679,6 +1804,8 @@ int main (int argc, char *argv[])
 		rc = 1;
 		goto err_out_cld;
 	}
+
+	chk_init();
 
 	/* set up server networking */
 	for (tmpl = chunkd_srv.listeners; tmpl; tmpl = tmpl->next) {
@@ -1699,6 +1826,12 @@ err_out_listen:
 err_out_cld:
 	fs_close();
 err_out_fs:
+	cmd = CHK_CMD_EXIT;
+	write(chunkd_srv.chk_pipe[1], &cmd, 1);
+	close(chunkd_srv.chk_pipe[1]);
+err_out_pipe:
+	objcache_fini(&chunkd_srv.actives);
+err_out_objcache:
 	if (strict_free)
 		g_hash_table_destroy(chunkd_srv.fd_info);
 err_out_session:

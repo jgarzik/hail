@@ -28,6 +28,7 @@
 #include <chunk_msg.h>
 #include <hail_log.h>
 #include <tchdb.h>
+#include <objcache.h>
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
@@ -118,6 +119,7 @@ struct client {
 	uint64_t		out_len;
 
 	struct backend_obj	*out_bo;
+	struct objcache_entry	*out_ce;
 
 	uint64_t		in_len;
 	struct backend_obj	*in_obj;
@@ -188,8 +190,21 @@ struct server_socket {
 	const struct listen_cfg	*cfg;
 };
 
+enum chk_cmd {
+	CHK_CMD_EXIT,
+	CHK_CMD_RESCAN
+};
+
+enum chk_state {
+	CHK_ST_OFF,
+	CHK_ST_INIT,
+	CHK_ST_IDLE,
+	CHK_ST_RUNNING,
+};
+
 struct server {
 	unsigned long		flags;		/* SFL_xxx above */
+	GMutex			*bigmutex;
 
 	char			*config;	/* master config file */
 	char			*pid_file;	/* PID file */
@@ -208,11 +223,18 @@ struct server {
 	char			*group;
 	uint32_t		nid;
 	struct geo		loc;
+	time_t			chk_period;
+	int			chk_pipe[2];
 
 	TCHDB			*tbl_master;
+	struct objcache		actives;
 
 	struct server_stats	stats;		/* global statistics */
+	enum chk_state		chk_state;
+	time_t			chk_done;
 };
+
+#define MDB_TABLE_ID	"__chunkd_table_id"
 
 extern struct hail_log cldu_hail_log;
 
@@ -242,6 +264,7 @@ extern bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 extern bool fs_obj_delete(uint32_t table_id, const char *user,
 		          const void *kbuf, size_t klen,
 			  enum chunk_errcode *err_code);
+extern int fs_obj_disable(const char *fn);
 extern ssize_t fs_obj_sendfile(struct backend_obj *bo, int out_fd, size_t len);
 extern int fs_list_objs_open(struct fs_obj_lister *t,
 			     const char *root_path, uint32_t table_id);
@@ -254,6 +277,7 @@ extern GList *fs_list_objs(uint32_t table_id, const char *user);
 extern bool fs_table_open(const char *user, const void *kbuf, size_t klen,
 		   bool tbl_creat, bool excl_creat, uint32_t *table_id,
 		   enum chunk_errcode *err_code);
+extern int fs_obj_do_sum(const char *fn, unsigned int klen, char **csump);
 
 /* object.c */
 extern bool object_del(struct client *cli);
@@ -316,6 +340,10 @@ extern void resp_init_req(struct chunksrv_resp *resp,
 
 /* config.c */
 extern void read_config(void);
+
+/* selfcheck.c */
+extern void chk_init(void);
+extern int chk_spawn(time_t period, TCHDB *hdb);
 
 static inline bool use_sendfile(struct client *cli)
 {

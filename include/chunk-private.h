@@ -52,4 +52,8 @@ static inline uint64_t cpu_to_le64(uint64_t val)
 	return GUINT64_TO_LE(val);
 }
 
+#define MDB_TPATH_FMT	"%s/%X"
+#define BAD_TPATH_FMT	"%s/bad"
+#define PREFIX_LEN 3
+
 #endif /* __CHUNK_PRIVATE_H__ */

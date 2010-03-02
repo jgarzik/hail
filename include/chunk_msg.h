@@ -40,6 +40,8 @@ enum chunksrv_ops {
 	CHO_LIST		= 5,
 	CHO_LOGIN		= 6,
 	CHO_TABLE_OPEN		= 7,
+	CHO_CHECK_START		= 8,
+	CHO_CHECK_STATUS	= 9,
 };
 
 enum chunk_errcode {
@@ -52,6 +54,7 @@ enum chunk_errcode {
 	che_SignatureDoesNotMatch	= 6,
 	che_InvalidKey			= 7,
 	che_InvalidTable		= 8,
+	che_Busy			= 9,
 };
 
 enum chunk_flags {
@@ -84,6 +87,24 @@ struct chunksrv_resp {
 struct chunksrv_resp_get {
 	struct chunksrv_resp	resp;
 	uint64_t		mtime;
+};
+
+enum chunk_check_state {
+	chk_Off,
+	chk_Idle,
+	chk_Active
+};
+
+struct chunk_check_status {
+	uint8_t			state;		/* enum chunk_check_state */
+	uint8_t			pad[3];
+	uint32_t		count;		/* lifetime */
+	uint64_t		lastdone;	/* UTC */
+};
+
+struct chunksrv_resp_chkstat {
+	struct chunksrv_resp		resp;
+	struct chunk_check_status	chkstat;
 };
 
 #endif /* __CHUNK_MSG_H__ */

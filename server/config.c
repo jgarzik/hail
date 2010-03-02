@@ -442,6 +442,24 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		cc->text = NULL;
 	}
 
+	else if (!strcmp(element_name, "SelfCheckPeriod")) {
+		if (!cc->text) {
+			applog(LOG_WARNING, "SelfCheckPeriod element empty");
+			return;
+		}
+		n = strtol(cc->text, NULL, 10);
+		if (n < 0 || n >= LONG_MAX) {
+			applog(LOG_ERR, "SelfCheckPeriod '%s' is invalid",
+			       cc->text);
+			free(cc->text);
+			cc->text = NULL;
+			return;
+		}
+		chunkd_srv.chk_period = n;
+		free(cc->text);
+		cc->text = NULL;
+	}
+
 	else {
 		applog(LOG_WARNING, "Unknown element \"%s\"", element_name);
 	}

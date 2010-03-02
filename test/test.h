@@ -38,6 +38,8 @@
 #define TEST_PORTFILE		"chunkd.port"
 #define TEST_PORTFILE_SSL	"chunkd-ssl.port"
 
+#define TEST_CHUNKD_CFG		"server-test.cfg"
+
 #define OK(expr)				\
 	do {					\
 		if (!(expr)) {			\

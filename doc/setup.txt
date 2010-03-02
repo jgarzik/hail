@@ -104,6 +104,16 @@ _cld._udp.phx2.ex.com has SRV record 10 50 8081 maika.phx2.ex.com.
 		<Rack>F3R18</Rack>
 	</Geo>
 
+*) configure the self-check period, if desired. Note that the actual amount
+   of time that the daemon sleeps between self-check sweeps is randomized
+   in order to prevent the convoy effect, so the value below is approximate.
+
+	<!-- 30 * 60 * 60 == 108000 seconds -->
+	<SelfCheckPeriod>108000</SelfCheckPeriod>
+
+   The default is zero, which disables the periodic self-check. It may be
+   appropriate if the application performs its own end-to-end checking.
+
 *) start daemon (it will put itself into the background) with the
    configuration file just created:
 

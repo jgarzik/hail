@@ -89,6 +89,8 @@ enum chcli_cmd {
 	CHC_PUT,
 	CHC_DEL,
 	CHC_PING,
+	CHC_CHECKSTATUS,
+	CHC_CHECKSTART,
 };
 
 struct chcli_host {
@@ -178,10 +180,12 @@ static void show_cmds(void)
 	fprintf(stderr,
 "Supported chcli commands:\n"
 "\n"
-"GET key		Retrieve key, send to output (def: stdout)\n"
-"PUT key val	Store key\n"
-"DEL key	Delete key\n"
-"PING		Ping server\n"
+"GET key       Retrieve key, send to output (def: stdout)\n"
+"PUT key val   Store key\n"
+"DEL key       Delete key\n"
+"PING          Ping server\n"
+"CHECKSTATUS   Fetch status of server self-check\n"
+"CHECKPOKE     Force server self-check\n"
 "\n"
 "Keys provided on the command line (as opposed to via -k) are stored\n"
 "with a C-style nul terminating character appended, adding 1 byte to\n"
@@ -316,6 +320,10 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 			cmd_mode = CHC_DEL;
 		else if (!strcasecmp(arg, "ping"))
 			cmd_mode = CHC_PING;
+		else if (!strcasecmp(arg, "checkstatus"))
+			cmd_mode = CHC_CHECKSTATUS;
+		else if (!strcasecmp(arg, "checkstart"))
+			cmd_mode = CHC_CHECKSTART;
 		else
 			argp_usage(state);	/* invalid cmd */
 		break;
@@ -346,13 +354,14 @@ static struct st_client *chcli_stc_new(void)
 
 	stc->verbose = chcli_verbose;
 
-	if (!stc_table_open(stc, table_name, table_name_len,
-			    table_create ? CHF_TBL_CREAT : 0)) {
-		fprintf(stderr, "%s:%u: failed to open table\n",
-			host->name,
-			host->port);
-		stc_free(stc);
-		return NULL;
+	if (table_name_len) {
+		if (!stc_table_open(stc, table_name, table_name_len,
+				    table_create ? CHF_TBL_CREAT : 0)) {
+			fprintf(stderr, "%s:%u: failed to open table\n",
+				host->name, host->port);
+			stc_free(stc);
+			return NULL;
+		}
 	}
 
 	return stc;
@@ -368,6 +377,7 @@ static int cmd_ping(void)
 
 	if (!stc_ping(stc)) {
 		fprintf(stderr, "PING failed\n");
+		stc_free(stc);
 		return 1;
 	}
 
@@ -406,6 +416,7 @@ static int cmd_del(void)
 
 	if (!stc_del(stc, key_data, key_data_len)) {
 		fprintf(stderr, "DEL failed\n");
+		stc_free(stc);
 		return 1;
 	}
 
@@ -503,6 +514,7 @@ static int cmd_put(void)
 
 	if (!rcb) {
 		fprintf(stderr, "PUT failed\n");
+		stc_free(stc);
 		return 1;
 	}
 
@@ -578,6 +590,7 @@ static int cmd_get(void)
 
 	if (!stc_get_start(stc, key_data, key_data_len, &rfd, &get_len)) {
 		fprintf(stderr, "GET initiation failed\n");
+		stc_free(stc);
 		return 1;
 	}
 
@@ -589,6 +602,7 @@ static int cmd_get(void)
 			fprintf(stderr, "GET output file %s open failed: %s\n",
 				output_fn,
 				strerror(errno));
+			stc_free(stc);
 			return 1;
 		}
 	}
@@ -601,6 +615,7 @@ static int cmd_get(void)
 
 		if (!recv_buf(stc, rfd, get_buf, need_len)) {
 			fprintf(stderr, "GET buffer failed\n");
+			stc_free(stc);
 			return 1;
 		}
 
@@ -609,6 +624,7 @@ static int cmd_get(void)
 			fprintf(stderr, "GET write to output failed: %s\n",
 				strerror(errno));
 			unlink(output_fn);
+			stc_free(stc);
 			return 1;
 		}
 
@@ -620,6 +636,67 @@ static int cmd_get(void)
 
 	stc_free(stc);
 
+	return 0;
+}
+
+static int cmd_check_poke(void)
+{
+	struct st_client *stc;
+
+	stc = chcli_stc_new();
+	if (!stc)
+		return 1;
+
+	if (!stc_check_poke(stc)) {
+		fprintf(stderr, "CHECK POKE failed\n");
+		stc_free(stc);
+		return 1;
+	}
+
+	stc_free(stc);
+	return 0;
+}
+
+static int cmd_check_status(void)
+{
+	struct st_client *stc;
+	struct chunk_check_status status;
+	char *state;
+	char chartime[26];
+	char *s;
+	time_t last_done;
+
+	stc = chcli_stc_new();
+	if (!stc)
+		return 1;
+
+	if (!stc_check_status(stc, &status)) {
+		fprintf(stderr, "CHECK STATUS fetch failed\n");
+		stc_free(stc);
+		return 1;
+	}
+
+	switch (status.state) {
+	case chk_Off:
+		state = "Off";
+		break;
+	case chk_Idle:
+		state = "Idle";
+		break;
+	case chk_Active:
+		state = "Idle";
+		break;
+	default:
+		state = "UNKNOWN";
+	}
+	printf("state: %s\n", state);
+
+	last_done = GUINT64_FROM_LE(status.lastdone);
+	ctime_r(&last_done, chartime);
+	if ((s = strchr(chartime, '\n'))) *s = 0;
+	printf("last: %lld (%s)\n", (long long) last_done, chartime);
+
+	stc_free(stc);
 	return 0;
 }
 
@@ -639,9 +716,16 @@ int main (int argc, char *argv[])
 		fprintf(stderr, "no host specified\n");
 		return 1;
 	}
-	if (!table_name || !table_name_len) {
-		fprintf(stderr, "no table name specified\n");
-		return 1;
+	switch (cmd_mode) {
+	case CHC_PING:
+	case CHC_CHECKSTATUS:
+	case CHC_CHECKSTART:
+		break;
+	default:
+		if (!table_name || !table_name_len) {
+			fprintf(stderr, "no table name specified\n");
+			return 1;
+		}
 	}
 	if (strlen(username) == 0) {
 		fprintf(stderr, "no username specified\n");
@@ -671,6 +755,10 @@ int main (int argc, char *argv[])
 		return cmd_del();
 	case CHC_PING:
 		return cmd_ping();
+	case CHC_CHECKSTATUS:
+		return cmd_check_status();
+	case CHC_CHECKSTART:
+		return cmd_check_poke();
 	}
 
 	return 0;

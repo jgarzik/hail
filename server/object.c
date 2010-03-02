@@ -73,6 +73,10 @@ void cli_out_end(struct client *cli)
 		fs_obj_free(cli->out_bo);
 		cli->out_bo = NULL;
 	}
+	if (cli->out_ce) {
+		objcache_put(&chunkd_srv.actives, cli->out_ce);
+		cli->out_ce = NULL;
+	}
 
 	free(cli->out_user);
 	cli->out_user = NULL;
@@ -216,6 +220,11 @@ bool object_put(struct client *cli)
 
 	if (!user)
 		return cli_err(cli, che_AccessDenied, true);
+
+	cli->out_ce = objcache_get_dirty(&chunkd_srv.actives,
+					 cli->key, cli->key_len);
+	if (!cli->out_ce)
+		return cli_err(cli, che_InternalError, true);
 
 	cli->out_bo = fs_obj_new(cli->table_id, cli->key, cli->key_len, &err);
 	if (!cli->out_bo)

@@ -978,6 +978,88 @@ bool stc_ping(struct st_client *stc)
 	return true;
 }
 
+bool stc_check_poke(struct st_client *stc)
+{
+	struct chunksrv_resp resp;
+	struct chunksrv_req *req = (struct chunksrv_req *) stc->req_buf;
+
+	if (stc->verbose)
+		fprintf(stderr, "libstc: CHECK_POKE\n");
+
+	/* initialize request */
+	req_init(stc, req);
+	req->op = CHO_CHECK_START;
+
+	/* sign request */
+	chreq_sign(req, stc->key, req->sig);
+
+	/* write request */
+	if (!net_write(stc, req, req_len(req)))
+		return false;
+
+	/* read response header */
+	if (!net_read(stc, &resp, sizeof(resp)))
+		return false;
+
+	/* check response code */
+	if (resp.resp_code != che_Success) {
+		if (stc->verbose)
+			fprintf(stderr, "CHECK_POKE resp code: %d\n",
+				resp.resp_code);
+		return false;
+	}
+
+	return true;
+}
+
+bool stc_check_status(struct st_client *stc, struct chunk_check_status *out)
+{
+	struct chunksrv_resp resp;
+	struct chunksrv_req req;
+	uint64_t content_len;
+
+	if (stc->verbose)
+		fprintf(stderr, "libstc: CHECK_STATUS\n");
+
+	/* initialize request */
+	req_init(stc, &req);
+	req.op = CHO_CHECK_STATUS;
+
+	/* sign request */
+	chreq_sign(&req, stc->key, req.sig);
+
+	/* write request */
+	if (!net_write(stc, &req, req_len(&req)))
+		return false;
+
+	/* read response header */
+	if (!net_read(stc, &resp, sizeof(resp)))
+		return false;
+
+	/* check response code */
+	if (resp.resp_code != che_Success) {
+		if (stc->verbose)
+			fprintf(stderr, "CHECK STATUS resp code: %d\n",
+				resp.resp_code);
+		return false;
+	}
+
+	content_len = le64_to_cpu(resp.data_len);
+	if (content_len != sizeof(struct chunk_check_status)) {
+		if (stc->verbose)
+			fprintf(stderr, "CHECK STATUS bogus length: %lld\n",
+				(long long) content_len);
+		/* XXX And the unread data in the pipe, what about it? */
+		return false;
+	}
+
+	/* read response data */
+	if (!net_read(stc, out, content_len))
+		return false;
+
+	return true;
+}
+
 /*
  * For extra safety, call stc_init after g_thread_init, if present.
  * Currently we just call srand(), but since we use GLib, we may need

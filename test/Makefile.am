@@ -15,6 +15,7 @@ EXTRA_DIST =			\
 	ssl-key.pem ssl-cert.pem
 
 TESTS =				\
+	objcache-unit		\
 	prep-db			\
 	start-daemon		\
 	pid-exists		\
@@ -25,11 +26,12 @@ TESTS =				\
 	auth			\
 	large-object		\
 	lotsa-objects		\
+	selfcheck-unit		\
 	stop-daemon		\
 	clean-db
 
 check_PROGRAMS		= auth basic-object it-works large-object \
-			  lotsa-objects nop
+			  lotsa-objects nop objcache-unit selfcheck-unit
 
 TESTLDADD		= ../lib/libchunkdc.la	\
 			  libtest.a		\
@@ -41,6 +43,9 @@ it_works_LDADD		= $(TESTLDADD)
 large_object_LDADD	= $(TESTLDADD)
 lotsa_objects_LDADD	= $(TESTLDADD)
 nop_LDADD		= $(TESTLDADD)
+selfcheck_unit_LDADD	= $(TESTLDADD)
+
+objcache_unit_LDADD	= @GLIB_LIBS@
 
 noinst_LIBRARIES	= libtest.a
 

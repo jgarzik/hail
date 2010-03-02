@@ -248,7 +248,6 @@ static struct cldc_ops cld_ops = {
 	.timer_ctl =	cldu_p_timer_ctl,
 	.pkt_send =	cldu_p_pkt_send,
 	.event =	cldu_p_event,
-	.errlog =	applog,
 };
 
 /*

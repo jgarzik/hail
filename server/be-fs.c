@@ -38,10 +38,8 @@
 #include <syslog.h>
 #include <tcutil.h>
 #include <tchdb.h>
+#include <chunk-private.h>
 #include "chunkd.h"
-
-#define MDB_TABLE_ID	"__chunkd_table_id"
-#define MDB_TPATH_FMT	"%s/%X"
 
 struct fs_obj {
 	struct backend_obj	bo;
@@ -205,8 +203,6 @@ static struct fs_obj *fs_obj_alloc(void)
 	return obj;
 }
 
-#define PREFIX_LEN 3
-
 static char *fs_obj_pathname(uint32_t table_id,const void *key, size_t key_len)
 {
 	char *s = NULL;
@@ -263,6 +259,47 @@ static char *fs_obj_pathname(uint32_t table_id,const void *key, size_t key_len)
 err_out:
 	free(s);
 	return NULL;
+}
+
+static char *fs_obj_badname(unsigned long tag)
+{
+	char *s;
+	struct stat st;
+	int rc;
+
+	rc = asprintf(&s, BAD_TPATH_FMT, chunkd_srv.vol_path);
+	if (rc < 0)
+		return NULL;
+
+	/* create subdir on the fly, if not already exists */
+	if (stat(s, &st) < 0) {
+		if (errno != ENOENT) {
+			syslogerr(s);
+			free(s);
+			return NULL;
+		}
+		if (mkdir(s, 0777) < 0) {
+			if (errno != EEXIST) {
+				syslogerr(s);
+				free(s);
+				return NULL;
+			}
+		}
+	} else {
+		if (!S_ISDIR(st.st_mode)) {
+			applog(LOG_WARNING,
+			       "%s: not a dir, fs_obj_badname go boom", s);
+			free(s);
+			return NULL;
+		}
+	}
+	free(s);
+
+	rc = asprintf(&s, BAD_TPATH_FMT "/%lu", chunkd_srv.vol_path, tag);
+	if (rc < 0)
+		return NULL;
+
+	return s;
 }
 
 static bool key_valid(const void *key, size_t key_len)
@@ -694,6 +731,27 @@ err_out:
 	return false;
 }
 
+int fs_obj_disable(const char *fn)
+{
+	struct stat st;
+	char *bad;
+	int rc;
+
+	if (stat(fn, &st) < 0)
+		return -errno;
+
+	bad = fs_obj_badname(st.st_ino);
+
+	if (rename(fn, bad) < 0) {
+		rc = errno;
+		free(bad);
+		return -rc;
+	}
+
+	free(bad);
+	return 0;
+}
+
 int fs_list_objs_open(struct fs_obj_lister *t,
 		      const char *root_path, uint32_t table_id)
 {
@@ -952,5 +1010,67 @@ GList *fs_list_objs(uint32_t table_id, const char *user)
 
 	fs_list_objs_close(&lister);
 	return res;
+}
+
+int fs_obj_do_sum(const char *fn, unsigned int klen, char **csump)
+{
+	enum { BUFLEN = 128 * 1024 };
+	void *buf;
+	int fd;
+	ssize_t rrc;
+	int rc;
+	SHA_CTX hash;
+	char *csum;
+	unsigned char md[SHA_DIGEST_LENGTH];
+
+	rc = ENOMEM;
+	buf = malloc(BUFLEN);
+	if (!buf)
+		goto err_alloc;
+
+	fd = open(fn, O_RDONLY);
+	if (fd == -1) {
+		rc = errno;
+		goto err_open;
+	}
+	if (lseek(fd, sizeof(struct be_fs_obj_hdr) + klen, SEEK_SET) == (off_t)-1) {
+		rc = errno;
+		goto err_seek;
+	}
+
+	SHA1_Init(&hash);
+	for (;;) {
+		rrc = read(fd, buf, BUFLEN);
+		if (rrc < 0) {
+			rc = errno;
+			goto err_read;
+		}
+		if (rrc != 0)
+			SHA1_Update(&hash, buf, rrc);
+		if (rrc < BUFLEN)
+			break;
+	}
+	SHA1_Final(md, &hash);
+
+	csum = malloc(SHA_DIGEST_LENGTH*2 + 1);
+	if (!csum) {
+		rc = ENOMEM;
+		goto err_retdup;
+	}
+	hexstr(md, SHA_DIGEST_LENGTH, csum);
+
+	close(fd);
+	free(buf);
+	*csump = csum;
+	return 0;
+
+ err_retdup:
+ err_read:
+	close(fd);
+ err_seek:
+ err_open:
+	free(buf);
+ err_alloc:
+	return -rc;
 }
 
