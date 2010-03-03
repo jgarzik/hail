@@ -579,7 +579,7 @@ static int cmd_get(void)
 	}
 
 	if (key_data_len < 1 || key_data_len > CHD_KEY_SZ) {
-		fprintf(stderr, "PUT: invalid key size %u\n",
+		fprintf(stderr, "GET: invalid key size %u\n",
 			(unsigned int) key_data_len);
 		return 1;
 	}
