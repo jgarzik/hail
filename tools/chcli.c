@@ -438,7 +438,7 @@ static bool stc_put_file(struct st_client *stc, const void *key, size_t key_len,
 {
 	bool rcb;
 	int fd;
-	struct stat stat;
+	struct stat st;
 	off64_t content_len;
 	int rc;
 
@@ -446,12 +446,12 @@ static bool stc_put_file(struct st_client *stc, const void *key, size_t key_len,
 	if (fd < 0)
 		return false;
 
-	rc = fstat(fd, &stat);
+	rc = fstat(fd, &st);
 	if (rc) {
 		close(fd);
 		return false;
 	}
-	content_len = stat.st_size;
+	content_len = st.st_size;
 	rcb = stc_put(stc, key, key_len, read_file_cb, content_len, &fd, flags);
 	close(fd);
 
