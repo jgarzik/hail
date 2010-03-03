@@ -43,7 +43,6 @@
 #include <argp.h>
 #include <errno.h>
 #include <time.h>
-#include <sys/types.h>
 #include <glib.h>
 #include <openssl/hmac.h>
 #include <openssl/ssl.h>
