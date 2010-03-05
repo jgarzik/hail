@@ -41,6 +41,7 @@ struct config_context {
 	bool		badnid;
 	bool		in_ssl;
 	bool		in_listen;
+	bool		in_chk;
 	bool		have_ssl;
 	char		*vol_path;
 
@@ -131,6 +132,13 @@ static void cfg_elm_start (GMarkupParseContext *context,
 			cc->in_cld = true;
 		} else {
 			applog(LOG_ERR, "Nested CLD in configuration");
+		}
+	}
+	else if (!strcmp(element_name, "Check")) {
+		if (!cc->in_chk) {
+			cc->in_chk = true;
+		} else {
+			applog(LOG_ERR, "Nested Check in configuration");
 		}
 	}
 }
@@ -293,7 +301,16 @@ static void cfg_elm_end (GMarkupParseContext *context,
 	else if (!strcmp(element_name, "SSL"))
 		cc->in_ssl = false;
 
-	else if (cc->in_ssl && cc->text && !strcmp(element_name, "PrivateKey")) {
+	else if (cc->in_chk && cc->text && !strcmp(element_name, "User")) {
+		chunkd_srv.chk_users =
+			g_list_append(chunkd_srv.chk_users, cc->text);
+		cc->text = NULL;
+	}
+
+	else if (!strcmp(element_name, "Check"))
+		cc->in_chk = false;
+
+	else if (cc->in_ssl && cc->text && !strcmp(element_name, "PrivateKey")){
 		if (SSL_CTX_use_PrivateKey_file(ssl_ctx, cc->text,
 						SSL_FILETYPE_PEM) <= 0)
 			applog(LOG_ERR, "Failed to read SSL private key '%s'",
@@ -439,24 +456,6 @@ static void cfg_elm_end (GMarkupParseContext *context,
 			       "PortFile element not in Listen or CLD");
 			free(cc->text);
 		}
-		cc->text = NULL;
-	}
-
-	else if (!strcmp(element_name, "SelfCheckPeriod")) {
-		if (!cc->text) {
-			applog(LOG_WARNING, "SelfCheckPeriod element empty");
-			return;
-		}
-		n = strtol(cc->text, NULL, 10);
-		if (n < 0 || n >= LONG_MAX) {
-			applog(LOG_ERR, "SelfCheckPeriod '%s' is invalid",
-			       cc->text);
-			free(cc->text);
-			cc->text = NULL;
-			return;
-		}
-		chunkd_srv.chk_period = n;
-		free(cc->text);
 		cc->text = NULL;
 	}
 

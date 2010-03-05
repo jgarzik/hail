@@ -933,24 +933,47 @@ err_out:
 	return cli_err(cli, err, false);
 }
 
-static bool chk_poke(struct client *cli)
+static bool chk_user_authorized(struct client *cli)
+{
+	GList *tmp = chunkd_srv.chk_users;
+
+	while (tmp) {
+		char *s;
+
+		s = tmp->data;
+		if (!strcmp(cli->user, s))
+			return true;
+
+		tmp = tmp->next;
+	}
+
+	return false;
+}
+
+static bool chk_start(struct client *cli)
 {
 	unsigned char cmd;
 	int rc;
 
+	if (!chk_user_authorized(cli))
+		return cli_err(cli, che_AccessDenied, true);
+
 	g_mutex_lock(chunkd_srv.bigmutex);
+
 	switch (chunkd_srv.chk_state) {
 	case CHK_ST_OFF:
 		chunkd_srv.chk_state = CHK_ST_INIT;
 		g_mutex_unlock(chunkd_srv.bigmutex);
-		rc = chk_spawn(chunkd_srv.chk_period, chunkd_srv.tbl_master);
+		rc = chk_spawn(chunkd_srv.tbl_master);
 		if (rc)
 			return cli_err(cli, che_InternalError, true);
 		break;
+
 	case CHK_ST_INIT:
 	case CHK_ST_RUNNING:
 		g_mutex_unlock(chunkd_srv.bigmutex);
 		return cli_err(cli, che_Busy, true);
+
 	default:
 		chunkd_srv.chk_state = CHK_ST_RUNNING;
 		g_mutex_unlock(chunkd_srv.bigmutex);
@@ -966,8 +989,11 @@ static bool chk_status(struct client *cli)
 	struct chunk_check_status outbuf;
 
 	memset(&outbuf, 0, sizeof(struct chunk_check_status));
+
 	g_mutex_lock(chunkd_srv.bigmutex);
+
 	outbuf.lastdone = cpu_to_le64(chunkd_srv.chk_done);
+
 	switch (chunkd_srv.chk_state) {
 	case CHK_ST_IDLE:
 		outbuf.state = chk_Idle;
@@ -979,6 +1005,7 @@ static bool chk_status(struct client *cli)
 	default:
 		outbuf.state = chk_Off;
 	}
+
 	g_mutex_unlock(chunkd_srv.bigmutex);
 
 	return cli_resp_bin(cli, &outbuf, sizeof(struct chunk_check_status));
@@ -1110,7 +1137,7 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 		rcb = volume_open(cli);
 		break;
 	case CHO_CHECK_START:
-		rcb = chk_poke(cli);
+		rcb = chk_start(cli);
 		break;
 	case CHO_CHECK_STATUS:
 		rcb = chk_status(cli);
@@ -1803,8 +1830,6 @@ int main (int argc, char *argv[])
 		rc = 1;
 		goto err_out_cld;
 	}
-
-	chk_init();
 
 	/* set up server networking */
 	for (tmpl = chunkd_srv.listeners; tmpl; tmpl = tmpl->next) {

@@ -978,13 +978,13 @@ bool stc_ping(struct st_client *stc)
 	return true;
 }
 
-bool stc_check_poke(struct st_client *stc)
+bool stc_check_start(struct st_client *stc)
 {
 	struct chunksrv_resp resp;
 	struct chunksrv_req *req = (struct chunksrv_req *) stc->req_buf;
 
 	if (stc->verbose)
-		fprintf(stderr, "libstc: CHECK_POKE\n");
+		fprintf(stderr, "libstc: CHECK_START\n");
 
 	/* initialize request */
 	req_init(stc, req);
@@ -1004,7 +1004,7 @@ bool stc_check_poke(struct st_client *stc)
 	/* check response code */
 	if (resp.resp_code != che_Success) {
 		if (stc->verbose)
-			fprintf(stderr, "CHECK_POKE resp code: %d\n",
+			fprintf(stderr, "CHECK_START resp code: %d\n",
 				resp.resp_code);
 		return false;
 	}

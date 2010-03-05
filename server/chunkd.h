@@ -223,8 +223,9 @@ struct server {
 	char			*group;
 	uint32_t		nid;
 	struct geo		loc;
-	time_t			chk_period;
+
 	int			chk_pipe[2];
+	GList			*chk_users;
 
 	TCHDB			*tbl_master;
 	struct objcache		actives;
@@ -342,8 +343,7 @@ extern void resp_init_req(struct chunksrv_resp *resp,
 extern void read_config(void);
 
 /* selfcheck.c */
-extern void chk_init(void);
-extern int chk_spawn(time_t period, TCHDB *hdb);
+extern int chk_spawn(TCHDB *hdb);
 
 static inline bool use_sendfile(struct client *cli)
 {

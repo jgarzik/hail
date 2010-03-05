@@ -37,7 +37,6 @@ struct config_context {
 	char *text;
 
 	char *path;
-	long period;
 };
 
 static void cfg_elm_start(GMarkupParseContext *context,
@@ -56,19 +55,11 @@ static void cfg_elm_end(GMarkupParseContext *context,
 			GError		**error)
 {
 	struct config_context *cc = user_data;
-	long n;
 
 	if (!strcmp(element_name, "Path")) {
 		OK(cc->text);
 		free(cc->path);
 		cc->path = cc->text;
-		cc->text = NULL;
-	} else if (!strcmp(element_name, "SelfCheckPeriod")) {
-		OK(cc->text);
-		n = strtol(cc->text, NULL, 10);
-		OK(n >= 0 && n < LONG_MAX);
-		cc->period = n;
-		free(cc->text);
 		cc->text = NULL;
 	} else {
 		free(cc->text);
@@ -251,7 +242,6 @@ int main(int argc, char *argv[])
 	memset(&ctx, 0, sizeof(struct config_context));
 	read_config(&ctx);
 	OK(ctx.path);		/* must have a path */
-	OK(!ctx.period);	/* should have a SelfCheckPeriod set to off */
 
 	/*
 	 * Step 1: create the object
@@ -275,11 +265,9 @@ int main(int argc, char *argv[])
 	OK(rcb);
 
 	/*
-	 * Step 3: damage the back-end file and wait
-	 * We sleep for longer than the self-check period because:
-	 * 1) the server sleeps for up to period*1.5
-	 * 2) the server may be quite busy walking numerous objects
-	 * 3) the build system may be overloaded
+	 * Step 3: damage the back-end file and wait, because:
+	 * 1) the server may be quite busy walking numerous objects
+	 * 2) the build system may be overloaded
 	 */
 	rcb = be_file_damage(fn);
 	OK(rcb);
@@ -291,7 +279,7 @@ int main(int argc, char *argv[])
 	OK(stc);
 	rcb = stc_check_status(stc, &status1);
 	OK(rcb);
-	rcb = stc_check_poke(stc);
+	rcb = stc_check_start(stc);
 	OK(rcb);
 	cnt = 0;
 	for (;;) {

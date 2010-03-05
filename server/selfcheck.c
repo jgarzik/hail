@@ -13,7 +13,6 @@
 #include "chunkd.h"
 
 struct chk_arg {
-	time_t period;
 	TCHDB *hdb;
 	// GThread *gthread;
 };
@@ -183,62 +182,46 @@ static void chk_thread_command(struct chk_tls *tls)
 
 static gpointer chk_thread_func(gpointer data)
 {
-	struct chk_tls _tls;
-	struct chk_tls *tls;
+	struct chk_tls _tls = { .arg = data };
+	struct chk_tls *tls = &_tls;
 	struct pollfd pfd[1];
-	int tmo;
-	time_t dt;
 	int i;
 	int rc;
-
-	tls = &_tls;
-	memset(tls, 0, sizeof(struct chk_tls));
-	tls->arg = data;
 
 	for (;;) {
 		g_mutex_lock(chunkd_srv.bigmutex);
 		chunkd_srv.chk_state = CHK_ST_IDLE;
 		g_mutex_unlock(chunkd_srv.bigmutex);
 
-		/*
-		 * Without the randomization, all systems in a low loaded
-		 * datacenter are virtually guaranteed to start checks in the
-		 * same time, blow fuses and/or disrupt applications.
-		 */
-		dt = tls->arg->period;
-		if (dt == 0) {
-			tmo = -1;
-		} else {
-			if (dt >= 3)
-				dt += rand() % (dt/3);
-			if (debugging)
-				applog(LOG_DEBUG, "chk: sleeping %lu s", dt);
-			tmo = dt * 1000;
-		}
-
 		memset(pfd, 0, sizeof(pfd));
 		pfd[0].fd = chunkd_srv.chk_pipe[0];
 		pfd[0].events = POLLIN;
 
-		rc = poll(pfd, 1, tmo);
+		rc = poll(pfd, ARRAY_SIZE(pfd), -1);
 		if (rc < 0) {
 			applog(LOG_WARNING, "chk: poll error: %s",
 			       strerror(errno));
 			break;	/* don't flood, just die */
 		}
 
-		if (rc) {
-			for (i = 0; i < ARRAY_SIZE(pfd); i++) {
-				if (pfd[i].revents) {
-					if (i == 0) {
-						chk_thread_command(tls);
-					}
-				}
+		if (rc == 0)
+			continue;	/* should never happen */
+
+		for (i = 0; i < ARRAY_SIZE(pfd); i++) {
+			if (!pfd[i].revents)
+				continue;
+
+			switch (i) {
+			case 0:
+				chk_thread_command(tls);
+				break;
+			default:
+				/* do nothing */
+				break;
 			}
-		} else {
-			chk_thread_scan(tls);
 		}
 	}
+
 	return NULL;
 }
 
@@ -249,7 +232,7 @@ static gpointer chk_thread_func(gpointer data)
  */
 static struct chk_arg *thread;
 
-int chk_spawn(time_t period, TCHDB *hdb)
+int chk_spawn(TCHDB *hdb)
 {
 	GThread *gthread;
 	struct chk_arg *arg;
@@ -260,7 +243,6 @@ int chk_spawn(time_t period, TCHDB *hdb)
 		applog(LOG_ERR, "No core");
 		return -1;
 	}
-	arg->period = period;
 	arg->hdb = hdb;
 
 	gthread = g_thread_create(chk_thread_func, arg, FALSE, &error);
@@ -276,18 +258,3 @@ int chk_spawn(time_t period, TCHDB *hdb)
 	return 0;
 }
 
-void chk_init()
-{
-	int rc;
-
-	if (!chunkd_srv.chk_period) {
-		if (debugging)
-			applog(LOG_DEBUG, "chk: disabled by configuration");
-		return;
-	}
-
-	chunkd_srv.chk_state = CHK_ST_INIT;
-	rc = chk_spawn(chunkd_srv.chk_period, chunkd_srv.tbl_master);
-	if (rc)
-		exit(1);		/* message already logged */
-}

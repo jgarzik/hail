@@ -89,7 +89,7 @@ extern bool stc_put_inline(struct st_client *stc, const void *key,
 extern bool stc_del(struct st_client *stc, const void *key, size_t key_len);
 extern bool stc_ping(struct st_client *stc);
 
-extern bool stc_check_poke(struct st_client *stc);
+extern bool stc_check_start(struct st_client *stc);
 extern bool stc_check_status(struct st_client *stc,
 			     struct chunk_check_status *out);
 

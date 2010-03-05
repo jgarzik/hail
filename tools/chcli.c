@@ -185,7 +185,7 @@ static void show_cmds(void)
 "DEL key       Delete key\n"
 "PING          Ping server\n"
 "CHECKSTATUS   Fetch status of server self-check\n"
-"CHECKPOKE     Force server self-check\n"
+"CHECKSTART    Begin server self-check\n"
 "\n"
 "Keys provided on the command line (as opposed to via -k) are stored\n"
 "with a C-style nul terminating character appended, adding 1 byte to\n"
@@ -639,7 +639,7 @@ static int cmd_get(void)
 	return 0;
 }
 
-static int cmd_check_poke(void)
+static int cmd_check_start(void)
 {
 	struct st_client *stc;
 
@@ -647,8 +647,8 @@ static int cmd_check_poke(void)
 	if (!stc)
 		return 1;
 
-	if (!stc_check_poke(stc)) {
-		fprintf(stderr, "CHECK POKE failed\n");
+	if (!stc_check_start(stc)) {
+		fprintf(stderr, "CHECK START failed\n");
 		stc_free(stc);
 		return 1;
 	}
@@ -758,7 +758,7 @@ int main (int argc, char *argv[])
 	case CHC_CHECKSTATUS:
 		return cmd_check_status();
 	case CHC_CHECKSTART:
-		return cmd_check_poke();
+		return cmd_check_start();
 	}
 
 	return 0;
