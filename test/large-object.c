@@ -108,7 +108,7 @@ static void test(bool do_encrypt)
 
 	memset(data, 0xdeadbeef, sizeof(data));
 
-	port = stc_readport(do_encrypt ? TEST_PORTFILE_SSL : TEST_PORTFILE);
+	port = stc_readport(TEST_PORTFILE);
 	OK(port > 0);
 
 	stc = stc_new(TEST_HOST, port, TEST_USER, TEST_USER_KEY, do_encrypt);

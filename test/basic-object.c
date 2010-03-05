@@ -41,7 +41,7 @@ static void test(bool do_encrypt)
 	size_t len = 0;
 	void *mem;
 
-	port = stc_readport(do_encrypt ? TEST_PORTFILE_SSL : TEST_PORTFILE);
+	port = stc_readport(TEST_PORTFILE);
 	OK(port > 0);
 
 	stc = stc_new(TEST_HOST, port, TEST_USER, TEST_USER_KEY, do_encrypt);

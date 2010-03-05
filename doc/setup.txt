@@ -27,14 +27,6 @@ _cld._udp.phx2.ex.com has SRV record 10 50 8081 maika.phx2.ex.com.
 		<Port>8082</Port>
 	</Listen>
 
-   You can also set the interface and the encryption:
-
-	<Listen>
-		<Node>192.168.1.24</Node>
-		<Port>18082</Port>
-		<Encrypt>true</Encrypt>
-	</Listen>
-
    For clouds and their many cheap nodes with one Ethernet it usually is
    not a great idea to specify interfaces, since they often use IPv6 or
    acquire IP addresses from DHCP. So, just specify a port.

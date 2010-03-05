@@ -357,7 +357,7 @@ static void cli_free(struct client *cli)
 	free(cli);
 }
 
-static struct client *cli_alloc(bool use_ssl)
+static struct client *cli_alloc(void)
 {
 	struct client *cli;
 
@@ -366,18 +366,10 @@ static struct client *cli_alloc(bool use_ssl)
 	if (!cli)
 		return NULL;
 
-	if (use_ssl) {
-		cli->ssl = SSL_new(ssl_ctx);
-		if (!cli->ssl) {
-			applog(LOG_ERR, "SSL_new failed");
-			free(cli);
-			return NULL;
-		}
-	}
-
 	cli->state = evt_read_fixed;
 	INIT_LIST_HEAD(&cli->write_q);
 	cli->req_ptr = &cli->creq;
+	cli->first_req = true;
 
 	return cli;
 }
@@ -1038,6 +1030,7 @@ static const char *op2str(enum chunksrv_ops op)
 	case CHO_TABLE_OPEN:	return "CHO_TABLE_OPEN";
 	case CHO_CHECK_START:	return "CHO_CHECK_START";
 	case CHO_CHECK_STATUS:	return "CHO_CHECK_STATUS";
+	case CHO_START_TLS:	return "CHO_START_TLS";
 
 	default:
 		return "BUG/UNKNOWN!";
@@ -1082,7 +1075,8 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 
 	cli->state = evt_recycle;
 
-	if (G_UNLIKELY((!logged_in) && (req->op != CHO_LOGIN))) {
+	if (G_UNLIKELY((!logged_in) && (req->op != CHO_LOGIN) &&
+		       (req->op != CHO_START_TLS))) {
 		cli->state = evt_dispose;
 		return true;
 	}
@@ -1142,10 +1136,36 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 	case CHO_CHECK_STATUS:
 		rcb = chk_status(cli);
 		break;
+	case CHO_START_TLS:
+		if (!cli->first_req) {
+			cli->state = evt_dispose;
+			rcb = true;
+		} else {
+			cli->ssl = SSL_new(ssl_ctx);
+			if (!cli->ssl) {
+				applog(LOG_ERR, "SSL_new failed");
+				cli->state = evt_dispose;
+				rcb = true;
+				break;
+			}
+
+			if (!SSL_set_fd(cli->ssl, cli->fd)) {
+				applog(LOG_ERR, "SSL_set_fd failed");
+				cli->state = evt_dispose;
+				rcb = true;
+				break;
+			}
+
+			cli->state = evt_ssl_accept;
+			rcb = true;
+		}
+		break;
 	default:
 		rcb = cli_err(cli, che_InvalidURI, true);
 		break;
 	}
+
+	cli->first_req = false;
 
 out:
 	return rcb;
@@ -1220,7 +1240,7 @@ static bool cli_evt_ssl_accept(struct client *cli, unsigned int events)
 
 	rc = SSL_accept(cli->ssl);
 	if (rc > 0) {
-		cli->state = evt_read_fixed;
+		cli->state = evt_recycle;
 		return true;
 	}
 
@@ -1235,6 +1255,8 @@ static bool cli_evt_ssl_accept(struct client *cli, unsigned int events)
 			goto out;
 		return false;
 	}
+
+	applog(LOG_ERR, "SSL_accept returned %d", rc);
 
 out:
 	cli->state = evt_dispose;
@@ -1294,10 +1316,10 @@ static bool tcp_srv_event(int fd, short events, void *userdata)
 	socklen_t addrlen = sizeof(struct sockaddr_in6);
 	struct client *cli;
 	char host[64];
-	int rc, on = 1;
+	int on = 1;
 	struct server_poll *sp;
 
-	cli = cli_alloc(sock->cfg->encrypt);
+	cli = cli_alloc();
 	if (!cli) {
 		applog(LOG_ERR, "out of memory");
 		return false;	/* end main loop; terminate server */
@@ -1321,32 +1343,6 @@ static bool tcp_srv_event(int fd, short events, void *userdata)
 		applog(LOG_WARNING, "TCP_NODELAY failed: %s",
 		       strerror(errno));
 
-	if (sock->cfg->encrypt) {
-		if (!SSL_set_fd(cli->ssl, cli->fd))
-			goto err_out_fd;
-
-		rc = SSL_accept(cli->ssl);
-		if (rc <= 0) {
-			rc = SSL_get_error(cli->ssl, rc);
-			if (rc == SSL_ERROR_WANT_READ)
-				cli->state = evt_ssl_accept;
-			else if (rc == SSL_ERROR_WANT_WRITE) {
-				cli->state = evt_ssl_accept;
-				cli->read_want_write = true;
-			}
-			else {
-				unsigned long e = ERR_get_error();
-				char estr[121] = "(none?)";
-
-				if (e)
-					ERR_error_string(e, estr);
-				applog(LOG_WARNING, "%s SSL error %s",
-				       cli->addr_host, estr);
-				goto err_out_fd;
-			}
-		}
-	}
-
 	sp = calloc(1, sizeof(*sp));
 	if (!sp)
 		goto err_out_fd;
@@ -1355,11 +1351,6 @@ static bool tcp_srv_event(int fd, short events, void *userdata)
 	sp->events = POLLIN;
 	sp->cb = tcp_cli_event;
 	sp->userdata = cli;
-
-	if (cli->read_want_write) {
-		cli->writing = true;
-		sp->events |= POLLOUT;
-	}
 
 	g_hash_table_insert(chunkd_srv.fd_info, GINT_TO_POINTER(cli->fd), sp);
 

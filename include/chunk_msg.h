@@ -32,16 +32,22 @@ enum {
 };
 
 enum chunksrv_ops {
-	CHO_NOP			= 0,
-	CHO_GET			= 1,
-	CHO_GET_META		= 2,
-	CHO_PUT			= 3,
-	CHO_DEL			= 4,
-	CHO_LIST		= 5,
-	CHO_LOGIN		= 6,
-	CHO_TABLE_OPEN		= 7,
-	CHO_CHECK_START		= 8,
-	CHO_CHECK_STATUS	= 9,
+	CHO_NOP			= 0,	/* No-op (ping server) */
+	CHO_GET			= 1,	/* GET object */
+	CHO_GET_META		= 2,	/* GET object metadata */
+	CHO_PUT			= 3,	/* PUT object */
+	CHO_DEL			= 4,	/* Delete object */
+	CHO_LIST		= 5,	/* List objects */
+	CHO_LOGIN		= 6,	/* Login as user */
+	CHO_TABLE_OPEN		= 7,	/* Open table */
+	CHO_CHECK_START		= 8,	/* Begin self-check */
+	CHO_CHECK_STATUS	= 9,	/* Query self-check status */
+
+	/* START-TLS is special.  It MUST be the first request of a TCP
+	 * cxn, and no chunkd-specific response is returned.  The SSL
+	 * functions' success/failure is sufficient indication.
+	 */
+	CHO_START_TLS		= 10,	/* Encrypt all subsequent msgs */
 };
 
 enum chunk_errcode {

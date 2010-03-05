@@ -191,6 +191,27 @@ static bool stc_login(struct st_client *stc)
 	return true;
 }
 
+static bool stc_start_tls_cmd(struct st_client *stc)
+{
+	struct chunksrv_req *req = (struct chunksrv_req *) stc->req_buf;
+
+	if (stc->verbose)
+		fprintf(stderr, "libstc: START-TLS\n");
+
+	/* initialize request */
+	req_init(stc, req);
+	req->op = CHO_START_TLS;
+	strcpy(req->sig, "START-TLS");
+
+	/* write request */
+	if (!net_write(stc, req, req_len(req)))
+		return false;
+
+	/* no response - SSL negotiation begins immediately */
+
+	return true;
+}
+
 struct st_client *stc_new(const char *service_host, int port,
 			  const char *user, const char *secret_key,
 			  bool use_ssl)
@@ -253,6 +274,9 @@ struct st_client *stc_new(const char *service_host, int port,
 		goto err_out;
 
 	if (use_ssl) {
+		if (!stc_start_tls_cmd(stc))
+			goto err_out;
+
 		stc->ssl_ctx = SSL_CTX_new(TLSv1_client_method());
 		if (!stc->ssl_ctx)
 			goto err_out;
@@ -266,7 +290,8 @@ struct st_client *stc_new(const char *service_host, int port,
 		if (!SSL_set_fd(stc->ssl, stc->fd))
 			goto err_out_ssl;
 
-		if (SSL_connect(stc->ssl) <= 0)
+		rc = SSL_connect(stc->ssl);
+		if (rc <= 0)
 			goto err_out_ssl;
 	}
 
@@ -276,9 +301,15 @@ struct st_client *stc_new(const char *service_host, int port,
 	return stc;
 
 err_out_ssl:
-	SSL_free(stc->ssl);
+	if (stc->ssl) {
+		SSL_free(stc->ssl);
+		stc->ssl = NULL;
+	}
 err_out_ctx:
-	SSL_CTX_free(stc->ssl_ctx);
+	if (stc->ssl_ctx) {
+		SSL_CTX_free(stc->ssl_ctx);
+		stc->ssl_ctx = NULL;
+	}
 err_out:
 	close(stc->fd);
 	stc_free(stc);

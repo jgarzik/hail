@@ -540,11 +540,9 @@ static int cldu_make_ffile(char **ret, struct cld_session *sp)
 
 		rc = asprintf(&str,
 			" <Socket>\r\n"
-			"  <Type>%s</Type>\r\n"
 			"  <Host>%s</Host>\r\n"
 			"  <Port>%s</Port>\r\n"
 			" </Socket>\r\n",
-			cfg->encrypt ? "chunk-ssl" : "chunk",
 			host,
 			cfg->port);
 		if (rc == -1) {

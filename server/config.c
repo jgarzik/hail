@@ -398,16 +398,6 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		}
 	}
 
-	else if (cc->in_listen && cc->text &&
-		 !strcmp(element_name, "Encrypt")) {
-		if (!strcasecmp(cc->text, "yes") ||
-		    !strcasecmp(cc->text, "true"))
-			cc->tmp_listen.encrypt = true;
-
-		free(cc->text);
-		cc->text = NULL;
-	}
-
 	else if (!strcmp(element_name, "Group") && cc->text) {
 		free(chunkd_srv.group);
 		chunkd_srv.group = cc->text;

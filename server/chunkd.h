@@ -102,6 +102,7 @@ struct client {
 	SSL			*ssl;
 	bool			read_want_write;
 	bool			write_want_read;
+	bool			first_req;
 
 	struct list_head	write_q;	/* list of async writes */
 	bool			writing;
@@ -150,7 +151,6 @@ struct listen_cfg {
 	char			*node;
 	char			*port;
 	char			*port_file;
-	bool			encrypt;
 };
 
 struct geo {

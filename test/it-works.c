@@ -35,7 +35,7 @@ static void test(bool ssl)
 	int port;
 	bool rcb;
 
-	port = stc_readport(ssl ? TEST_PORTFILE_SSL : TEST_PORTFILE);
+	port = stc_readport(TEST_PORTFILE);
 	OK(port > 0);
 
 	stc = stc_new(TEST_HOST, port, TEST_USER, TEST_USER_KEY, ssl);
