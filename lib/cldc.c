@@ -30,12 +30,17 @@
 #include <errno.h>
 #include <time.h>
 #include <stdarg.h>
+#include <syslog.h>
+#include <poll.h>
 #include <openssl/sha.h>
 #include <openssl/hmac.h>
 #include <glib.h>
 #include <cld-private.h>
 #include <cldc.h>
-#include <syslog.h>
+#include <cld_msg_rpc.h>
+#include <ncld.h>
+
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 enum {
 	CLDC_MSG_EXPIRE		= 5 * 60,
@@ -47,12 +52,7 @@ enum {
 
 static const char *user_key(struct cldc_session *sess, const char *user);
 static int sess_send_pkt(struct cldc_session *sess,
-			 const struct cld_packet *pkt, size_t pkt_len);
-
-static const struct cld_msg_hdr def_msg_ack = {
-	.magic		= CLD_MSG_MAGIC,
-	.op		= CMO_ACK,
-};
+			const void *pkt, size_t pkt_len);
 
 #ifndef HAVE_STRNLEN
 static size_t strnlen(const char *s, size_t maxlen)
@@ -80,6 +80,24 @@ static size_t strnlen(const char *s, size_t maxlen)
 #define EBADE 52
 #endif
 
+void cldc_copts_get_data(const struct cldc_call_opts *copts,
+			     char **data, size_t *data_len)
+{
+	*data = copts->resp.data.data_val;
+	*data_len = copts->resp.data.data_len;
+}
+
+void cldc_copts_get_metadata(const struct cldc_call_opts *copts,
+			     struct cldc_node_metadata *md)
+{
+	md->inum = copts->resp.inum;
+	md->vers = copts->resp.vers;
+	md->time_create = copts->resp.time_create;
+	md->time_modify = copts->resp.time_modify;
+	md->flags = copts->resp.flags;
+	md->inode_name = copts->resp.inode_name;
+}
+
 static void cldc_errlog(int prio, const char *fmt, ...)
 {
 	char buf[200];
@@ -93,48 +111,72 @@ static void cldc_errlog(int prio, const char *fmt, ...)
 
 static int ack_seqid(struct cldc_session *sess, uint64_t seqid_le)
 {
-	struct cld_packet *pkt;
-	struct cld_msg_hdr *resp;
-	size_t pkt_len;
+	XDR xdrs;
+	size_t hdr_len, total_len;
+	char buf[CLD_MAX_PKT_MSG_SZ];
+	struct cld_pkt_hdr pkt;
+	struct cld_pkt_ftr *foot;
 	int ret;
+	static const char * const magic = CLD_PKT_MAGIC;
 	const char *secret_key;
 
-	pkt_len = sizeof(*pkt) + sizeof(*resp) + SHA_DIGEST_LENGTH;
-	pkt = alloca(pkt_len);
-	memset(pkt, 0, pkt_len);
+	/* Construct ACK packet */
+	memset(&pkt, 0, sizeof(struct cld_pkt_hdr));
+	memcpy(&pkt.magic, magic, sizeof(pkt.magic));
+	memcpy(&pkt.sid, sess->sid, CLD_SID_SZ);
+	pkt.user = sess->user;
+	pkt.mi.order = CLD_PKT_ORD_FIRST_LAST;
+	pkt.mi.cld_pkt_msg_info_u.mi.xid = 0;
+	pkt.mi.cld_pkt_msg_info_u.mi.op = CMO_ACK;
 
-	memcpy(pkt->magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
-	pkt->seqid = seqid_le;
-	memcpy(pkt->sid, sess->sid, CLD_SID_SZ);
-	pkt->flags = cpu_to_le32(CPF_FIRST | CPF_LAST);
-	strncpy(pkt->user, sess->user, CLD_MAX_USERNAME - 1);
+	/* Serialize packet */
+	xdrmem_create(&xdrs, (char *)buf,
+		      sizeof(buf) - CLD_PKT_FTR_LEN, XDR_ENCODE);
+	if (!xdr_cld_pkt_hdr(&xdrs, &pkt)) {
+		HAIL_DEBUG(&sess->log, "%s: failed to encode header "
+			   "for ack_seqid %llu",
+			   __func__,
+			   (unsigned long long) seqid_le);
+		xdr_destroy(&xdrs);
+		return -1009;
+	}
 
-	resp = (struct cld_msg_hdr *) (pkt + 1);
-	memcpy(resp, &def_msg_ack, sizeof(*resp));
+	/* Fill in footer */
+	hdr_len = xdr_getpos(&xdrs);
+	total_len = hdr_len + CLD_PKT_FTR_LEN;
+	foot = (struct cld_pkt_ftr *)(buf + hdr_len);
+	foot->seqid = seqid_le;
+	xdr_destroy(&xdrs);
 
 	secret_key = user_key(sess, sess->user);
 	ret = __cld_authsign(&sess->log, secret_key,
-			     pkt, pkt_len - SHA_DIGEST_LENGTH,
-			     (uint8_t *)pkt + pkt_len - SHA_DIGEST_LENGTH);
+			     buf, total_len - SHA_DIGEST_LENGTH, foot->sha);
 	if (ret) {
 		HAIL_ERR(&sess->log, "%s: authsign failed: %d",
 			 __func__, ret);
 		return ret;
 	}
 
-	return sess_send_pkt(sess, pkt, pkt_len);
+	return sess_send_pkt(sess, buf, total_len);
 }
 
 static int rxmsg_generic(struct cldc_session *sess,
-			 const struct cld_packet *pkt,
-			 const void *msgbuf, size_t buflen)
+			 const struct cld_pkt_hdr *pkt,
+			 const struct cld_pkt_ftr *foot)
 {
-	const struct cld_msg_resp *resp = msgbuf;
+	XDR xdrs;
+	struct cld_msg_generic_resp resp;
 	struct cldc_msg *req = NULL;
 	GList *tmp;
 
-	if (buflen < sizeof(*resp))
+	xdrmem_create(&xdrs, sess->msg_buf, sess->msg_buf_len, XDR_DECODE);
+	if (!xdr_cld_msg_generic_resp(&xdrs, &resp)) {
+		HAIL_DEBUG(&sess->log, "%s: failed to decode "
+			   "cld_msg_generic_resp", __func__);
+		xdr_destroy(&xdrs);
 		return -1008;
+	}
+	xdr_destroy(&xdrs);
 
 	/* Find out which outbound message this was a response to */
 	tmp = sess->out_msg;
@@ -144,10 +186,10 @@ static int rxmsg_generic(struct cldc_session *sess,
 		HAIL_DEBUG(&sess->log, "%s: comparing req->xid (%llu) "
 			   "with resp.xid_in (%llu)",
 			   __func__,
-			   (unsigned long long) le64_to_cpu(req->xid),
-			   (unsigned long long) le64_to_cpu(resp->xid_in));
+			   (unsigned long long) req->xid,
+			   (unsigned long long) resp.xid_in);
 
-		if (req->xid == resp->xid_in)
+		if (req->xid == resp.xid_in)
 			break;
 		tmp = tmp->next;
 	}
@@ -155,7 +197,7 @@ static int rxmsg_generic(struct cldc_session *sess,
 		HAIL_DEBUG(&sess->log, "%s: no match found with "
 			   "xid_in %llu",
 			   __func__,
-			   (unsigned long long) le64_to_cpu(resp->xid_in));
+			   (unsigned long long) resp.xid_in);
 		return -1005;
 	}
 
@@ -168,28 +210,37 @@ static int rxmsg_generic(struct cldc_session *sess,
 		req->done = true;
 
 		if (req->cb) {
-			ssize_t rc = req->cb(req, msgbuf, buflen, resp->code);
+			ssize_t rc = req->cb(req, sess->msg_buf,
+					     sess->msg_buf_len, resp.code);
 			if (rc < 0)
 				return rc;
 		}
 	}
 
-	return ack_seqid(sess, pkt->seqid);
+	return ack_seqid(sess, foot->seqid);
 }
 
 static int rxmsg_ack_frag(struct cldc_session *sess,
-			  const struct cld_packet *pkt,
-			  const void *msgbuf, size_t buflen)
+			  const struct cld_pkt_hdr *pkt,
+			  const struct cld_pkt_ftr *foot)
 {
-	const struct cld_msg_ack_frag *ack_msg = msgbuf;
+	XDR xdrs;
+	struct cld_msg_ack_frag ack_msg;
 	GList *tmp;
 
-	if (buflen < sizeof(*ack_msg))
+	xdrmem_create(&xdrs, sess->msg_buf, sess->msg_buf_len, XDR_DECODE);
+	memset(&ack_msg, 0, sizeof(ack_msg));
+	if (!xdr_cld_msg_ack_frag(&xdrs, &ack_msg)) {
+		HAIL_INFO(&sess->log, "%s: failed to decode ack_msg",
+			  __func__);
+		xdr_destroy(&xdrs);
 		return -1008;
+	}
+	xdr_destroy(&xdrs);
 
 	HAIL_INFO(&sess->log, "%s: seqid %llu, want to ack",
 		  __func__,
-		  (unsigned long long) ack_msg->seqid);
+		  (unsigned long long) ack_msg.seqid);
 
 	tmp = sess->out_msg;
 	while (tmp) {
@@ -201,18 +252,21 @@ static int rxmsg_ack_frag(struct cldc_session *sess,
 
 		for (i = 0; i < req->n_pkts; i++) {
 			struct cldc_pkt_info *pi;
+			struct cld_pkt_ftr *f;
 			uint64_t seqid;
 
 			pi = req->pkt_info[i];
 			if (!pi)
 				continue;
-			seqid = pi->pkt.seqid;
-			if (seqid != ack_msg->seqid)
+			f = (struct cld_pkt_ftr *)
+				pi->data + (pi->pkt_len - CLD_PKT_FTR_LEN);
+			seqid = le64_to_cpu(f->seqid);
+			if (seqid != ack_msg.seqid)
 				continue;
 
 			HAIL_DEBUG(&sess->log, "%s: seqid %llu, expiring",
 				   __func__,
-				   (unsigned long long) ack_msg->seqid);
+				   (unsigned long long) ack_msg.seqid);
 
 			req->pkt_info[i] = NULL;
 			free(pi);
@@ -223,19 +277,26 @@ static int rxmsg_ack_frag(struct cldc_session *sess,
 }
 
 static int rxmsg_event(struct cldc_session *sess,
-		       const struct cld_packet *pkt,
-		       const void *msgbuf, size_t buflen)
+		       const struct cld_pkt_hdr *pkt,
+		       const struct cld_pkt_ftr *foot)
 {
-	const struct cld_msg_event *ev = msgbuf;
+	XDR xdrs;
+	struct cld_msg_event ev;
 	struct cldc_fh *fh = NULL;
 	int i;
 
-	if (buflen < sizeof(*ev))
+	xdrmem_create(&xdrs, sess->msg_buf, sess->msg_buf_len, XDR_DECODE);
+	if (!xdr_cld_msg_event(&xdrs, &ev)) {
+		HAIL_INFO(&sess->log, "%s: failed to decode cld_msg_event",
+			  __func__);
+		xdr_destroy(&xdrs);
 		return -1008;
+	}
+	xdr_destroy(&xdrs);
 
 	for (i = 0; i < sess->fh->len; i++) {
 		fh = &g_array_index(sess->fh, struct cldc_fh, i);
-		if (fh->fh_le == ev->fh)
+		if (fh->fh == ev.fh)
 			break;
 		else
 			fh = NULL;
@@ -244,17 +305,9 @@ static int rxmsg_event(struct cldc_session *sess,
 	if (!fh)
 		return -1011;
 
-	sess->ops->event(sess->private, sess, fh, le32_to_cpu(ev->events));
+	sess->ops->event(sess->private, sess, fh, ev.events);
 
 	return 0;
-}
-
-static int rxmsg_not_master(struct cldc_session *sess,
-			    const struct cld_packet *pkt,
-			    const void *msgbuf, size_t buflen)
-{
-	HAIL_DEBUG(&sess->log, "FIXME: not-master message received");
-	return -1055;	/* FIXME */
 }
 
 static void cldc_msg_free(struct cldc_msg *msg)
@@ -263,8 +316,6 @@ static void cldc_msg_free(struct cldc_msg *msg)
 
 	if (!msg)
 		return;
-
-	free(msg->data);
 
 	for (i = 0; i < msg->n_pkts; i++)
 		free(msg->pkt_info[i]);
@@ -304,128 +355,120 @@ static const char *user_key(struct cldc_session *sess, const char *user)
 	return sess->secret_key;
 }
 
-static int cldc_receive_msg(struct cldc_session *sess,
-			    const struct cld_packet *pkt,
-			    size_t pkt_len)
+static int rx_complete(struct cldc_session *sess,
+		       const struct cld_pkt_hdr *pkt,
+		       const struct cld_pkt_ftr *foot)
 {
-	const struct cld_msg_hdr *msg = (struct cld_msg_hdr *) sess->msg_buf;
-	size_t msglen = sess->msg_buf_len;
-
-	if (memcmp(msg->magic, CLD_MSG_MAGIC, sizeof(msg->magic))) {
-		HAIL_DEBUG(&sess->log, "%s: bad msg magic", __func__);
-		return -EPROTO;
-	}
-
-	switch(msg->op) {
-	case CMO_NOP:
-	case CMO_CLOSE:
-	case CMO_DEL:
-	case CMO_LOCK:
-	case CMO_UNLOCK:
-	case CMO_TRYLOCK:
-	case CMO_PUT:
-	case CMO_NEW_SESS:
-	case CMO_END_SESS:
-	case CMO_OPEN:
-	case CMO_GET_META:
-	case CMO_GET:
-		return rxmsg_generic(sess, pkt, msg, msglen);
-	case CMO_NOT_MASTER:
-		return rxmsg_not_master(sess, pkt, msg, msglen);
-	case CMO_ACK_FRAG:
-		return rxmsg_ack_frag(sess, pkt, msg, msglen);
-	case CMO_EVENT:
-		return rxmsg_event(sess, pkt, msg, msglen);
-	case CMO_PING:
-		return ack_seqid(sess, pkt->seqid);
+	switch (sess->msg_buf_op) {
 	case CMO_ACK:
+		HAIL_INFO(&sess->log, "%s: received unexpected ACK", __func__);
 		return -EBADRQC;
+	case CMO_PING:
+		/* send out an ACK */
+		return ack_seqid(sess, foot->seqid);
+	case CMO_NOT_MASTER:
+		HAIL_ERR(&sess->log, "FIXME: not-master message received");
+		return -1055;	/* FIXME */
+	case CMO_EVENT:
+		return rxmsg_event(sess, pkt, foot);
+	case CMO_ACK_FRAG:
+		return rxmsg_ack_frag(sess, pkt, foot);
+	default:
+		return rxmsg_generic(sess, pkt, foot);
 	}
+}
 
-	/* unknown op code */
-	return -EBADRQC;
+/** Accepts a packet's sequence ID.
+ * Depending on the message op, this may involve initializing the session's
+ * sequence ID, validating that the packet's ID is in range, or doing nothing.
+ *
+ * @param sess		The session
+ * @param seqid		The sequence ID
+ * @param op		The message op
+ *
+ * @return		0 on success; error code otherwise
+ */
+static int accept_seqid(struct cldc_session *sess, uint64_t seqid,
+			enum cld_msg_op op)
+{
+	switch (op) {
+	case CMO_NEW_SESS:
+		/* CMO_NEW_SESS initializes the session's sequence id */
+		sess->next_seqid_in = seqid + 1;
+		sess->next_seqid_in_tr =
+			sess->next_seqid_in - CLDC_MSG_REMEMBER;
+		HAIL_DEBUG(&sess->log, "%s: setting next_seqid_in to %llu",
+			   __func__, (unsigned long long) seqid);
+		return 0;
+
+	case CMO_NOT_MASTER:
+	case CMO_ACK_FRAG:
+		/* Ignore sequence ID of these types */
+		return 0;
+
+	default:
+		/* verify that the sequence id is in range */
+		if (seqid == sess->next_seqid_in) {
+			sess->next_seqid_in++;
+			sess->next_seqid_in_tr++;
+			return 0;
+		}
+
+		if (seqid_in_range(seqid,
+				   sess->next_seqid_in_tr,
+				   sess->next_seqid_in)) {
+			return 0;
+		}
+
+		return -EBADSLT;
+	}
 }
 
 int cldc_receive_pkt(struct cldc_session *sess,
 		     const void *net_addr, size_t net_addrlen,
 		     const void *pktbuf, size_t pkt_len)
 {
-	const struct cld_packet *pkt = pktbuf;
-	const struct cld_msg_hdr *msg = (struct cld_msg_hdr *) (pkt + 1);
 	const char *secret_key;
-	size_t msglen;
 	struct timeval tv;
 	time_t current_time;
+	struct cld_pkt_hdr pkt;
+	unsigned int hdr_len, msg_len;
+	const struct cld_pkt_ftr *foot;
 	uint64_t seqid;
-	uint32_t pkt_flags;
-	bool first_frag, last_frag, have_new_sess, no_seqid;
-	bool have_get;
+	XDR xdrs;
 	int ret;
 
 	gettimeofday(&tv, NULL);
 	current_time = tv.tv_sec;
 
-	if (pkt_len < (sizeof(*pkt) + SHA_DIGEST_LENGTH)) {
-		HAIL_DEBUG(&sess->log, "%s: msg too short", __func__);
+	/* Decode the packet header */
+	if (pkt_len < CLD_PKT_FTR_LEN) {
+		HAIL_DEBUG(&sess->log, "%s: packet too short to have a "
+			   "well-formed footer", __func__);
 		return -EPROTO;
 	}
-
-	msglen = pkt_len - sizeof(*pkt) - SHA_DIGEST_LENGTH;
-
-	pkt_flags = le32_to_cpu(pkt->flags);
-	first_frag = pkt_flags & CPF_FIRST;
-	last_frag = pkt_flags & CPF_LAST;
-	have_get = first_frag && (msg->op == CMO_GET);
-	have_new_sess = first_frag && (msg->op == CMO_NEW_SESS);
-	no_seqid = first_frag && ((msg->op == CMO_NOT_MASTER) ||
-				  (msg->op == CMO_ACK_FRAG));
-
-	if (sess->log.verbose) {
-		if (have_get) {
-			struct cld_msg_get_resp *dp;
-			dp = (struct cld_msg_get_resp *) msg;
-			HAIL_DEBUG(&sess->log, "%s(len %u, op %s"
-				   ", seqid %llu, user %s, size %u)",
-				   __func__,
-				   (unsigned int) pkt_len,
-				   __cld_opstr(msg->op),
-				   (unsigned long long) le64_to_cpu(pkt->seqid),
-				   pkt->user,
-				   le32_to_cpu(dp->size));
-		} else if (have_new_sess) {
-			struct cld_msg_resp *dp;
-			dp = (struct cld_msg_resp *) msg;
-			HAIL_DEBUG(&sess->log, "%s(len %u, op %s"
-				   ", seqid %llu, user %s, xid_in %llu)",
-				   __func__,
-				   (unsigned int) pkt_len,
-				   __cld_opstr(msg->op),
-				   (unsigned long long) le64_to_cpu(pkt->seqid),
-				   pkt->user,
-				   (unsigned long long) le64_to_cpu(dp->xid_in));
-		} else {
-			HAIL_DEBUG(&sess->log, "%s(len %u, "
-				   "flags %s%s, op %s, seqid %llu, user %s)",
-				   __func__,
-				   (unsigned int) pkt_len,
-				   first_frag ? "F" : "",
-				   last_frag ? "L" : "",
-				   first_frag ? __cld_opstr(msg->op) : "n/a",
-				   (unsigned long long) le64_to_cpu(pkt->seqid),
-				   pkt->user);
-		}
+	xdrmem_create(&xdrs, (void *)pktbuf,
+			pkt_len - CLD_PKT_FTR_LEN, XDR_DECODE);
+	memset(&pkt, 0, sizeof(pkt));
+	if (!xdr_cld_pkt_hdr(&xdrs, &pkt)) {
+		HAIL_DEBUG(&sess->log, "%s: failed to decode packet header",
+			   __func__);
+		xdr_destroy(&xdrs);
+		return -EPROTO;
 	}
-
-	if (memcmp(pkt->magic, CLD_PKT_MAGIC, sizeof(pkt->magic))) {
+	hdr_len = xdr_getpos(&xdrs);
+	xdr_destroy(&xdrs);
+	if (memcmp(&pkt.magic, CLD_PKT_MAGIC, sizeof(pkt.magic))) {
 		HAIL_DEBUG(&sess->log, "%s: bad pkt magic", __func__);
 		return -EPROTO;
 	}
 
 	/* check HMAC signature */
-	secret_key = user_key(sess, pkt->user);
+	foot = (const struct cld_pkt_ftr *)
+		(((char *)pktbuf) + (pkt_len - CLD_PKT_FTR_LEN));
+	secret_key = user_key(sess, pkt.user);
 	ret = __cld_authcheck(&sess->log, secret_key,
-			      pkt, pkt_len - SHA_DIGEST_LENGTH,
-			      (uint8_t *)pkt + pkt_len - SHA_DIGEST_LENGTH);
+			      pktbuf, pkt_len - SHA_DIGEST_LENGTH, foot->sha);
 	if (ret) {
 		HAIL_DEBUG(&sess->log, "%s: invalid auth (ret=%d)",
 			   __func__, ret);
@@ -443,48 +486,40 @@ int cldc_receive_pkt(struct cldc_session *sess,
 	if (current_time >= sess->msg_scan_time)
 		sess_expire_outmsg(sess, current_time);
 
-	if (first_frag)
-		sess->msg_buf_len = 0;
-
-	if ((sess->msg_buf_len + msglen) > CLD_MAX_MSG_SZ) {
-		HAIL_DEBUG(&sess->log, "%s: bad pkt length", __func__);
-		return -EPROTO;
+	if (pkt.mi.order & CLD_PKT_IS_FIRST) {
+		/* This packet begins a new message.
+		 * Determine the new message's op */
+		sess->msg_buf_op = pkt.mi.cld_pkt_msg_info_u.mi.op;
 	}
-
-	memcpy(sess->msg_buf + sess->msg_buf_len, msg, msglen);
-	sess->msg_buf_len += msglen;
 
 	/* verify (or set, for new-sess) sequence id */
-	seqid = le64_to_cpu(pkt->seqid);
-	if (have_new_sess) {
-		sess->next_seqid_in = seqid + 1;
-		sess->next_seqid_in_tr =
-			sess->next_seqid_in - CLDC_MSG_REMEMBER;
-
-		HAIL_DEBUG(&sess->log, "%s: "
-			   "setting next_seqid_in to %llu",
+	seqid = le64_to_cpu(foot->seqid);
+	ret = accept_seqid(sess, seqid, sess->msg_buf_op);
+	if (ret) {
+		HAIL_DEBUG(&sess->log, "%s: bad seqid %llu",
 			   __func__, (unsigned long long) seqid);
-	} else if (!no_seqid) {
-		if (seqid != sess->next_seqid_in) {
-			if (seqid_in_range(seqid,
-					   sess->next_seqid_in_tr,
-					   sess->next_seqid_in))
-				return ack_seqid(sess, pkt->seqid);
-
-			HAIL_DEBUG(&sess->log, "%s: bad seqid %llu",
-				   __func__, (unsigned long long) seqid);
-			return -EBADSLT;
-		}
-		sess->next_seqid_in++;
-		sess->next_seqid_in_tr++;
+		return ret;
 	}
 
+	if (pkt.mi.order & CLD_PKT_IS_FIRST)
+		sess->msg_buf_len = 0;
+	msg_len = pkt_len - hdr_len - CLD_PKT_FTR_LEN;
+	if ((sess->msg_buf_len + msg_len) > CLD_MAX_MSG_SZ) {
+		HAIL_DEBUG(&sess->log, "%s: message too long", __func__);
+		return -EPROTO;
+	}
+	memcpy(sess->msg_buf + sess->msg_buf_len, pktbuf + hdr_len, msg_len);
+	sess->msg_buf_len += msg_len;
 	sess->expire_time = current_time + CLDC_SESS_EXPIRE;
 
-	if (!last_frag)
-		return sess ? ack_seqid(sess, pkt->seqid) : 0;
-
-	return cldc_receive_msg(sess, pkt, pkt_len);
+	if (pkt.mi.order & CLD_PKT_IS_LAST) {
+		HAIL_DEBUG(&sess->log, "%s: receiving complete message of "
+			   "op %s", __func__,
+			   __cld_opstr(sess->msg_buf_op));
+		return rx_complete(sess, &pkt, foot);
+	} else {
+		return ack_seqid(sess, foot->seqid);
+	}
 }
 
 static void sess_next_seqid(struct cldc_session *sess, uint64_t *seqid)
@@ -493,19 +528,49 @@ static void sess_next_seqid(struct cldc_session *sess, uint64_t *seqid)
 	*seqid = rc;
 }
 
+/**
+ * creates a new cldc_msg
+ *
+ * @param sess		The session
+ * @param copts		The call options
+ * @param op		The op of message to create
+ * @param xdrproc	The XDR function to use to create the message body
+ * @param data		The data to pass to xdrproc
+ *
+ * @return		The cldc message, or NULL on error,
+ */
 static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 				     const struct cldc_call_opts *copts,
-				     enum cld_msg_ops op,
-				     size_t msg_len)
+				     enum cld_msg_op op,
+				     xdrproc_t xdrproc, const void *data)
 {
 	struct cldc_msg *msg;
-	struct cld_msg_hdr *hdr;
 	struct timeval tv;
-	int n_pkts, i, data_left;
-	void *p;
+	size_t i, body_len, n_pkts;
+	char *body;
+	XDR xbdy;
 
-	n_pkts = msg_len / CLD_MAX_PKT_MSG_SZ;
-	n_pkts += ((msg_len % CLD_MAX_PKT_MSG_SZ) ? 1 : 0);
+	/* Encode the message body */
+	body_len = xdr_sizeof(xdrproc, (void *)data);
+	body = alloca(body_len);
+	xdrmem_create(&xbdy, body, body_len, XDR_ENCODE);
+	if (!xdrproc(&xbdy, (void *)data)) {
+		HAIL_DEBUG(&sess->log, "%s: failed to encode "
+			   "message", __func__);
+		xdr_destroy(&xbdy);
+		return NULL;
+	}
+	xdr_destroy(&xbdy);
+
+	if (body_len == 0)
+		/* Some packets (like ACKS) just have a header, and no message
+		 * body. */
+		n_pkts = 1;
+	else {
+		/* round up */
+		n_pkts = (body_len + CLD_MAX_PKT_MSG_SZ - 1) /
+			CLD_MAX_PKT_MSG_SZ;
+	}
 
 	/* Create cldc_msg */
 	msg = calloc(1, sizeof(*msg) +
@@ -513,56 +578,64 @@ static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 	if (!msg)
 		return NULL;
 
-	msg->data = calloc(1, msg_len);
-	if (!msg->data) {
-		free(msg);
-		return NULL;
-	}
-
 	msg->n_pkts = n_pkts;
 	__cld_rand64(&msg->xid);
-
+	msg->op = op;
 	msg->sess = sess;
-
 	if (copts)
 		memcpy(&msg->copts, copts, sizeof(msg->copts));
-
 	gettimeofday(&tv, NULL);
 	msg->expire_time = tv.tv_sec + CLDC_MSG_EXPIRE;
 
-	msg->data_len = msg_len;
-
-	p = msg->data;
-	data_left = msg_len;
 	for (i = 0; i < msg->n_pkts; i++) {
+		XDR xhdr;
+		struct cld_pkt_hdr pkt;
 		struct cldc_pkt_info *pi;
-		int pkt_len;
+		int hdr_len, body_chunk_len, pkt_len;
 
-		pkt_len = MIN(data_left, CLD_MAX_PKT_MSG_SZ);
+		/* Set up packet header */
+		memcpy(&pkt.magic, CLD_PKT_MAGIC, sizeof(pkt.magic));
+		memcpy(&pkt.sid, sess->sid, CLD_SID_SZ);
+		pkt.user = sess->user;
+		if (i == 0) {
+			if (i == (msg->n_pkts - 1))
+				pkt.mi.order = CLD_PKT_ORD_FIRST_LAST;
+			else
+				pkt.mi.order = CLD_PKT_ORD_FIRST;
+			pkt.mi.cld_pkt_msg_info_u.mi.xid = msg->xid;
+			pkt.mi.cld_pkt_msg_info_u.mi.op = op;
+		} else {
+			if (i == (msg->n_pkts - 1))
+				pkt.mi.order = CLD_PKT_ORD_LAST;
+			else
+				pkt.mi.order = CLD_PKT_ORD_MID;
+		}
 
-		pi = calloc(1, sizeof(*pi) + pkt_len + SHA_DIGEST_LENGTH);
+		/* Allocate memory */
+		hdr_len = xdr_sizeof((xdrproc_t)xdr_cld_pkt_hdr, &pkt);
+		body_chunk_len = MIN(body_len, CLD_MAX_PKT_MSG_SZ);
+		pkt_len = hdr_len + body_chunk_len + CLD_PKT_FTR_LEN;
+		pi = calloc(1, sizeof(*pi) + pkt_len);
 		if (!pi)
 			goto err_out;
-
 		pi->pkt_len = pkt_len;
-
-		memcpy(pi->pkt.magic, CLD_PKT_MAGIC, CLD_MAGIC_SZ);
-		memcpy(pi->pkt.sid, sess->sid, CLD_SID_SZ);
-		strncpy(pi->pkt.user, sess->user, CLD_MAX_USERNAME - 1);
-
-		if (i == 0)
-			pi->pkt.flags |= cpu_to_le32(CPF_FIRST);
-		if (i == (msg->n_pkts - 1))
-			pi->pkt.flags |= cpu_to_le32(CPF_LAST);
-
 		msg->pkt_info[i] = pi;
-		data_left -= pkt_len;
-	}
+		strncpy(pi->user, sess->user, CLD_MAX_USERNAME - 1);
 
-	hdr = (struct cld_msg_hdr *) msg->data;
-	memcpy(&hdr->magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
-	hdr->op = op;
-	hdr->xid = msg->xid;
+		/* Fill in the packet header */
+		xdrmem_create(&xhdr, (char *)pi->data, hdr_len, XDR_ENCODE);
+		if (!xdr_cld_pkt_hdr(&xhdr, &pkt)) {
+			HAIL_DEBUG(&sess->log, "%s: failed to encode header "
+				   "for packet %zu", __func__, i);
+			xdr_destroy(&xhdr);
+			goto err_out;
+		}
+
+		/* Fill in the body */
+		memcpy(pi->data + hdr_len, body, body_chunk_len);
+		body += body_chunk_len;
+		body_len -= body_chunk_len;
+	}
 
 	return msg;
 
@@ -598,36 +671,16 @@ static void sess_expire(struct cldc_session *sess)
 	sess->ops->timer_ctl(sess->private, false, NULL, NULL, 0);
 
 	sess->ops->event(sess->private, sess, NULL, CE_SESS_FAILED);
-	/* FIXME why not sess_free here */
+	/*
+	 * Do not do sess_free here, or else the application is bound to
+	 * step into use-after-free. Only call sess_free when requested.
+	 * However, it may be requested right from this callback. Or later.
+	 */
 }
 
 static int sess_send_pkt(struct cldc_session *sess,
-			 const struct cld_packet *pkt, size_t pkt_len)
+			 const void *pkt, size_t pkt_len)
 {
-	if (sess->log.verbose) {
-		uint32_t flags = le32_to_cpu(pkt->flags);
-		bool first = (flags & CPF_FIRST);
-		bool last = (flags & CPF_LAST);
-		uint8_t op = CMO_NOP;
-
-		if (first) {
-			struct cld_msg_hdr *hdr;
-
-			hdr = (struct cld_msg_hdr *) (pkt + 1);
-			op = hdr->op;
-		}
-
-		HAIL_DEBUG(&sess->log,
-			   "%s(len %zu, flags %s%s, "
-			   "op %s, seqid %llu)",
-			   __func__,
-			   pkt_len,
-			   first ? "F" : "",
-			   last ? "L" : "",
-			   first ? __cld_opstr(op) : "n/a",
-			   (unsigned long long) le64_to_cpu(pkt->seqid));
-	}
-
 	return sess->ops->pkt_send(sess->private,
 				   sess->addr, sess->addr_len,
 				   pkt, pkt_len);
@@ -656,18 +709,12 @@ static int sess_timer(struct cldc_session *sess, void *priv)
 
 		for (i = 0; i < msg->n_pkts; i++) {
 			struct cldc_pkt_info *pi;
-			int total_pkt_len;
 
 			pi = msg->pkt_info[i];
 			if (!pi)
 				continue;
-
-			total_pkt_len = sizeof(struct cld_packet) +
-					pi->pkt_len + SHA_DIGEST_LENGTH;
-
 			pi->retries++;
-
-			sess_send_pkt(sess, &pi->pkt, total_pkt_len);
+			sess_send_pkt(sess, pi->data, pi->pkt_len);
 		}
 	}
 
@@ -679,40 +726,31 @@ static int sess_timer(struct cldc_session *sess, void *priv)
 static int sess_send(struct cldc_session *sess, struct cldc_msg *msg)
 {
 	int ret, i;
-	int data_left;
-	void *p;
 	const char *secret_key;
 
 	secret_key = user_key(sess, sess->user);
 
-	p = msg->data;
-	data_left = msg->data_len;
 	for (i = 0; i < msg->n_pkts; i++) {
 		struct cldc_pkt_info *pi;
-		int total_pkt_len;
+		struct cld_pkt_ftr *foot;
 
 		pi = msg->pkt_info[i];
-		memcpy(pi->data, p, pi->pkt_len);
-
-		total_pkt_len = sizeof(struct cld_packet) +
-				pi->pkt_len + SHA_DIGEST_LENGTH;
 
 		/* Add the sequence number to the end of the packet */
-		sess_next_seqid(sess, &pi->pkt.seqid);
-
-		p += pi->pkt_len;
-		data_left -= pi->pkt_len;
+		foot = (struct cld_pkt_ftr *)
+			(pi->data + pi->pkt_len - CLD_PKT_FTR_LEN);
+		memset(foot, 0, CLD_PKT_FTR_LEN);
+		sess_next_seqid(sess, &foot->seqid);
 
 		/* Add the signature to the end of the packet */
 		ret = __cld_authsign(&sess->log, secret_key,
-				     &pi->pkt, total_pkt_len-SHA_DIGEST_LENGTH,
-				     ((uint8_t *)&pi->pkt + total_pkt_len) -
-				    	SHA_DIGEST_LENGTH);
+				     pi->data,
+				     pi->pkt_len - SHA_DIGEST_LENGTH,foot->sha);
 		if (ret)
 			return ret;
 
 		/* attempt first send */
-		if (sess_send_pkt(sess, &pi->pkt, total_pkt_len) < 0)
+		if (sess_send_pkt(sess, pi->data, pi->pkt_len) < 0)
 			return -EIO;
 	}
 
@@ -762,7 +800,7 @@ int cldc_end_sess(struct cldc_session *sess, const struct cldc_call_opts *copts)
 
 	/* create END-SESS message */
 	msg = cldc_new_msg(sess, copts, CMO_END_SESS,
-			   sizeof(struct cld_msg_hdr));
+			   (xdrproc_t)xdr_void, NULL);
 	if (!msg)
 		return -ENOMEM;
 
@@ -774,10 +812,8 @@ int cldc_end_sess(struct cldc_session *sess, const struct cldc_call_opts *copts)
 static ssize_t new_sess_cb(struct cldc_msg *msg, const void *resp_p,
 			   size_t resp_len, enum cle_err_codes resp_rc)
 {
-	struct cldc_session *sess = msg->sess;
-
 	if (resp_rc == CLE_OK)
-		sess->confirmed = true;
+		msg->sess->confirmed = true;
 
 	if (msg->copts.cb)
 		return msg->copts.cb(&msg->copts, resp_rc);
@@ -830,7 +866,7 @@ int cldc_new_sess(const struct cldc_ops *ops,
 
 	/* create NEW-SESS message */
 	msg = cldc_new_msg(sess, copts, CMO_NEW_SESS,
-			   sizeof(struct cld_msg_hdr));
+			   (xdrproc_t)xdr_void, NULL);
 	if (!msg) {
 		sess_free(sess);
 		return -ENOMEM;
@@ -877,7 +913,7 @@ int cldc_nop(struct cldc_session *sess, const struct cldc_call_opts *copts)
 
 	/* create NOP message */
 	msg = cldc_new_msg(sess, copts, CMO_NOP,
-			   sizeof(struct cld_msg_hdr));
+			   (xdrproc_t)xdr_void, NULL);
 	if (!msg)
 		return -ENOMEM;
 
@@ -890,8 +926,7 @@ int cldc_del(struct cldc_session *sess, const struct cldc_call_opts *copts,
 	     const char *pathname)
 {
 	struct cldc_msg *msg;
-	struct cld_msg_del *del;
-	void *p;
+	struct cld_msg_del del;
 	size_t plen;
 
 	if (!sess->confirmed)
@@ -906,19 +941,13 @@ int cldc_del(struct cldc_session *sess, const struct cldc_call_opts *copts,
 		return -EINVAL;
 
 	/* create DEL message */
+	del.inode_name = (char *)pathname;
 	msg = cldc_new_msg(sess, copts, CMO_DEL,
-			   sizeof(struct cld_msg_del) + strlen(pathname));
+			   (xdrproc_t)xdr_cld_msg_del, &del);
 	if (!msg)
 		return -ENOMEM;
 
 	msg->cb = generic_end_cb;
-
-	/* fill in DEL-specific name_len, name info */
-	del = (struct cld_msg_del *) msg->data;
-	del->name_len = cpu_to_le16(plen);
-	p = del;
-	p += sizeof(struct cld_msg_del);
-	memcpy(p, pathname, plen);
 
 	return sess_send(sess, msg);
 }
@@ -926,13 +955,19 @@ int cldc_del(struct cldc_session *sess, const struct cldc_call_opts *copts,
 static ssize_t open_end_cb(struct cldc_msg *msg, const void *resp_p,
 			   size_t resp_len, enum cle_err_codes resp_rc)
 {
-	const struct cld_msg_open_resp *resp = resp_p;
-	struct cldc_fh *fh = msg->cb_private;
-
 	if (resp_rc == CLE_OK) {
-		if (resp_len < sizeof(*resp))
-			return -1010;
-		fh->fh_le = resp->fh;
+		struct cldc_fh *fh = msg->cb_private;
+		XDR xdrs;
+		struct cld_msg_open_resp resp;
+
+		xdrmem_create(&xdrs, (void *)resp_p, resp_len, XDR_DECODE);
+		memset(&resp, 0, sizeof(resp));
+		if (!xdr_cld_msg_open_resp(&xdrs, &resp)) {
+			xdr_destroy(&xdrs);
+			return -1009;
+		}
+
+		fh->fh = resp.fh;
 		fh->valid = true;
 	}
 
@@ -948,9 +983,8 @@ int cldc_open(struct cldc_session *sess,
 	      uint32_t events, struct cldc_fh **fh_out)
 {
 	struct cldc_msg *msg;
-	struct cld_msg_open *open;
+	struct cld_msg_open open;
 	struct cldc_fh fh, *fhtmp;
-	void *p;
 	size_t plen;
 	int fh_idx;
 
@@ -968,8 +1002,11 @@ int cldc_open(struct cldc_session *sess,
 		return -EINVAL;
 
 	/* create OPEN message */
+	open.mode = open_mode;
+	open.events = events;
+	open.inode_name = (char *)pathname;
 	msg = cldc_new_msg(sess, copts, CMO_OPEN,
-			   sizeof(struct cld_msg_open) + strlen(pathname));
+			   (xdrproc_t)xdr_cld_msg_open, &open);
 	if (!msg)
 		return -ENOMEM;
 
@@ -984,15 +1021,6 @@ int cldc_open(struct cldc_session *sess,
 	msg->cb = open_end_cb;
 	msg->cb_private = fhtmp;
 
-	/* fill in OPEN-specific info */
-	open = (struct cld_msg_open *) msg->data;
-	open->mode = cpu_to_le32(open_mode);
-	open->events = cpu_to_le32(events);
-	open->name_len = cpu_to_le16(plen);
-	p = open;
-	p += sizeof(struct cld_msg_open);
-	memcpy(p, pathname, plen);
-
 	*fh_out = fhtmp;
 
 	return sess_send(sess, msg);
@@ -1002,7 +1030,7 @@ int cldc_close(struct cldc_fh *fh, const struct cldc_call_opts *copts)
 {
 	struct cldc_session *sess;
 	struct cldc_msg *msg;
-	struct cld_msg_close *close_msg;
+	struct cld_msg_close close_msg;
 
 	if (!fh->valid)
 		return -EINVAL;
@@ -1010,8 +1038,9 @@ int cldc_close(struct cldc_fh *fh, const struct cldc_call_opts *copts)
 	sess = fh->sess;
 
 	/* create CLOSE message */
+	close_msg.fh = fh->fh;
 	msg = cldc_new_msg(sess, copts, CMO_CLOSE,
-			   sizeof(struct cld_msg_close));
+			   (xdrproc_t)xdr_cld_msg_close, &close_msg);
 	if (!msg)
 		return -ENOMEM;
 
@@ -1019,10 +1048,6 @@ int cldc_close(struct cldc_fh *fh, const struct cldc_call_opts *copts)
 	fh->valid = false;
 
 	msg->cb = generic_end_cb;
-
-	/* fill in CLOSE-specific fh info */
-	close_msg = (struct cld_msg_close *) msg->data;
-	close_msg->fh = fh->fh_le;
 
 	return sess_send(sess, msg);
 }
@@ -1032,7 +1057,7 @@ int cldc_lock(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 {
 	struct cldc_session *sess;
 	struct cldc_msg *msg;
-	struct cld_msg_lock *lock;
+	struct cld_msg_lock lock;
 
 	if (!fh->valid)
 		return -EINVAL;
@@ -1040,18 +1065,15 @@ int cldc_lock(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 	sess = fh->sess;
 
 	/* create LOCK message */
+	lock.fh = fh->fh;
+	lock.flags = lock_flags;
 	msg = cldc_new_msg(sess, copts,
 			   wait_for_lock ? CMO_LOCK : CMO_TRYLOCK,
-			   sizeof(struct cld_msg_lock));
+			   (xdrproc_t)xdr_cld_msg_lock, &lock);
 	if (!msg)
 		return -ENOMEM;
 
 	msg->cb = generic_end_cb;
-
-	/* fill in LOCK-specific info */
-	lock = (struct cld_msg_lock *) msg->data;
-	lock->fh = fh->fh_le;
-	lock->flags = cpu_to_le32(lock_flags);
 
 	return sess_send(sess, msg);
 }
@@ -1060,7 +1082,7 @@ int cldc_unlock(struct cldc_fh *fh, const struct cldc_call_opts *copts)
 {
 	struct cldc_session *sess;
 	struct cldc_msg *msg;
-	struct cld_msg_unlock *unlock;
+	struct cld_msg_unlock unlock;
 
 	if (!fh->valid)
 		return -EINVAL;
@@ -1068,16 +1090,13 @@ int cldc_unlock(struct cldc_fh *fh, const struct cldc_call_opts *copts)
 	sess = fh->sess;
 
 	/* create UNLOCK message */
+	unlock.fh = fh->fh;
 	msg = cldc_new_msg(sess, copts, CMO_UNLOCK,
-			   sizeof(struct cld_msg_unlock));
+			   (xdrproc_t)xdr_cld_msg_unlock, &unlock);
 	if (!msg)
 		return -ENOMEM;
 
 	msg->cb = generic_end_cb;
-
-	/* fill in UNLOCK-specific info */
-	unlock = (struct cld_msg_unlock *) msg->data;
-	unlock->fh = fh->fh_le;
 
 	return sess_send(sess, msg);
 }
@@ -1087,7 +1106,7 @@ int cldc_put(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 {
 	struct cldc_session *sess;
 	struct cldc_msg *msg;
-	struct cld_msg_put *put;
+	struct cld_msg_put put;
 
 	if (!data || !data_len || data_len > CLD_MAX_PAYLOAD_SZ)
 		return -EINVAL;
@@ -1098,16 +1117,13 @@ int cldc_put(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 	sess = fh->sess;
 
 	/* create PUT message */
+	put.fh = fh->fh;
+	put.data.data_len = data_len;
+	put.data.data_val = (char *)data;
 	msg = cldc_new_msg(sess, copts, CMO_PUT,
-			   sizeof(struct cld_msg_put) + data_len);
+			   (xdrproc_t)xdr_cld_msg_put, &put);
 	if (!msg)
 		return -ENOMEM;
-
-	put = (struct cld_msg_put *) msg->data;
-	put->fh = fh->fh_le;
-	put->data_size = cpu_to_le32(data_len);
-
-	memcpy((put + 1), data, data_len);
 
 	msg->cb = generic_end_cb;
 
@@ -1116,67 +1132,39 @@ int cldc_put(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 	return 0;
 }
 
-#undef XC32
-#undef XC64
-#define XC32(name) \
-	o->name = le32_to_cpu(resp->name)
-#define XC64(name) \
-	o->name = le64_to_cpu(resp->name)
-
 static ssize_t get_end_cb(struct cldc_msg *msg, const void *resp_p,
 			  size_t resp_len, enum cle_err_codes resp_rc)
 {
-	const struct cld_msg_get_resp *resp = resp_p;
-	struct cld_msg_get_resp *o = NULL;
-
 	if (resp_rc == CLE_OK) {
-		bool get_body;
+		XDR xin;
+		struct cld_msg_get_resp *resp = &msg->copts.resp;
 
-		o = &msg->copts.u.get.resp;
-
-		get_body = (resp->resp.hdr.op == CMO_GET);
-		msg->copts.op = CMO_GET;
-
-		/* copy-and-swap */
-		XC64(inum);
-		XC32(ino_len);
-		XC32(size);
-		XC64(version);
-		XC64(time_create);
-		XC64(time_modify);
-		XC32(flags);
-
-		/* copy inode name */
-		if (o->ino_len <= CLD_INODE_NAME_MAX) {
-			size_t diffsz;
-			const void *p;
-
-			p = (resp + 1);
-			memcpy(&msg->copts.u.get.inode_name, p, o->ino_len);
-
-			p += o->ino_len;
-			diffsz = p - resp_p;
-
-			/* point to internal buffer holding GET data */
-			msg->copts.u.get.buf = msg->sess->msg_buf + diffsz;
-			msg->copts.u.get.size = msg->sess->msg_buf_len - diffsz;
-		} else {
-			o->ino_len = 0;		/* Probably full of garbage */
+		/* Parse GET response.
+		 * Avoid memory allocation in xdr_string by pointing
+		 * variable-length elements at static buffers. */
+		xdrmem_create(&xin, (void *)resp_p, resp_len, XDR_DECODE);
+		memset(resp, 0, sizeof(struct cld_msg_get_resp));
+		resp->inode_name = msg->sess->inode_name_temp;
+		resp->data.data_val = msg->sess->payload;
+		resp->data.data_len = 0;
+		if (!xdr_cld_msg_get_resp(&xin, resp)) {
+			xdr_destroy(&xin);
+			return -1009;
 		}
+		xdr_destroy(&xin);
 	}
 
 	if (msg->copts.cb)
 		return msg->copts.cb(&msg->copts, resp_rc);
 	return 0;
 }
-#undef XC
 
 int cldc_get(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 	     bool metadata_only)
 {
 	struct cldc_session *sess;
 	struct cldc_msg *msg;
-	struct cld_msg_get *get;
+	struct cld_msg_get get;
 
 	if (!fh->valid)
 		return -EINVAL;
@@ -1184,16 +1172,13 @@ int cldc_get(struct cldc_fh *fh, const struct cldc_call_opts *copts,
 	sess = fh->sess;
 
 	/* create GET message */
+	get.fh = fh->fh;
 	msg = cldc_new_msg(sess, copts, CMO_GET,
-			   sizeof(struct cld_msg_get));
+			   (xdrproc_t)xdr_cld_msg_get, &get);
 	if (!msg)
 		return -ENOMEM;
 
 	msg->cb = get_end_cb;
-
-	/* fill in GET-specific info */
-	get = (struct cld_msg_get *) msg->data;
-	get->fh = fh->fh_le;
 
 	return sess_send(sess, msg);
 }
@@ -1306,6 +1291,919 @@ char *cldc_dirent_name(struct cld_dirent_cur *dc)
 	s[str_len] = 0;
 
 	return s;
+}
+
+/*
+ * On error, return the code (not negated code like a kernel function would).
+ */
+static int ncld_getsrv(char **hostp, unsigned short *portp)
+{
+	enum { hostsz = 64 };
+	char hostb[hostsz];
+	GList *host_list = NULL;
+	GList *tmp;
+	struct cldc_host *hp;
+
+	if (gethostname(hostb, hostsz-1) < 0)
+		return errno;
+	hostb[hostsz-1] = 0;
+
+	if (cldc_getaddr(&host_list, hostb, NULL))
+		return 1001;
+
+	/*
+	 * This is a good place to compare weights and priorities, maybe later.
+	 * For now, just grab first host in the list.
+	 */
+	hp = host_list->data;		/* cannot be NULL if success above */
+	*hostp = hp->host;
+	*portp = hp->port;
+
+	for (tmp = host_list; tmp; tmp = tmp->next) {
+		hp = tmp->data;
+		free(hp->host);
+		free(hp);
+	}
+	g_list_free(host_list);
+	return 0;
+}
+
+static int ncld_gethost(char **hostp, unsigned short *portp,
+			const char *hostname, int port)
+{
+	if (port <= 0 || port >= 65536)
+		return EINVAL;
+	*portp = port;
+
+	if (!(*hostp = strdup(hostname)))
+		return ENOMEM;
+
+	return 0;
+}
+
+static void ncld_udp_timer_event(struct cld_timer *timer)
+{
+	struct ncld_sess *nsess = timer->userdata;
+	struct cldc_udp *udp = nsess->udp;
+
+	if (udp->cb)
+		udp->cb(udp->sess, udp->cb_private);
+}
+
+enum {
+	NCLD_CMD_END = 0,
+	NCLD_CMD_SESEV		/* argument - 4 bytes in host order */
+};
+
+/*
+ * All the error printouts are likely to be lost for daemons, but it's
+ * not a big deal. We abort instead of exist to indicate that something
+ * went wrong, so system features should report it (usualy as a core).
+ * When debugging, strace or -F mode will capture the output.
+ */
+static void ncld_thread_command(struct ncld_sess *nsess)
+{
+	ssize_t rrc;
+	unsigned char cmd;
+	uint32_t what;
+
+	rrc = read(nsess->to_thread[0], &cmd, 1);
+	if (rrc < 0) {
+		fprintf(stderr, "read error: %s\n", strerror(errno));
+		abort();
+	}
+	if (rrc < 1) {
+		fprintf(stderr, "short read\n");
+		abort();
+	}
+
+	if (cmd == NCLD_CMD_END) {
+		/* No answer to requestor. Wait with g_thread_join. */
+		g_thread_exit(NULL);
+	} else if (cmd == NCLD_CMD_SESEV) {
+		rrc = read(nsess->to_thread[0], &what, sizeof(uint32_t));
+		if (rrc < sizeof(uint32_t)) {
+			fprintf(stderr, "bad read param\n");
+			g_thread_exit(NULL);
+		}
+		if (nsess->event)
+			nsess->event(nsess->event_arg, what);
+	} else {
+		fprintf(stderr, "bad command 0x%x\n", cmd);
+		abort();
+	}
+}
+
+static gpointer ncld_sess_thr(gpointer data)
+{
+	struct ncld_sess *nsess = data;
+	struct pollfd pfd[2];
+	time_t tmo;
+	int i;
+	int rc;
+
+	for (;;) {
+		g_mutex_lock(nsess->mutex);
+		tmo = cld_timers_run(&nsess->tlist);
+		g_mutex_unlock(nsess->mutex);
+
+		memset(pfd, 0, sizeof(pfd));
+		pfd[0].fd = nsess->to_thread[0];
+		pfd[0].events = POLLIN;
+		pfd[1].fd = nsess->udp->fd;
+		pfd[1].events = POLLIN;
+
+		rc = poll(pfd, 2, tmo ? tmo*1000 : -1);
+		if (rc == 0)
+			continue;
+		if (rc < 0) {
+			fprintf(stderr, "poll error: %s\n", strerror(errno));
+			abort();
+		}
+
+		for (i = 0; i < ARRAY_SIZE(pfd); i++) {
+			if (pfd[i].revents) {
+				if (i == 0) {
+					ncld_thread_command(nsess);
+				} else {
+					g_mutex_lock(nsess->mutex);
+					cldc_udp_receive_pkt(nsess->udp);
+					g_mutex_unlock(nsess->mutex);
+				}
+			}
+		}
+	}
+
+	return NULL;
+}
+
+/*
+ * Ask the thread to exit and wait until it does.
+ */
+static void ncld_thr_end(struct ncld_sess *nsess)
+{
+	unsigned char cmd;
+
+	cmd = NCLD_CMD_END;
+	write(nsess->to_thread[1], &cmd, 1);
+	g_thread_join(nsess->thread);
+}
+
+static bool ncld_p_timer_ctl(void *priv, bool add,
+			     int (*cb)(struct cldc_session *, void *),
+			     void *cb_priv, time_t secs)
+{
+	struct ncld_sess *nsess = priv;
+	struct cldc_udp *udp = nsess->udp;
+
+	if (add) {
+		udp->cb = cb;
+		udp->cb_private = cb_priv;
+		cld_timer_add(&nsess->tlist, &nsess->udp_timer, time(NULL) + secs);
+	} else {
+		cld_timer_del(&nsess->tlist, &nsess->udp_timer);
+	}
+	return true;
+}
+
+static int ncld_p_pkt_send(void *priv, const void *addr, size_t addrlen,
+			       const void *buf, size_t buflen)
+{
+	struct ncld_sess *nsess = priv;
+	return cldc_udp_pkt_send(nsess->udp, addr, addrlen, buf, buflen);
+}
+
+static void ncld_p_event(void *priv, struct cldc_session *csp,
+			 struct cldc_fh *fh, uint32_t what)
+{
+	struct ncld_sess *nsess = priv;
+	unsigned char cmd;
+
+	if (what == CE_SESS_FAILED) {
+		if (nsess->udp->sess != csp)
+			abort();
+		nsess->is_up = false;
+		/* XXX wake up all I/O waiters here */
+		/*
+		 * This is a trick. As a direct callback from clcd layer,
+		 * we are running under nsess->mutex, so we cannot call back
+		 * into a user of ncld. If we do, it may invoke another
+		 * ncld operation and deadlock. So, bump session callbacks
+		 * into the part of the helper thread that runs unlocked.
+		 */
+		cmd = NCLD_CMD_SESEV;
+		write(nsess->to_thread[1], &cmd, 1);
+		write(nsess->to_thread[1], &what, sizeof(what));
+	}
+}
+
+static struct cldc_ops ncld_ops = {
+	.timer_ctl	= ncld_p_timer_ctl,
+	.pkt_send	= ncld_p_pkt_send,
+	.event		= ncld_p_event,
+	.errlog		= NULL,
+};
+
+static int ncld_new_sess(struct cldc_call_opts *copts, enum cle_err_codes errc)
+{
+	struct ncld_sess *nsess = copts->private;
+
+	/*
+	 * All callbacks from cldc layer run on the context of the thread
+	 * with nsess->mutex locked, so we don't lock it again here.
+	 */
+	nsess->errc = errc;
+	nsess->is_up = true;
+	g_cond_broadcast(nsess->cond);
+	return 0;
+}
+
+static int ncld_wait_session(struct ncld_sess *nsess)
+{
+	g_mutex_lock(nsess->mutex);
+	while (!nsess->is_up)
+		g_cond_wait(nsess->cond, nsess->mutex);
+	g_mutex_unlock(nsess->mutex);
+	return nsess->errc;
+}
+
+/*
+ * Initiating session may take a while, since we retry failures.
+ * We promise that eventually we return from this function.
+ *
+ * On error, returns NULL and sets the error code (system errno if below 1000,
+ * otherwise our own mysterious codes that you should just print in decimal).
+ *
+ * Keep in mind that the (*event)() is likely to be called on a context
+ * of the extra thread that we spawn. At least we won't steal some random
+ * context and monkey with signals. Also, (*event)() may be called before
+ * this function returns, with the session going down, for example.
+ * This is kind of dirty, but oh well. Maybe we'll fix this later.
+ *
+ * @param host Host name (NULL if resolving SRV records)
+ * @param port Port
+ * @param error Buffer for the error code
+ * @param ev_func Session event function (ok to be NULL)
+ * @param ev_arg User-supplied argument to the session event function
+ * @param cld_user The user identifier to be used to authentication
+ * @param cld_key The user key to be used to authentication
+ */
+struct ncld_sess *ncld_sess_open(const char *host, int port, int *error,
+				 void (*ev_func)(void *, unsigned int),
+				 void *ev_arg, const char *cld_user,
+				 const char *cld_key)
+{
+	struct ncld_sess *nsess;
+	struct cldc_call_opts copts;
+	int err;
+	GError *gerr;
+	int rc;
+
+	err = ENOMEM;
+	nsess = malloc(sizeof(struct ncld_sess));
+	if (!nsess)
+		goto out_sesalloc;
+	memset(nsess, 0, sizeof(struct ncld_sess));
+	cld_timer_init(&nsess->udp_timer, "nsess-udp-timer", ncld_udp_timer_event,
+		       nsess);
+	nsess->mutex = g_mutex_new();
+	if (!nsess->mutex)
+		goto out_mutex;
+	nsess->cond = g_cond_new();
+	if (!nsess->cond)
+		goto out_cond;
+
+	if (!host) {
+		err = ncld_getsrv(&nsess->host, &nsess->port);
+		if (err)
+			goto out_srv;
+	} else {
+		err = ncld_gethost(&nsess->host, &nsess->port, host, port);
+		if (err)
+			goto out_srv;
+	}
+
+	nsess->event = ev_func;
+	nsess->event_arg = ev_arg;
+
+	if (pipe(nsess->to_thread) < 0) {
+		err = errno;
+		goto out_pipe_to;
+	}
+
+	if (cldc_udp_new(nsess->host, nsess->port, &nsess->udp)) {
+		err = 1023;
+		goto out_udp;
+	}
+
+	nsess->thread = g_thread_create(ncld_sess_thr, nsess, TRUE, &gerr);
+	if (nsess->thread == NULL) {
+		err = 1022;
+		goto out_thread;
+	}
+
+	memset(&copts, 0, sizeof(copts));
+	copts.cb = ncld_new_sess;
+	copts.private = nsess;
+	if (cldc_new_sess(&ncld_ops, &copts, nsess->udp->addr, nsess->udp->addr_len,
+			  cld_user, cld_key, nsess, &nsess->udp->sess)) {
+		err = 1024;
+		goto out_session;
+	}
+
+	/* nsess->udp->sess->log.verbose = 1; */
+
+	rc = ncld_wait_session(nsess);
+	if (rc) {
+		err = 1100 + rc % 1000;
+		goto out_start;
+	}
+
+	return nsess;
+
+out_start:
+	cldc_kill_sess(nsess->udp->sess);
+out_session:
+	ncld_thr_end(nsess);
+out_thread:
+	cldc_udp_free(nsess->udp);
+out_udp:
+	close(nsess->to_thread[0]);
+	close(nsess->to_thread[1]);
+out_pipe_to:
+	free(nsess->host);
+out_srv:
+	g_cond_free(nsess->cond);
+out_cond:
+	g_mutex_free(nsess->mutex);
+out_mutex:
+	free(nsess);
+out_sesalloc:
+	*error = err;
+	return NULL;
+}
+
+static int ncld_open_cb(struct cldc_call_opts *copts, enum cle_err_codes errc)
+{
+	struct ncld_fh *fh = copts->private;
+
+	fh->errc = errc;
+	fh->is_open = true;
+	g_cond_broadcast(fh->sess->cond);
+	return 0;
+}
+
+static int ncld_wait_open(struct ncld_fh *fh)
+{
+	struct ncld_sess *nsess = fh->sess;
+
+	g_mutex_lock(nsess->mutex);
+	while (!fh->is_open)
+		g_cond_wait(nsess->cond, nsess->mutex);
+	g_mutex_unlock(nsess->mutex);
+	return fh->errc;
+}
+
+/*
+ * We do not provide anything like ncld_set_callback because it inevitably
+ * leads to lost events. Unused arguments are not too onerous, so just
+ * put zero into the events mask if you don't want notifications.
+ *
+ * FIXME It's a moot point for now anyway, since we don't have unlock-notify,
+ * or a waiting lock anyway.
+ *
+ * On error, return NULL and set the error code (can be errno or our own code).
+ */
+struct ncld_fh *ncld_open(struct ncld_sess *nsess, const char *fname,
+			  unsigned int mode, int *error, unsigned int events,
+			  void (*ev_func)(void *, unsigned int), void *ev_arg)
+{
+	struct ncld_fh *fh;
+	struct cldc_call_opts copts;
+	int err;
+	int rc;
+
+	err = EBUSY;
+	if (!nsess->is_up)
+		goto out_session;
+
+	err = ENOMEM;
+	fh = malloc(sizeof(struct ncld_fh));
+	if (!fh)
+		goto out_alloc;
+	memset(fh, 0, sizeof(struct ncld_fh));
+	fh->sess = nsess;
+	fh->event_mask = events;
+	fh->event_func = ev_func;
+	fh->event_arg = ev_arg;
+
+	g_mutex_lock(nsess->mutex);
+	memset(&copts, 0, sizeof(copts));
+	copts.cb = ncld_open_cb;
+	copts.private = fh;
+	rc = cldc_open(nsess->udp->sess, &copts, fname, mode, events, &fh->fh);
+	if (rc) {
+		err = -rc;
+		g_mutex_unlock(nsess->mutex);
+		goto out_open;
+	}
+	g_mutex_unlock(nsess->mutex);
+
+	rc = ncld_wait_open(fh);
+	if (rc) {
+		err = 1100 + rc;
+		goto out_start;
+	}
+
+	nsess->handles = g_list_prepend(nsess->handles, fh);
+	return fh;
+
+out_start:
+	/*
+	 * This is screwy, but we do nothing here. There is no way to free
+	 * a cldc file handle that failed its open. It is stuck in the
+	 * array of handles until the session closes (although it can be
+	 * garbage-collected if we're lucky).
+	 */
+out_open:
+	free(fh);
+out_alloc:
+out_session:
+	*error = err;
+	return NULL;
+}
+
+struct ncld_delio {
+	struct ncld_sess *sess;
+	bool is_done;
+	int errc;
+};
+
+static int ncld_del_cb(struct cldc_call_opts *copts, enum cle_err_codes errc)
+{
+	struct ncld_delio *dp = copts->private;
+	struct ncld_sess *nsess = dp->sess;
+
+	dp->errc = errc;
+	dp->is_done = true;
+	g_cond_broadcast(nsess->cond);
+	return 0;
+}
+
+static int ncld_wait_del(struct ncld_delio *dp)
+{
+	struct ncld_sess *nsess = dp->sess;
+
+	g_mutex_lock(nsess->mutex);
+	while (!dp->is_done)
+		g_cond_wait(nsess->cond, nsess->mutex);
+	g_mutex_unlock(nsess->mutex);
+	return dp->errc;
+}
+
+int ncld_del(struct ncld_sess *nsess, const char *fname)
+{
+	struct cldc_call_opts copts;
+	struct ncld_delio dpb;
+	int rc;
+
+	if (!nsess->is_up)
+		return -EBUSY;
+
+	memset(&dpb, 0, sizeof(struct ncld_delio));
+	dpb.sess = nsess;
+
+	g_mutex_lock(nsess->mutex);
+	memset(&copts, 0, sizeof(copts));
+	copts.cb = ncld_del_cb;
+	copts.private = &dpb;
+	rc = cldc_del(nsess->udp->sess, &copts, fname);
+	if (rc) {
+		g_mutex_unlock(nsess->mutex);
+		return -rc;
+	}
+	/* XXX A delete operation is not accounted for end-session */
+	g_mutex_unlock(nsess->mutex);
+
+	rc = ncld_wait_del(&dpb);
+	if (rc)
+		return rc + 1100;
+
+	return 0;
+}
+
+static int ncld_read_cb(struct cldc_call_opts *copts, enum cle_err_codes errc)
+{
+	struct ncld_read *rp = copts->private;
+	struct ncld_fh *fh = rp->fh;
+
+	if (errc) {
+		rp->errc = errc;
+	} else {
+		char *p;
+		size_t l;
+		cldc_copts_get_data(copts, &p, &l);
+		cldc_copts_get_metadata(copts, &rp->meta);
+		/* use assignments to defeat dumb gcc warnings. */
+		rp->ptr = p;
+		rp->length = l;
+	}
+	rp->is_done = true;
+	g_cond_broadcast(fh->sess->cond);
+	return 0;
+}
+
+static int ncld_wait_read(struct ncld_read *rp)
+{
+	struct ncld_fh *fh = rp->fh;
+	struct ncld_sess *nsess = fh->sess;
+
+	g_mutex_lock(nsess->mutex);
+	while (!rp->is_done)
+		g_cond_wait(nsess->cond, nsess->mutex);
+	--fh->nios;
+	g_mutex_unlock(nsess->mutex);
+	return rp->errc;
+}
+
+/*
+ * @error Error code buffer.
+ * @return Pointer to struct ncld_read or NULL if error.
+ */
+struct ncld_read *ncld_get(struct ncld_fh *fh, int *error)
+{
+	struct ncld_sess *nsess = fh->sess;
+	struct ncld_read *rp;
+	struct cldc_call_opts copts;
+	int rc;
+
+	if (!fh->is_open) {
+		*error = EBUSY;
+		return NULL;
+	}
+
+	rp = malloc(sizeof(struct ncld_read));
+	if (!rp) {
+		*error = ENOMEM;
+		return NULL;
+	}
+	memset(rp, 0, sizeof(struct ncld_read));
+	rp->fh = fh;
+
+	g_mutex_lock(nsess->mutex);
+	memset(&copts, 0, sizeof(copts));
+	copts.cb = ncld_read_cb;
+	copts.private = rp;
+	rc = cldc_get(fh->fh, &copts, false);
+	if (rc) {
+		g_mutex_unlock(nsess->mutex);
+		free(rp);
+		*error = -rc;
+		return NULL;
+	}
+	fh->nios++;
+	g_mutex_unlock(nsess->mutex);
+
+	rc = ncld_wait_read(rp);
+	if (rc) {
+		free(rp);
+		*error = rc + 1100;
+		return NULL;
+	}
+
+	return rp;
+}
+
+static int ncld_read_meta_cb(struct cldc_call_opts *copts, enum cle_err_codes errc)
+{
+	struct ncld_read *rp = copts->private;
+	struct ncld_fh *fh = rp->fh;
+
+	if (errc) {
+		rp->errc = errc;
+	} else {
+		cldc_copts_get_metadata(copts, &rp->meta);
+		rp->ptr = NULL;
+		rp->length = 0;
+	}
+	rp->is_done = true;
+	g_cond_broadcast(fh->sess->cond);
+	return 0;
+}
+
+/*
+ * @error Error code buffer.
+ * @return Pointer to struct ncld_read or NULL if error.
+ */
+struct ncld_read *ncld_get_meta(struct ncld_fh *fh, int *error)
+{
+	struct ncld_sess *nsess = fh->sess;
+	struct ncld_read *rp;
+	struct cldc_call_opts copts;
+	int rc;
+
+	if (!fh->is_open) {
+		*error = EBUSY;
+		return NULL;
+	}
+
+	rp = malloc(sizeof(struct ncld_read));
+	if (!rp) {
+		*error = ENOMEM;
+		return NULL;
+	}
+	memset(rp, 0, sizeof(struct ncld_read));
+	rp->fh = fh;
+
+	g_mutex_lock(nsess->mutex);
+	memset(&copts, 0, sizeof(copts));
+	copts.cb = ncld_read_meta_cb;
+	copts.private = rp;
+	rc = cldc_get(fh->fh, &copts, true);
+	if (rc) {
+		g_mutex_unlock(nsess->mutex);
+		free(rp);
+		*error = -rc;
+		return NULL;
+	}
+	fh->nios++;
+	g_mutex_unlock(nsess->mutex);
+
+	rc = ncld_wait_read(rp);
+	if (rc) {
+		free(rp);
+		*error = rc + 1100;
+		return NULL;
+	}
+
+	return rp;
+}
+
+void ncld_read_free(struct ncld_read *rp)
+{
+	/*
+	 * FIXME: Actually the rp->ptr points to sess->msg_buf, so we
+	 * cannot issue 2 cldc_get independently.  Ditto for inode_name
+	 * in rp->meta.
+	 *
+	 * Note also that ncld_read is used for get_meta, and data
+	 * buffer may not be present/filled in.
+	 */
+	/* free(rp->ptr); */
+
+	free(rp);
+}
+
+struct ncld_genio {
+	struct ncld_fh	*fh;
+	bool		is_done;
+	int		errc;
+};
+
+static int ncld_genio_cb(struct cldc_call_opts *copts, enum cle_err_codes errc)
+{
+	struct ncld_genio *ap = copts->private;
+	struct ncld_fh *fh = ap->fh;
+
+	ap->errc = errc;
+	ap->is_done = true;
+	g_cond_broadcast(fh->sess->cond);
+	return 0;
+}
+
+static int ncld_wait_genio(struct ncld_genio *ap)
+{
+	struct ncld_fh *fh = ap->fh;
+	struct ncld_sess *nsess = fh->sess;
+
+	g_mutex_lock(nsess->mutex);
+	while (!ap->is_done)
+		g_cond_wait(nsess->cond, nsess->mutex);
+	--fh->nios;
+	g_mutex_unlock(nsess->mutex);
+	return ap->errc;
+}
+
+/*
+ * @return: Zero or error code.
+ */
+int ncld_write(struct ncld_fh *fh, const void *data, long len)
+{
+	struct ncld_sess *nsess = fh->sess;
+	struct cldc_call_opts copts;
+	struct ncld_genio apb;
+	int rc;
+
+	if (!fh->is_open)
+		return -EBUSY;
+
+	memset(&apb, 0, sizeof(struct ncld_genio));
+	apb.fh = fh;
+
+	g_mutex_lock(nsess->mutex);
+	memset(&copts, 0, sizeof(copts));
+	copts.cb = ncld_genio_cb;
+	copts.private = &apb;
+	rc = cldc_put(fh->fh, &copts, data, len);
+	if (rc) {
+		g_mutex_unlock(nsess->mutex);
+		return -rc;
+	}
+	fh->nios++;
+	g_mutex_unlock(nsess->mutex);
+
+	rc = ncld_wait_genio(&apb);
+	if (rc)
+		return rc + 1100;
+
+	return 0;
+}
+
+int ncld_trylock(struct ncld_fh *fh)
+{
+	struct ncld_sess *nsess = fh->sess;
+	struct cldc_call_opts copts;
+	struct ncld_genio apb;
+	int rc;
+
+	if (!fh->is_open)
+		return -EBUSY;
+
+	memset(&apb, 0, sizeof(struct ncld_genio));
+	apb.fh = fh;
+
+	g_mutex_lock(nsess->mutex);
+	memset(&copts, 0, sizeof(copts));
+	copts.cb = ncld_genio_cb;
+	copts.private = &apb;
+	rc = cldc_lock(fh->fh, &copts, 0, false);
+	if (rc) {
+		g_mutex_unlock(nsess->mutex);
+		return -rc;
+	}
+	fh->nios++;
+	g_mutex_unlock(nsess->mutex);
+
+	rc = ncld_wait_genio(&apb);
+	if (rc)
+		return rc + 1100;
+
+	return 0;
+}
+
+int ncld_unlock(struct ncld_fh *fh)
+{
+	struct ncld_sess *nsess = fh->sess;
+	struct cldc_call_opts copts;
+	struct ncld_genio apb;
+	int rc;
+
+	if (!fh->is_open)
+		return -EBUSY;
+
+	memset(&apb, 0, sizeof(struct ncld_genio));
+	apb.fh = fh;
+
+	g_mutex_lock(nsess->mutex);
+	memset(&copts, 0, sizeof(copts));
+	copts.cb = ncld_genio_cb;
+	copts.private = &apb;
+	rc = cldc_unlock(fh->fh, &copts);
+	if (rc) {
+		g_mutex_unlock(nsess->mutex);
+		return -rc;
+	}
+	fh->nios++;
+	g_mutex_unlock(nsess->mutex);
+
+	rc = ncld_wait_genio(&apb);
+	if (rc)
+		return rc + 1100;
+
+	return 0;
+}
+
+/*
+ * This probably does not do what you expect (or anything useful actually).
+ * When locks conflict, instead of waiting until the lock is acquired,
+ * we return when it was put in the queue on the server (with code 1).
+ * Applications using this supply a callback and a mask to ncld_open.
+ * FIXME: This does not work at present, since server does not post them.
+ */
+int ncld_qlock(struct ncld_fh *fh)
+{
+	struct ncld_sess *nsess = fh->sess;
+	struct cldc_call_opts copts;
+	struct ncld_genio apb;
+	int rc;
+
+	if (!fh->is_open)
+		return -EBUSY;
+
+	memset(&apb, 0, sizeof(struct ncld_genio));
+	apb.fh = fh;
+
+	g_mutex_lock(nsess->mutex);
+	memset(&copts, 0, sizeof(copts));
+	copts.cb = ncld_genio_cb;
+	copts.private = &apb;
+	rc = cldc_lock(fh->fh, &copts, 0, true);
+	if (rc) {
+		g_mutex_unlock(nsess->mutex);
+		return -rc;
+	}
+	fh->nios++;
+	g_mutex_unlock(nsess->mutex);
+
+	rc = ncld_wait_genio(&apb);
+	if (rc) {
+		if (rc != CLE_LOCK_PENDING)
+			return rc + 1100;
+		rc = 1;
+	}
+	return rc;
+}
+
+static int ncld_close_cb(struct cldc_call_opts *copts, enum cle_err_codes errc)
+{
+	struct ncld_fh *fh = copts->private;
+
+	fh->errc = errc;
+	fh->is_open = false;
+	g_cond_broadcast(fh->sess->cond);
+	return 0;
+}
+
+/*
+ * The poisoning in ncld_close is mostly for bug-catching. Do not try to
+ * force-close file handles if other threads bomb them I/Os. This cannot work
+ * for us, because users keep pointers, not file descriptor numbers.
+ * Applications should stop application I/O first, then close.
+ */
+void ncld_close(struct ncld_fh *fh)
+{
+	struct ncld_sess *nsess = fh->sess;
+	struct cldc_call_opts copts;
+	int rc;
+
+	if (!fh->is_open)
+		abort();
+
+	g_mutex_lock(nsess->mutex);
+	memset(&copts, 0, sizeof(copts));
+	copts.cb = ncld_close_cb;
+	copts.private = fh;
+	rc = cldc_close(fh->fh, &copts);
+	g_mutex_unlock(nsess->mutex);
+
+	if (rc == 0) {
+		g_mutex_lock(nsess->mutex);
+		while (fh->is_open)
+			g_cond_wait(nsess->cond, nsess->mutex);
+		g_mutex_unlock(nsess->mutex);
+		/* At this point, we ignore fh->errc. */
+	}
+
+	/*
+	 * The cldc layer dowes not allow us to kill handles willy-nilly,
+	 * so the only thing we can do is to wait for I/Os to terminate.
+	 *
+	 * N.B.: this is making use of the fact that we only have one
+	 * conditional per session, and therefore end-of-I/O pokes us here.
+	 */
+	g_mutex_lock(nsess->mutex);
+	while (fh->nios)
+		g_cond_wait(nsess->cond, nsess->mutex);
+	g_mutex_unlock(nsess->mutex);
+
+	nsess->handles = g_list_remove_all(nsess->handles, fh);
+	free(fh);
+}
+
+static void ncld_func_close(gpointer data, gpointer priv)
+{
+	ncld_close(data);
+}
+
+void ncld_sess_close(struct ncld_sess *nsess)
+{
+	g_list_foreach(nsess->handles, ncld_func_close, NULL);
+	g_list_free(nsess->handles);
+
+	cldc_kill_sess(nsess->udp->sess);
+	ncld_thr_end(nsess);
+	cldc_udp_free(nsess->udp);
+	close(nsess->to_thread[0]);
+	close(nsess->to_thread[1]);
+	g_cond_free(nsess->cond);
+	g_mutex_free(nsess->mutex);
+	free(nsess->host);
+	free(nsess);
+}
+
+void ncld_init(void)
+{
+	cldc_init();
 }
 
 /*

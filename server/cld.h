@@ -25,7 +25,7 @@
 #include <poll.h>
 #include <glib.h>
 #include "cldb.h"
-#include <cld_msg.h>
+#include <cld_msg_rpc.h>
 #include <cld_common.h>
 #include <hail_log.h>
 
@@ -72,18 +72,10 @@ struct session {
 	bool			dead;		/* session has ended */
 
 	/* huge buffer should always come last */
+	enum cld_msg_op		msg_op;
+	uint64_t		msg_xid;
 	unsigned int		msg_buf_len;
 	char			msg_buf[CLD_MAX_MSG_SZ];
-};
-
-struct msg_params {
-	int			sock_fd;
-	const struct client	*cli;
-	struct session		*sess;
-
-	const struct cld_packet	*pkt;
-	const void		*msg;
-	size_t			msg_len;
 };
 
 enum st_cldb {
@@ -142,29 +134,60 @@ struct server {
 	struct server_stats	stats;		/* global statistics */
 };
 
+struct pkt_info {
+	struct cld_pkt_hdr	*pkt;
+	struct session		*sess;
+	uint64_t		seqid;
+	uint64_t		xid;
+	enum cld_msg_op		op;
+	size_t			hdr_len;
+};
+
 /* msg.c */
 extern int inode_lock_rescan(DB_TXN *txn, cldino_t inum);
-extern void msg_open(struct msg_params *);
-extern void msg_put(struct msg_params *);
-extern void msg_close(struct msg_params *);
-extern void msg_del(struct msg_params *);
-extern void msg_unlock(struct msg_params *);
-extern void msg_lock(struct msg_params *, bool);
-extern void msg_ack(struct msg_params *);
-extern void msg_get(struct msg_params *, bool);
+extern void msg_get(struct session *sess, const void *v);
+extern void msg_open(struct session *sess, const void *v);
+extern void msg_put(struct session *sess, const void *v);
+extern void msg_close(struct session *sess, const void *v);
+extern void msg_del(struct session *sess, const void *v);
+extern void msg_unlock(struct session *sess, const void *v);
+extern void msg_lock(struct session *sess, const void *v);
+extern void msg_ack(struct session *sess, uint64_t seqid);
 
 /* session.c */
 extern uint64_t next_seqid_le(uint64_t *seq);
-extern void pkt_init_pkt(struct cld_packet *dest, const struct cld_packet *src);
 extern guint sess_hash(gconstpointer v);
 extern gboolean sess_equal(gconstpointer _a, gconstpointer _b);
-extern void msg_new_sess(struct msg_params *, const struct client *);
-extern void msg_end_sess(struct msg_params *, const struct client *);
+extern void msg_new_sess(int sock_fd, const struct client *cli,
+			const struct pkt_info *info);
+extern void msg_end_sess(struct session *sess, uint64_t xid);
 extern struct raw_session *session_new_raw(const struct session *sess);
 extern void sessions_free(void);
-extern bool sess_sendmsg(struct session *sess, const void *msg_, size_t msglen,
-		  void (*done_cb)(struct session_outpkt *),
-		  void *done_data);
+
+/** Send a message as part of a session.
+ *
+ * @param sess		The session
+ * @param xdrproc	The XDR function to use to serialize the data
+ * @param xdrdata	The message data
+ * @param op		The op of the message
+ * @param done_cb	The callback to call when the message has been acked
+ * @param done_data	The data to give to done_cb
+ *
+ * @return		true only if the message was sent
+ */
+extern bool sess_sendmsg(struct session *sess, xdrproc_t xdrproc,
+			 const void *xdrdata, enum cld_msg_op op,
+			 void (*done_cb)(struct session_outpkt *),
+			 void *done_data);
+
+/** Send a generic response message.
+ *
+ * @param sess		The session
+ * @param code		The error code to send
+ */
+extern void sess_sendresp_generic(struct session *sess,
+				  enum cle_err_codes code);
+
 extern int session_dispose(DB_TXN *txn, struct session *sess);
 extern int session_remove_locks(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 				cldino_t inum, bool *waiter);
@@ -175,12 +198,28 @@ extern struct server cld_srv;
 extern struct hail_log srv_log;
 extern struct timeval current_time;
 extern int udp_tx(int sock_fd, struct sockaddr *, socklen_t,
-	    const void *, size_t);
-extern void resp_copy(struct cld_msg_resp *resp, const struct cld_msg_hdr *src);
-extern void resp_err(struct session *sess,
-	      const struct cld_msg_hdr *src, enum cle_err_codes errcode);
-extern void resp_ok(struct session *sess, const struct cld_msg_hdr *src);
+		  const void *, size_t);
 extern const char *user_key(const char *user);
+
+/** Transmit a single packet.
+ *
+ * This function doesn't provide error-retransmission logic.
+ * It can't handle messages that are bigger than a single packet.
+ *
+ * @param fd		Socket to send the response on
+ * @param cli		Client address data
+ * @param sid		The session-id to use. Must be of length CLD_SID_SZ
+ * @param seqid		The sequence id to use
+ * @param xdrproc	The XDR function to use to serialize the data
+ * @param xdrdata	The message data
+ * @param op		The op of message to send
+ *
+ * @return		true only on success
+ */
+extern void simple_sendmsg(int fd, const struct client *cli,
+			   uint64_t sid, const char *username, uint64_t seqid,
+			   xdrproc_t xdrproc, const void *xdrdata,
+			   enum cld_msg_op op);
 
 /* util.c */
 extern int write_pid_file(const char *pid_fn);

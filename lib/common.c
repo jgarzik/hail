@@ -26,7 +26,7 @@
 #include <errno.h>
 #include <glib.h>
 #include <cld-private.h>
-#include "cld_msg.h"
+#include "cld_msg_rpc.h"
 
 /* duplicated from tools/cldcli.c; put in common header somewhere? */
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))

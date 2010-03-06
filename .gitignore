@@ -17,6 +17,7 @@ configure
 depcomp
 install-sh
 missing
+compile
 push
 stamp-h1
 libtool
@@ -31,6 +32,10 @@ cld-config.h*
 # cscope files
 cscope.*
 ncscope.*
+
+# XDR files
+*_rpc.h
+*_rpc_xdr.c
 
 # ignore Doxygen output directory
 gendoc

@@ -377,16 +377,19 @@ int cldb_up(struct cldb *cldb, unsigned int flags)
 	if (cldb->keyed)
 		flags |= DB_ENCRYPT;
 
+	/* active sessions; idx: session id */
 	rc = open_db(dbenv, &cldb->sessions, "sessions", CLDB_PGSZ_SESSIONS,
 		     DB_HASH, flags, NULL, NULL, 0);
 	if (rc)
 		goto err_out;
 
+	/* all inodes; idx: inode number */
 	rc = open_db(dbenv, &cldb->inodes, "inodes", CLDB_PGSZ_INODES,
 		     DB_HASH, flags, NULL, NULL, 0);
 	if (rc)
 		goto err_out_sess;
 
+	/* secondary index: inode name (ie. path) to inode number */
 	rc = open_db(dbenv, &cldb->inode_names, "inode_names",
 		     CLDB_PGSZ_INODE_NAMES, DB_BTREE, flags, NULL, NULL, 0);
 	if (rc)
@@ -400,16 +403,19 @@ int cldb_up(struct cldb *cldb, unsigned int flags)
 		goto err_out_ino;
 	}
 
+	/* data (if any) associated with each inode; idx: inode number */
 	rc = open_db(dbenv, &cldb->data, "data", CLDB_PGSZ_DATA,
 		     DB_HASH, flags, NULL, NULL, 0);
 	if (rc)
 		goto err_out_ino_name;
 
+	/* open file handles; idx: file handle number */
 	rc = open_db(dbenv, &cldb->handles, "handles", CLDB_PGSZ_HANDLES,
 		     DB_BTREE, flags, NULL, NULL, 0);
 	if (rc)
 		goto err_out_data;
 
+	/* secondary index: inode number to file handle number */
 	rc = open_db(dbenv, &cldb->handle_idx, "handle_idx",
 		     CLDB_PGSZ_HANDLE_IDX, DB_BTREE, flags, NULL,
 		     NULL, DB_DUPSORT);
@@ -424,6 +430,7 @@ int cldb_up(struct cldb *cldb, unsigned int flags)
 		goto err_out_handle_idx;
 	}
 
+	/* active locks; idx: inode number */
 	rc = open_db(dbenv, &cldb->locks, "locks", CLDB_PGSZ_LOCKS,
 		     DB_HASH, flags, NULL, lock_compare, DB_DUPSORT);
 	if (rc)

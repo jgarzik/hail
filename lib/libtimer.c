@@ -84,6 +84,7 @@ time_t cld_timers_run(struct cld_timer_list *tlist)
 
 		timer->on_list = false;
 	}
+	tlist->list = timer_list;
 
 	tmp = exec_list;
 	while (tmp) {
@@ -94,7 +95,8 @@ time_t cld_timers_run(struct cld_timer_list *tlist)
 		timer->cb(timer);
 	}
 
-	if (timer_list) {
+	if (tlist->list) {
+		timer_list = tlist->list;
 		timer = timer_list->data;
 		if (timer->expires > now)
 			next_timeout = (timer->expires - now);
@@ -102,7 +104,6 @@ time_t cld_timers_run(struct cld_timer_list *tlist)
 			next_timeout = 1;
 	}
 
-	tlist->list = timer_list;
 	return next_timeout;
 }
 

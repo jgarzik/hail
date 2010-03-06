@@ -1,5 +1,6 @@
 
 INCLUDES	= -I$(top_srcdir)/include	\
+		  -I$(top_srcdir)/lib		\
 		  @GLIB_CFLAGS@
 
 EXTRA_DIST =			\
@@ -14,26 +15,20 @@ TESTS =			\
 	prep-db			\
 	start-daemon		\
 	pid-exists		\
-	it-works		\
-	save-file-event		\
-	load-file-event		\
-	lock-file-event		\
+	basic-session		\
+	basic-io		\
+	lock-file		\
 	stop-daemon		\
 	clean-db
 
-check_PROGRAMS		= it-works \
-			  save-file-event load-file-event lock-file-event
+check_PROGRAMS		= basic-session \
+			  basic-io	\
+			  lock-file
 
 TESTLDADD		= ../lib/libcldc.la	\
-			  libtest.a		\
 			  @GLIB_LIBS@ @CRYPTO_LIBS@
-it_works_LDADD		= $(TESTLDADD)
-save_file_event_LDADD	= $(TESTLDADD)
-load_file_event_LDADD	= $(TESTLDADD)
-lock_file_event_LDADD	= $(TESTLDADD)
-
-noinst_LIBRARIES	= libtest.a
-
-libtest_a_SOURCES	= util.c
+basic_session_LDADD	= $(TESTLDADD)
+basic_io_LDADD		= $(TESTLDADD)
+lock_file_LDADD		= $(TESTLDADD)
 
 TESTS_ENVIRONMENT=top_srcdir=$(top_srcdir)

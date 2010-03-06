@@ -67,9 +67,7 @@ int cldc_saveaddr(struct cldc_host *hp,
 
 	rc = getaddrinfo(hostname, portstr, &hints, &res0);
 	if (rc) {
-		HAIL_ERR(log, "getaddrinfo(%s,%s) failed: %s",
-			 hostname, portstr, gai_strerror(rc));
-		rc = -EINVAL;
+		rc = -(rc + 1200);
 		goto err_addr;
 	}
 
@@ -86,9 +84,7 @@ int cldc_saveaddr(struct cldc_host *hp,
 	}
 
 	if (!something_suitable) {
-		HAIL_ERR(log, "Host %s port %u has no addresses",
-			 hostname, port);
-		rc = -EINVAL;
+		rc = -1031;
 		goto err_suitable;
 	}
 
@@ -96,9 +92,6 @@ int cldc_saveaddr(struct cldc_host *hp,
 	hp->port = port;
 	hp->prio = priority;
 	hp->weight = weight;
-
-	HAIL_DEBUG(log, "%s: found CLD host %s prio %d weight %d",
-		   __func__, hostname, priority, weight);
 
 	freeaddrinfo(res0);
 	return 0;
@@ -117,35 +110,25 @@ err_name:
  * on YP-driven networks with nonqualified hostnames (at least for now).
  */
 static int cldc_make_fqdn(char *buf, int size, const char *srvname,
-			  const char *thishost, struct hail_log *log)
+			  const char *thishost)
 {
 	char *s;
 	int nlen;
 	int dlen;
 
 	nlen = strlen(srvname);
-	if (nlen >= size-20) {
-		HAIL_INFO(log, "%s: internal error (nlen %d size %d)",
-			  __func__, nlen, size);
+	if (nlen >= (size - 20))
 		return -1;
-	}
 
-	if (thishost == NULL) {
-		HAIL_INFO(log, "%s: internal error (null hostname)", __func__);
+	if (thishost == NULL)
 		return -1;
-	}
-	if ((s = strchr(thishost, '.')) == NULL) {
-		HAIL_INFO(log, "%s: hostname is not FQDN: \"%s\"",
-			  __func__, thishost);
+	if ((s = strchr(thishost, '.')) == NULL)
 		return -1;
-	}
 	s++;
 
 	dlen = strlen(s);
-	if (nlen + 1 + dlen + 1 > size) {
-		HAIL_INFO(log, "%s: domain is too long: \"%s\"", __func__, s);
+	if (nlen + 1 + dlen + 1 > size)
 		return -1;
-	}
 
 	memcpy(buf, srvname, nlen);
 	buf[nlen] = '.';
@@ -173,8 +156,7 @@ static void push_host(GList **host_list, struct cldc_host *hp_in)
  * This is not reentrant.  Better be called before any other threads
  * are started.
  */
-int cldc_getaddr(GList **host_list, const char *thishost,
-		struct hail_log *log)
+int cldc_getaddr(GList **host_list, const char *thishost, struct hail_log *log)
 {
 	enum { hostsz = 64 };
 	char cldb[hostsz];
@@ -195,8 +177,11 @@ int cldc_getaddr(GList **host_list, const char *thishost,
 	 * is a lookup in the DNS root (probably the standard-compliant
 	 * dot between "_cld" and "_udp" hurts us here).
 	 */
-	if (cldc_make_fqdn(cldb, hostsz, "_cld._udp", thishost, log) != 0)
+	if (cldc_make_fqdn(cldb, hostsz, "_cld._udp", thishost) != 0) {
+		HAIL_INFO(log, "internal error in cldc_make_fqdn(%s)",
+			  thishost);
 		return -1;
+	}
 
 do_try_again:
 	rc = res_search(cldb, ns_c_in, ns_t_srv, resp, 512);
@@ -206,8 +191,8 @@ do_try_again:
 			HAIL_INFO(log, "%s: No _cld._udp SRV record", __func__);
 			return -1;
 		case NO_DATA:
-			HAIL_INFO(log, "%s: Cannot find _cld._udp SRV record",
-				  __func__);
+			HAIL_INFO(log, "%s: Cannot find _cld._udp"
+				  " SRV record", __func__);
 			return -1;
 		case TRY_AGAIN:
 			if (search_retries-- > 0)
@@ -265,8 +250,13 @@ do_try_again:
 
 			if (cldc_saveaddr(&hp, ns_get16(p+0),
 					  ns_get16(p+2), ns_get16(p+4),
-					  rc, hostb, log))
+					  rc, hostb, NULL))
 				break;
+
+			HAIL_DEBUG(log, "%s: found CLD host %s port %u"
+				   " prio %d weight %d",
+				   __func__, hp.host, hp.port,
+				   hp.prio, hp.weight);
 
 			push_host(host_list, &hp);
 			break;

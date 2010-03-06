@@ -23,7 +23,7 @@
 #include <stdbool.h>
 #include <db.h>
 #include <cld-private.h>
-#include <cld_msg.h>
+#include <cld_msg_rpc.h>
 
 typedef uint64_t cldino_t;
 
@@ -65,10 +65,6 @@ struct raw_handle {
 enum {
 	CLD_INO_ROOT		= 10,
 	CLD_INO_RESERVED_LAST	= 50,
-};
-
-enum inode_flags {
-	CIFL_DIR		= (1 << 0),	/* is a directory */
 };
 
 /*

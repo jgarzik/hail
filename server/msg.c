@@ -25,6 +25,8 @@
 #include <syslog.h>
 #include <openssl/sha.h>
 #include <cld-private.h>
+#include <cld_common.h>
+#include <cld_msg_rpc.h>
 #include "cld.h"
 
 enum {
@@ -247,12 +249,11 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 		}
 
 		memset(&me, 0, sizeof(me));
-		memcpy(me.hdr.magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
-		me.hdr.op = CMO_EVENT;
-		me.fh = h.fh;
-		me.events = cpu_to_le32(deleted ? CE_DELETED : CE_UPDATED);
+		me.fh = le64_to_cpu(h.fh);
+		me.events = deleted ? CE_DELETED : CE_UPDATED;
 
-		if (!sess_sendmsg(sess, &me, sizeof(me), NULL, NULL))
+		if (!sess_sendmsg(sess, (xdrproc_t)xdr_cld_msg_event,
+				  (void *)&me, CMO_EVENT, NULL, NULL))
 			break;
 	}
 
@@ -375,12 +376,11 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 		}
 
 		memset(&me, 0, sizeof(me));
-		memcpy(me.hdr.magic, CLD_MSG_MAGIC, CLD_MAGIC_SZ);
-		me.hdr.op = CMO_EVENT;
-		me.fh = lock.fh;
-		me.events = cpu_to_le32(CE_LOCKED);
+		me.fh = le64_to_cpu(lock.fh);
+		me.events = CE_LOCKED;
 
-		if (!sess_sendmsg(sess, &me, sizeof(me), NULL, NULL))
+		if (!sess_sendmsg(sess, (xdrproc_t)xdr_cld_msg_event,
+				(void *)&me, CMO_EVENT, NULL, NULL))
 			break;
 	}
 
@@ -388,12 +388,10 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 	return rc;
 }
 
-void msg_get(struct msg_params *mp, bool metadata_only)
+void msg_get(struct session *sess, const void *v)
 {
-	const struct cld_msg_get *msg = mp->msg;
-	struct cld_msg_get_resp *resp;
-	size_t resp_len;
-	uint64_t fh;
+	const struct cld_msg_get *get = v;
+	struct cld_msg_get_resp resp;
 	struct raw_handle *h = NULL;
 	struct raw_inode *inode = NULL;
 	enum cle_err_codes resp_rc = CLE_OK;
@@ -401,17 +399,10 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 	uint32_t name_len, inode_size;
 	uint32_t omode;
 	int rc;
-	struct session *sess = mp->sess;
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	DB_TXN *txn;
-	void *p;
-
-	/* make sure input data as large as expected */
-	if (mp->msg_len < sizeof(*msg))
-		return;
-
-	/* get filehandle from input msg */
-	fh = le64_to_cpu(msg->fh);
+	void *data_mem;
+	char *inode_name;
 
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
 	if (rc) {
@@ -421,7 +412,7 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 	}
 
 	/* read handle from db */
-	rc = cldb_handle_get(txn, sess->sid, fh, &h, 0);
+	rc = cldb_handle_get(txn, sess->sid, get->fh, &h, 0);
 	if (rc) {
 		resp_rc = CLE_FH_INVAL;
 		goto err_out;
@@ -442,42 +433,30 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 		goto err_out;
 	}
 
-	name_len = le32_to_cpu(inode->ino_len);
 	inode_size = le32_to_cpu(inode->size);
-
-	resp_len = sizeof(*resp) + name_len +
-		   (metadata_only ? 0 : inode_size);
-	resp = alloca(resp_len);
-	if (!resp) {
-		resp_rc = CLE_OOM;
-		goto err_out;
-	}
-
-	HAIL_DEBUG(&srv_log, "%s: sizeof(resp) %zu, name_len %u, "
-		   "inode->size %u, resp_len %zu",
-		   __func__,
-		   sizeof(*resp), name_len,
-		   inode_size, resp_len);
+	HAIL_DEBUG(&srv_log, "GET-DEBUG: inode->size %u\n", inode_size);
 
 	/* return response containing inode metadata */
-	memset(resp, 0, resp_len);
-	resp_copy(&resp->resp, mp->msg);
-	resp->inum = inode->inum;
-	resp->ino_len = inode->ino_len;
-	resp->size = inode->size;
-	resp->version = inode->version;
-	resp->time_create = inode->time_create;
-	resp->time_modify = inode->time_modify;
-	resp->flags = inode->flags;
+	memset(&resp, 0, sizeof(resp));
+	resp.msg.code = CLE_OK;
+	resp.msg.xid_in = sess->msg_xid;
+	resp.inum = le64_to_cpu(inode->inum);
+	resp.vers = le64_to_cpu(inode->version);
+	resp.time_create = le64_to_cpu(inode->time_create);
+	resp.time_modify = le64_to_cpu(inode->time_modify);
+	resp.flags = le32_to_cpu(inode->flags);
 
-	p = (resp + 1);
-	memcpy(p, (inode + 1), name_len);
+	name_len = le32_to_cpu(inode->ino_len);
+	inode_name = alloca(name_len + 1);
+	snprintf(inode_name, name_len + 1, "%s", (char *)(inode + 1));
+	resp.inode_name = inode_name;
 
-	p += name_len;
+	resp.data.data_len = 0;
+	resp.data.data_val = NULL;
 
 	/* send data, if requested */
-	if (!metadata_only) {
-		void *data_mem;
+	data_mem = NULL;
+	if (sess->msg_op == CMO_GET) {
 		size_t data_mem_len;
 
 		rc = cldb_data_get(txn, inum, &data_mem, &data_mem_len,
@@ -486,22 +465,23 @@ void msg_get(struct msg_params *mp, bool metadata_only)
 		/* treat not-found as zero length file, as we may
 		 * not yet have created the data record
 		 */
-		if (rc == DB_NOTFOUND) {
-			resp->size = 0;
-			resp_len -= inode_size;
-		} else if (rc || (data_mem_len != inode_size)) {
-			if (!rc)
-				free(data_mem);
-			resp_rc = CLE_DB_ERR;
-			goto err_out;
-		} else {
-			memcpy(p, data_mem, data_mem_len);
-
-			free(data_mem);
+		if (rc != DB_NOTFOUND) {
+			if (rc || (data_mem_len != inode_size)) {
+				if (!rc)
+					free(data_mem);
+				resp_rc = CLE_DB_ERR;
+				goto err_out;
+			} else {
+				resp.data.data_len = data_mem_len;
+				resp.data.data_val = data_mem;
+			}
 		}
 	}
 
-	sess_sendmsg(sess, resp, resp_len, NULL, NULL);
+	sess_sendmsg(sess, (xdrproc_t)xdr_cld_msg_get_resp,
+		     (void *)&resp, CMO_GET, NULL, NULL);
+	if (data_mem)
+		free(data_mem);
 
 	rc = txn->commit(txn, 0);
 	if (rc)
@@ -516,15 +496,14 @@ err_out:
 	if (rc)
 		dbenv->err(dbenv, rc, "msg_get txn abort");
 err_out_noabort:
-	resp_err(sess, mp->msg, resp_rc);
+	sess_sendresp_generic(sess, resp_rc);
 	free(h);
 	free(inode);
 }
 
-void msg_open(struct msg_params *mp)
+void msg_open(struct session *sess, const void *v)
 {
-	const struct cld_msg_open *msg = mp->msg;
-	struct session *sess = mp->sess;
+	const struct cld_msg_open *open = v;
 	struct cld_msg_open_resp resp;
 	const char *name;
 	struct raw_session *raw_sess = NULL;
@@ -535,23 +514,11 @@ void msg_open(struct msg_params *mp)
 	struct pathname_info pinfo;
 	void *parent_data = NULL;
 	size_t parent_len;
-	uint32_t msg_mode, msg_events;
 	uint64_t fh;
 	cldino_t inum;
 	enum cle_err_codes resp_rc = CLE_OK;
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	DB_TXN *txn;
-
-	/* make sure input data as large as expected */
-	if (mp->msg_len < sizeof(*msg))
-		return;
-
-	msg_mode = le32_to_cpu(msg->mode);
-	msg_events = le32_to_cpu(msg->events);
-	name_len = le16_to_cpu(msg->name_len);
-
-	if (mp->msg_len < (sizeof(*msg) + name_len))
-		return;
 
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
 	if (rc) {
@@ -560,11 +527,12 @@ void msg_open(struct msg_params *mp)
 		goto err_out_noabort;
 	}
 
-	name = mp->msg + sizeof(*msg);
+	name = open->inode_name;
+	name_len = strlen(name);
 
-	create = msg_mode & COM_CREATE;
-	excl = msg_mode & COM_EXCL;
-	do_dir = msg_mode & COM_DIRECTORY;
+	create = open->mode & COM_CREATE;
+	excl = open->mode & COM_EXCL;
+	do_dir = open->mode & COM_DIRECTORY;
 
 	if (!valid_inode_name(name, name_len) || (create && name_len < 2)) {
 		resp_rc = CLE_NAME_INVAL;
@@ -662,7 +630,7 @@ void msg_open(struct msg_params *mp)
 	inum = cldino_from_le(inode->inum);
 
 	/* alloc & init new handle; updates session's next_fh */
-	h = cldb_handle_new(sess, inum, msg_mode, msg_events);
+	h = cldb_handle_new(sess, inum, open->mode, open->events);
 	if (!h) {
 		HAIL_CRIT(&srv_log, "cannot allocate handle");
 		resp_rc = CLE_OOM;
@@ -717,11 +685,12 @@ void msg_open(struct msg_params *mp)
 	free(raw_sess);
 	free(h);
 
-	resp_copy(&resp.resp, mp->msg);
-	resp.resp.code = cpu_to_le32(CLE_OK);
-	resp.fh = cpu_to_le64(fh);
-	sess_sendmsg(sess, &resp, sizeof(resp), NULL, NULL);
-
+	memset(&resp, 0, sizeof(resp));
+	resp.msg.xid_in = sess->msg_xid;
+	resp.msg.code = CLE_OK;
+	resp.fh = fh;
+	sess_sendmsg(sess, (xdrproc_t)xdr_cld_msg_open_resp,
+		     (void *)&resp, CMO_OPEN, NULL, NULL);
 	return;
 
 err_out:
@@ -729,7 +698,7 @@ err_out:
 	if (rc)
 		dbenv->err(dbenv, rc, "msg_open txn abort");
 err_out_noabort:
-	resp_err(mp->sess, mp->msg, resp_rc);
+	sess_sendresp_generic(sess, resp_rc);
 	free(parent_data);
 	free(parent);
 	free(inode);
@@ -737,44 +706,17 @@ err_out_noabort:
 	free(h);
 }
 
-void msg_put(struct msg_params *mp)
+void msg_put(struct session *sess, const void *v)
 {
-	const struct cld_msg_put *msg = mp->msg;
-	struct session *sess = mp->sess;
-	uint64_t fh;
+	const struct cld_msg_put *put = v;
 	struct raw_handle *h = NULL;
 	struct raw_inode *inode = NULL;
 	enum cle_err_codes resp_rc = CLE_OK;
-	const void *mem;
 	int rc;
 	cldino_t inum;
-	uint32_t omode, data_size;
+	uint32_t omode;
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	DB_TXN *txn;
-
-	/* make sure input data as large as message header */
-	if (mp->msg_len < sizeof(*msg))
-		return;
-
-	/* make sure additional input data as large as expected */
-	data_size = le32_to_cpu(msg->data_size);
-	if (data_size > CLD_MAX_PAYLOAD_SZ) {
-		HAIL_ERR(&srv_log, "%s: can't PUT %d bytes of data: "
-			"%d is the maximum.\n",
-			__func__, data_size, CLD_MAX_PAYLOAD_SZ);
-		resp_rc = CLE_BAD_PKT;
-		goto err_out_noabort;
-	}
-	if (mp->msg_len != (data_size + sizeof(*msg))) {
-		HAIL_INFO(&srv_log, "PUT len mismatch: msg len %zu, "
-			  "wanted %zu + %u (== %zu)",
-			  mp->msg_len,
-			  sizeof(*msg), data_size, data_size + sizeof(*msg));
-		resp_rc = CLE_BAD_PKT;
-		goto err_out_noabort;
-	}
-
-	fh = le64_to_cpu(msg->fh);
 
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
 	if (rc) {
@@ -784,7 +726,7 @@ void msg_put(struct msg_params *mp)
 	}
 
 	/* read handle from db */
-	rc = cldb_handle_get(txn, sess->sid, fh, &h, 0);
+	rc = cldb_handle_get(txn, sess->sid, put->fh, &h, 0);
 	if (rc) {
 		resp_rc = CLE_FH_INVAL;
 		goto err_out;
@@ -807,15 +749,14 @@ void msg_put(struct msg_params *mp)
 	}
 
 	/* store contig. data area in db */
-	mem = (msg + 1);
 	rc = cldb_data_put(txn, inum,
-			   mem, data_size, 0);
+			   put->data.data_val, put->data.data_len, 0);
 	if (rc) {
 		resp_rc = CLE_DB_ERR;
 		goto err_out;
 	}
 
-	inode->size = cpu_to_le32(data_size);
+	inode->size = cpu_to_le32(put->data.data_len);
 
 	/* update inode */
 	rc = inode_touch(txn, inode);
@@ -831,7 +772,7 @@ void msg_put(struct msg_params *mp)
 		goto err_out_noabort;
 	}
 
-	resp_ok(sess, mp->msg);
+	sess_sendresp_generic(sess, CLE_OK);
 
 	free(h);
 	free(inode);
@@ -842,30 +783,22 @@ err_out:
 	if (rc)
 		dbenv->err(dbenv, rc, "msg_put txn abort");
 err_out_noabort:
-	resp_err(sess, mp->msg, resp_rc);
+	sess_sendresp_generic(sess, resp_rc);
 
 	free(h);
 	free(inode);
 }
 
-void msg_close(struct msg_params *mp)
+void msg_close(struct session *sess, const void *v)
 {
-	const struct cld_msg_close *msg = mp->msg;
-	uint64_t fh;
+	const struct cld_msg_close *close_msg = v;
 	int rc;
 	enum cle_err_codes resp_rc = CLE_OK;
 	struct raw_handle *h = NULL;
 	cldino_t lock_inum = 0;
 	bool waiter = false;
-	struct session *sess = mp->sess;
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	DB_TXN *txn;
-
-	/* make sure input data as large as expected */
-	if (mp->msg_len < sizeof(*msg))
-		return;
-
-	fh = le64_to_cpu(msg->fh);
 
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
 	if (rc) {
@@ -875,7 +808,7 @@ void msg_close(struct msg_params *mp)
 	}
 
 	/* read handle from db */
-	rc = cldb_handle_get(txn, sess->sid, fh, &h, DB_RMW);
+	rc = cldb_handle_get(txn, sess->sid, close_msg->fh, &h, DB_RMW);
 	if (rc) {
 		if (rc == DB_NOTFOUND)
 			resp_rc = CLE_FH_INVAL;
@@ -888,7 +821,7 @@ void msg_close(struct msg_params *mp)
 		lock_inum = cldino_from_le(h->inum);
 
 	/* delete handle from db */
-	rc = cldb_handle_del(txn, sess->sid, fh);
+	rc = cldb_handle_del(txn, sess->sid, close_msg->fh);
 	if (rc) {
 		resp_rc = CLE_DB_ERR;
 		goto err_out;
@@ -896,7 +829,7 @@ void msg_close(struct msg_params *mp)
 
 	/* remove locks, if any */
 	rc = session_remove_locks(txn, sess->sid,
-				  fh, lock_inum, &waiter);
+				  close_msg->fh, lock_inum, &waiter);
 	if (rc) {
 		resp_rc = CLE_DB_ERR;
 		goto err_out;
@@ -918,7 +851,7 @@ void msg_close(struct msg_params *mp)
 		goto err_out_noabort;
 	}
 
-	resp_ok(sess, mp->msg);
+	sess_sendresp_generic(sess, CLE_OK);
 	free(h);
 	return;
 
@@ -927,16 +860,15 @@ err_out:
 	if (rc)
 		dbenv->err(dbenv, rc, "msg_close txn abort");
 err_out_noabort:
-	resp_err(sess, mp->msg, resp_rc);
+	sess_sendresp_generic(sess, resp_rc);
 	free(h);
 }
 
-void msg_del(struct msg_params *mp)
+void msg_del(struct session *sess, const void *v)
 {
-	const struct cld_msg_del *msg = mp->msg;
+	const struct cld_msg_del *del = v;
 	enum cle_err_codes resp_rc = CLE_OK;
 	int rc, name_len;
-	const char *name;
 	struct pathname_info pinfo;
 	struct raw_inode *parent = NULL, *ino = NULL;
 	void *parent_data = NULL;
@@ -949,23 +881,13 @@ void msg_del(struct msg_params *mp)
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	DB_TXN *txn;
 
-	/* make sure input data as large as expected */
-	if (mp->msg_len < sizeof(*msg))
-		return;
-
-	name_len = le16_to_cpu(msg->name_len);
-
-	if (mp->msg_len < (sizeof(*msg) + name_len))
-		return;
-
-	name = mp->msg + sizeof(*msg);
-
-	if (!valid_inode_name(name, name_len) || (name_len < 2)) {
+	name_len = strlen(del->inode_name);
+	if (!valid_inode_name(del->inode_name, name_len) || (name_len < 2)) {
 		resp_rc = CLE_NAME_INVAL;
 		goto err_out_noabort;
 	}
 
-	pathname_parse(name, name_len, &pinfo);
+	pathname_parse(del->inode_name, name_len, &pinfo);
 
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
 	if (rc) {
@@ -991,7 +913,8 @@ void msg_del(struct msg_params *mp)
 	}
 
 	/* read inode to be deleted */
-	rc = cldb_inode_get_byname(txn, name, name_len, &ino, false, 0);
+	rc = cldb_inode_get_byname(txn, del->inode_name, name_len,
+				   &ino, false, 0);
 	if (rc) {
 		if (rc == DB_NOTFOUND)
 			resp_rc = CLE_NAME_INVAL;
@@ -1100,7 +1023,7 @@ void msg_del(struct msg_params *mp)
 		goto err_out_noabort;
 	}
 
-	resp_ok(mp->sess, mp->msg);
+	sess_sendresp_generic(sess, CLE_OK);
 	free(ino);
 	free(parent);
 	free(parent_data);
@@ -1111,30 +1034,22 @@ err_out:
 	if (rc)
 		dbenv->err(dbenv, rc, "msg_del txn abort");
 err_out_noabort:
-	resp_err(mp->sess, mp->msg, resp_rc);
+	sess_sendresp_generic(sess, resp_rc);
 	free(ino);
 	free(parent);
 	free(parent_data);
 }
 
-void msg_unlock(struct msg_params *mp)
+void msg_unlock(struct session *sess, const void *v)
 {
-	const struct cld_msg_unlock *msg = mp->msg;
-	uint64_t fh;
+	const struct cld_msg_unlock *unlock = v;
 	struct raw_handle *h = NULL;
 	cldino_t inum;
 	int rc;
 	enum cle_err_codes resp_rc = CLE_OK;
 	uint32_t omode;
-	struct session *sess = mp->sess;
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	DB_TXN *txn;
-
-	/* make sure input data as large as expected */
-	if (mp->msg_len < sizeof(*msg))
-		return;
-
-	fh = le64_to_cpu(msg->fh);
 
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
 	if (rc) {
@@ -1144,7 +1059,7 @@ void msg_unlock(struct msg_params *mp)
 	}
 
 	/* read handle from db */
-	rc = cldb_handle_get(txn, sess->sid, fh, &h, 0);
+	rc = cldb_handle_get(txn, sess->sid, unlock->fh, &h, 0);
 	if (rc) {
 		resp_rc = CLE_FH_INVAL;
 		goto err_out;
@@ -1159,7 +1074,7 @@ void msg_unlock(struct msg_params *mp)
 	}
 
 	/* attempt to given lock on filehandle */
-	rc = cldb_lock_del(txn, sess->sid, fh, inum);
+	rc = cldb_lock_del(txn, sess->sid, unlock->fh, inum);
 	if (rc) {
 		resp_rc = CLE_LOCK_INVAL;
 		goto err_out;
@@ -1172,7 +1087,7 @@ void msg_unlock(struct msg_params *mp)
 		goto err_out_noabort;
 	}
 
-	resp_ok(sess, mp->msg);
+	sess_sendresp_generic(sess, CLE_OK);
 	free(h);
 	return;
 
@@ -1181,30 +1096,22 @@ err_out:
 	if (rc)
 		dbenv->err(dbenv, rc, "msg_unlock txn abort");
 err_out_noabort:
-	resp_err(sess, mp->msg, resp_rc);
+	sess_sendresp_generic(sess, resp_rc);
 	free(h);
 }
 
-void msg_lock(struct msg_params *mp, bool wait)
+void msg_lock(struct session *sess, const void *v)
 {
-	const struct cld_msg_lock *msg = mp->msg;
-	uint64_t fh;
+	const struct cld_msg_lock *lock = v;
+	bool wait = (sess->msg_op == CMO_LOCK);
 	struct raw_handle *h = NULL;
 	cldino_t inum;
 	int rc;
 	enum cle_err_codes resp_rc = CLE_OK;
-	uint32_t lock_flags, omode;
+	uint32_t omode;
 	bool acquired = false;
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	DB_TXN *txn;
-	struct session *sess = mp->sess;
-
-	/* make sure input data as large as expected */
-	if (mp->msg_len < sizeof(*msg))
-		return;
-
-	fh = le64_to_cpu(msg->fh);
-	lock_flags = le32_to_cpu(msg->flags);
 
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
 	if (rc) {
@@ -1214,7 +1121,7 @@ void msg_lock(struct msg_params *mp, bool wait)
 	}
 
 	/* read handle from db */
-	rc = cldb_handle_get(txn, sess->sid, fh, &h, 0);
+	rc = cldb_handle_get(txn, sess->sid, lock->fh, &h, 0);
 	if (rc) {
 		resp_rc = CLE_FH_INVAL;
 		goto err_out;
@@ -1229,8 +1136,8 @@ void msg_lock(struct msg_params *mp, bool wait)
 	}
 
 	/* attempt to add lock */
-	rc = cldb_lock_add(txn, sess->sid, fh, inum,
-			   lock_flags & CLF_SHARED, wait, &acquired);
+	rc = cldb_lock_add(txn, sess->sid, lock->fh, inum,
+			   lock->flags & CLF_SHARED, wait, &acquired);
 	if (rc) {
 		if (rc == DB_KEYEXIST)
 			resp_rc = CLE_LOCK_CONFLICT;
@@ -1253,7 +1160,7 @@ void msg_lock(struct msg_params *mp, bool wait)
 	}
 
 	/* lock was acquired immediately */
-	resp_ok(mp->sess, mp->msg);
+	sess_sendresp_generic(sess, CLE_OK);
 	free(h);
 	return;
 
@@ -1262,7 +1169,7 @@ err_out:
 	if (rc)
 		dbenv->err(dbenv, rc, "msg_lock txn abort");
 err_out_noabort:
-	resp_err(mp->sess, mp->msg, resp_rc);
+	sess_sendresp_generic(sess, resp_rc);
 	free(h);
 }
 
