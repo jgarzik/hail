@@ -1053,9 +1053,10 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 		goto err_out;
 
 	if (debugging)
-		applog(LOG_DEBUG, "REQ(op %s, key %s (%u), user %s) "
+		applog(LOG_DEBUG, "REQ(op %s, key %.*s (%u), user %s) "
 		       "seq %x len %lld login %s",
 		       op2str(req->op),
+		       cli->key_len,
 		       cli->key,
 		       cli->key_len,
 		       cli->user,
