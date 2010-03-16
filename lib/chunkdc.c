@@ -825,7 +825,7 @@ void stc_free_keylist(struct st_keylist *keylist)
 static void stc_parse_key(xmlDocPtr doc, xmlNode *node,
 			  struct st_keylist *keylist)
 {
-	struct st_object *obj = calloc(1, sizeof(*obj));
+	struct st_object *obj;
 	xmlChar *xs;
 
 	obj = calloc(1, sizeof(*obj));
