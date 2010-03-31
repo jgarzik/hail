@@ -24,6 +24,7 @@
 #include <openssl/hmac.h>
 #include <glib.h>
 #include <chunk_msg.h>
+#include <chunksrv.h>		/* req_len, chreq_sign proto */
 
 size_t req_len(const struct chunksrv_req *req)
 {
