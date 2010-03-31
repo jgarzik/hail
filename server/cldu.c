@@ -27,15 +27,9 @@
 #include <string.h>
 #include <unistd.h>
 #include <poll.h>
-#include <netdb.h>
-#include <arpa/nameser.h>
-#include <netinet/in.h>
-#include <resolv.h>		/* must follow in.h, nameser.h */
 #include <errno.h>
-#include <cldc.h>
+#include <ncld.h>
 #include "chunkd.h"
-
-#define ALIGN8(n)	((8 - ((n) & 7)) & 7)
 
 #define N_CLD		10	/* 5 * (v4+v6) */
 
@@ -46,8 +40,8 @@ struct cld_host {
 
 struct cld_session {
 	bool forced_hosts;		/* Administrator overrode default CLD */
-	bool sess_open;
-	struct cldc_udp *lib;		/* library state */
+	bool is_dead;
+	struct ncld_sess *nsess;	/* library state */
 
 	int actx;		/* Active host cldv[actx] */
 	struct cld_host cldv[N_CLD];
@@ -55,9 +49,8 @@ struct cld_session {
 	struct timer timer;
 
 	char *cfname;		/* /chunk-GROUP directory */
-	struct cldc_fh *cfh;	/* /chunk-GROUP directory fh */
 	char *ffname;		/* /chunk-GROUP/NID */
-	struct cldc_fh *ffh;	/* /chunk-GROUP/NID, keep open for lock */
+	struct ncld_fh *ffh;	/* /chunk-GROUP/NID, keep open for lock */
 	uint32_t nid;
 	const char *ourhost;	/* N.B. points to some global data. */
 	struct geo *ploc;	/* N.B. points to some global data. */
@@ -65,14 +58,7 @@ struct cld_session {
 	void (*state_cb)(enum st_cld);
 };
 
-static int cldu_set_cldc(struct cld_session *sp, int newactive);
-static int cldu_new_sess(struct cldc_call_opts *carg, enum cle_err_codes errc);
-static int cldu_open_c_cb(struct cldc_call_opts *carg, enum cle_err_codes errc);
-static int cldu_close_c_cb(struct cldc_call_opts *carg, enum cle_err_codes errc);
-static int cldu_open_f_cb(struct cldc_call_opts *carg, enum cle_err_codes errc);
-static int cldu_lock_cb(struct cldc_call_opts *carg, enum cle_err_codes errc);
-static int cldu_put_cb(struct cldc_call_opts *carg, enum cle_err_codes errc);
-static int cldu_make_ffile(char **ret, struct cld_session *sp);
+static int cldu_set_cldc(struct cld_session *cs, int newactive);
 
 #define SVC "chunk"
 static char svc[] = SVC;
@@ -86,26 +72,26 @@ struct hail_log cldu_hail_log = {
  *
  * In theory we should at least look at priorities, if not weights. Maybe later.
  */
-static int cldu_nextactive(struct cld_session *sp)
+static int cldu_nextactive(struct cld_session *cs)
 {
 	int i;
 	int n;
 
-	if ((n = sp->actx + 1) >= N_CLD)
+	if ((n = cs->actx + 1) >= N_CLD)
 		n = 0;
 	for (i = 0; i < N_CLD; i++) {
-		if (sp->cldv[n].known)
+		if (cs->cldv[n].known)
 			return n;
 		if (++n >= N_CLD)
 			n = 0;
 	}
 	/* Full circle, end on the old actx */
-	return sp->actx;
+	return cs->actx;
 }
 
 static int cldu_setgroup(struct cld_session *sp, const char *thisgroup,
 			 uint32_t thisnid, const char *thishost,
-			 struct geo *locp)
+			 struct geo *loc)
 {
 	size_t cnlen;
 	size_t mlen;
@@ -138,378 +124,70 @@ static int cldu_setgroup(struct cld_session *sp, const char *thisgroup,
 
 	sp->nid = thisnid;
 	sp->ourhost = thishost;
-	sp->ploc = locp;
+	sp->ploc = loc;
 
 	return 0;
 }
 
-static bool cldu_event(int fd, short events, void *userdata)
-{
-	struct cld_session *sp = userdata;
-	int rc;
-
-	if (!sp->lib) {
-		applog(LOG_WARNING, "Stray UDP event");
-		return true; /* continue main loop; do NOT terminate server */
-	}
-
-	rc = cldc_udp_receive_pkt(sp->lib);
-	if (rc) {
-		applog(LOG_INFO, "cldc_udp_receive_pkt failed: %d", rc);
-		/*
-		 * Reacting to ICMP messages is a bad idea, because
-		 *  - it makes us loop hard in case CLD is down, unless we
-		 *    insert additional tricky timeouts
-		 *  - it deals poorly with transient problems like CLD reboots
-		 */
-#if 0
-		if (rc == -ECONNREFUSED) {	/* ICMP tells us */
-			int newactive;
-			/* P3 */ applog(LOG_INFO, "Restarting session");
-			// timer_del(&sp->tm);
-			cldc_kill_sess(sp->lib->sess);
-			sp->lib->sess = NULL;
-			newactive = cldu_nextactive(sp);
-			if (cldu_set_cldc(sp, newactive))
-				return true; /* continue main loop */
-			// timer_add(&sp->tm, &cldc_to_delay);
-		}
-		return true; /* continue main loop; do NOT terminate server */
-#endif
-	}
-
-	srv_poll_ready(fd);
-
-	return true;	/* continue main loop; do NOT terminate server */
-}
-
 static void cldu_timer_event(struct timer *timer)
 {
-	struct cld_session *sp = timer->userdata;
-	struct cldc_udp *udp = sp->lib;
-
-	if (udp->cb)
-		udp->cb(udp->sess, udp->cb_private);
-}
-
-static bool cldu_p_timer_ctl(void *priv, bool add,
-			     int (*cb)(struct cldc_session *, void *),
-			     void *cb_priv, time_t secs)
-{
-	struct cld_session *sp = priv;
-
-	if (add) {
-		sp->lib->cb = cb;
-		sp->lib->cb_private = cb_priv;
-		timer_add(&sp->timer, time(NULL) + secs);
-	} else
-		timer_del(&sp->timer);
-
-	return true;
-}
-
-static int cldu_p_pkt_send(void *priv, const void *addr, size_t addrlen,
-			       const void *buf, size_t buflen)
-{
-	struct cld_session *sp = priv;
-	return cldc_udp_pkt_send(sp->lib, addr, addrlen, buf, buflen);
-}
-
-static void cldu_p_event(void *priv, struct cldc_session *csp,
-			 struct cldc_fh *fh, uint32_t what)
-{
-	struct cld_session *sp = priv;
+	struct cld_session *cs = timer->userdata;
 	int newactive;
 
-	if (what == CE_SESS_FAILED) {
-		sp->sess_open = false;
-		if (sp->lib->sess != csp)
-			applog(LOG_ERR, "Stray session failed, sid " SIDFMT,
-			       SIDARG(csp->sid));
-		else
-			applog(LOG_ERR, "Session failed, sid " SIDFMT,
-			       SIDARG(csp->sid));
-		// timer_del(&sp->tm);
-		sp->lib->sess = NULL;
-		newactive = cldu_nextactive(sp);
-		if (cldu_set_cldc(sp, newactive))
+	if (cs->is_dead) {
+		/* This would be the perfect time to call cs->state_cb. XXX */
+
+		if (debugging)
+			applog(LOG_DEBUG, "Reopening Chunk in %s", cs->ffname);
+
+		ncld_sess_close(cs->nsess);
+		cs->nsess = NULL;
+		cs->ffh = NULL;			/* closed automatically */
+		cs->is_dead = false;
+		newactive = cldu_nextactive(cs);
+		if (cldu_set_cldc(cs, newactive)) {
+			/* Oops, should not happen. Just loop, then... */
+			timer_add(&cs->timer, time(NULL) + 30);
 			return;
-		// timer_add(&sp->tm, &cldc_to_delay);
+		}
+	}
+}
+
+static void cldu_sess_event(void *priv, uint32_t what)
+{
+	struct cld_session *cs = priv;
+
+	if (what == CE_SESS_FAILED) {
+		/*
+		 * In ncld, we are not allowed to free the session structures
+		 * from an event (it's wages of all-conquering 100% reliable
+		 * ncld_close_sess), so we bounce that off to a thread. Which
+		 * we do not have, so we steal a timer for an erzatz thread.
+		 */
+		if (cs->nsess) {
+			applog(LOG_ERR, "Session failed, sid " SIDFMT,
+			       SIDARG(cs->nsess->udp->sess->sid));
+		} else {
+			applog(LOG_ERR, "Session open failed");
+		}
+		cs->is_dead = true;
+		timer_add(&cs->timer, time(NULL) + 1);
 	} else {
-		if (csp)
+		if (cs)
 			applog(LOG_INFO, "cldc event 0x%x sid " SIDFMT,
-			       what, SIDARG(csp->sid));
+			       what, SIDARG(cs->nsess->udp->sess->sid));
 		else
 			applog(LOG_INFO, "cldc event 0x%x no sid", what);
 	}
 }
 
-static struct cldc_ops cld_ops = {
-	.timer_ctl =	cldu_p_timer_ctl,
-	.pkt_send =	cldu_p_pkt_send,
-	.event =	cldu_p_event,
-};
-
-/*
- * Open the library, start its session, and reguster its socket with libevent.
- * Our session remains consistent in case of an error in this function,
- * so that we can continue and retry meaningfuly.
- */
-static int cldu_set_cldc(struct cld_session *sp, int newactive)
-{
-	struct cldc_host *hp;
-	struct cldc_udp *lib;
-	struct cldc_call_opts copts;
-	int rc;
-	struct server_poll *spoll;
-
-	if (sp->lib) {
-		if (sp->lib->fd >= 0)
-			srv_poll_del(sp->lib->fd);
-		cldc_udp_free(sp->lib);
-		sp->lib = NULL;
-	}
-
-	sp->actx = newactive;
-	if (!sp->cldv[sp->actx].known) {
-		applog(LOG_ERR, "No CLD hosts");
-		goto err_addr;
-	}
-	hp = &sp->cldv[sp->actx].h;
-
-	rc = cldc_udp_new(hp->host, hp->port, &sp->lib);
-	if (rc) {
-		applog(LOG_ERR, "cldc_udp_new(%s,%u) error: %d",
-		       hp->host, hp->port, rc);
-		goto err_lib_new;
-	}
-	lib = sp->lib;
-
-	if (debugging)
-		applog(LOG_INFO, "Selected CLD host %s port %u",
-		       hp->host, hp->port);
-
-	spoll = calloc(1, sizeof(*spoll));
-	if (!spoll)
-		goto err_sess;
-
-	spoll->fd = sp->lib->fd;
-	spoll->events = POLLIN;
-	spoll->cb = cldu_event;
-	spoll->userdata = sp;
-
-	g_hash_table_insert(chunkd_srv.fd_info, GINT_TO_POINTER(sp->lib->fd),
-			    spoll);
-
-	memset(&copts, 0, sizeof(struct cldc_call_opts));
-	copts.cb = cldu_new_sess;
-	copts.private = sp;
-	rc = cldc_new_sess(&cld_ops, &copts, lib->addr, lib->addr_len,
-			   "tabled", "tabled", sp, &lib->sess);
-	if (rc) {
-		applog(LOG_INFO,
-		       "Failed to start CLD session on host %s port %u",
-		       hp->host, hp->port);
-		goto err_sess;
-	}
-
-	// if (debugging)
-	//	lib->sess->verbose = true;
-
-	return 0;
-
-err_sess:
-	cldc_udp_free(sp->lib);
-	sp->lib = NULL;
-err_lib_new:
-err_addr:
-	return -1;
-}
-
-static int cldu_new_sess(struct cldc_call_opts *carg, enum cle_err_codes errc)
-{
-	struct cld_session *sp = carg->private;
-	struct cldc_call_opts copts;
-	int rc;
-
-	if (errc != CLE_OK) {
-		applog(LOG_INFO, "New CLD session creation failed: %d", errc);
-		return 0;
-	}
-
-	sp->sess_open = true;
-	applog(LOG_INFO, "New CLD session created, sid " SIDFMT,
-	       SIDARG(sp->lib->sess->sid));
-
-	/*
-	 * First, make sure the base directory exists.
-	 */
-	memset(&copts, 0, sizeof(copts));
-	copts.cb = cldu_open_c_cb;
-	copts.private = sp;
-	rc = cldc_open(sp->lib->sess, &copts, sp->cfname,
-		       COM_READ | COM_WRITE | COM_CREATE | COM_DIRECTORY,
-		       CE_MASTER_FAILOVER | CE_SESS_FAILED, &sp->cfh);
-	if (rc) {
-		applog(LOG_ERR, "cldc_open(%s) call error: %d\n",
-		       sp->cfname, rc);
-	}
-	return 0;
-}
-
-static int cldu_open_c_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
-{
-	struct cld_session *sp = carg->private;
-	struct cldc_call_opts copts;
-	int rc;
-
-	if (errc != CLE_OK) {
-		applog(LOG_ERR, "CLD open(%s) failed: %d", sp->cfname, errc);
-		return 0;
-	}
-	if (sp->cfh == NULL) {
-		applog(LOG_ERR, "CLD open(%s) failed: NULL fh", sp->cfname);
-		return 0;
-	}
-	if (!sp->cfh->valid) {
-		applog(LOG_ERR, "CLD open(%s) failed: invalid fh", sp->cfname);
-		return 0;
-	}
-
-	/*
-	 * We don't use directory handle to open files in it, so close it.
-	 */
-	memset(&copts, 0, sizeof(copts));
-	copts.cb = cldu_close_c_cb;
-	copts.private = sp;
-	rc = cldc_close(sp->cfh, &copts);
-	if (rc) {
-		applog(LOG_ERR, "cldc_close call error %d", rc);
-	}
-
-	return 0;
-}
-
-static int cldu_close_c_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
-{
-	struct cld_session *sp = carg->private;
-	struct cldc_call_opts copts;
-	int rc;
-
-	if (errc != CLE_OK) {
-		applog(LOG_ERR, "CLD close(%s) failed: %d", sp->cfname, errc);
-		return 0;
-	}
-
-	/*
-	 * Then, create the membership file for us.
-	 *
-	 * It is a bit racy to create a file like this, applications can see
-	 * an empty file, or a file with stale contents. But what to do?
-	 */
-	memset(&copts, 0, sizeof(copts));
-	copts.cb = cldu_open_f_cb;
-	copts.private = sp;
-	rc = cldc_open(sp->lib->sess, &copts, sp->ffname,
-		       COM_WRITE | COM_LOCK | COM_CREATE,
-		       CE_MASTER_FAILOVER | CE_SESS_FAILED, &sp->ffh);
-	if (rc) {
-		applog(LOG_ERR, "cldc_open(%s) call error: %d\n",
-		       sp->ffname, rc);
-	}
-	return 0;
-}
-
-static int cldu_open_f_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
-{
-	struct cld_session *sp = carg->private;
-	struct cldc_call_opts copts;
-	int rc;
-
-	if (errc != CLE_OK) {
-		applog(LOG_ERR, "CLD open(%s) failed: %d", sp->ffname, errc);
-		return 0;
-	}
-	if (sp->ffh == NULL) {
-		applog(LOG_ERR, "CLD open(%s) failed: NULL fh", sp->ffname);
-		return 0;
-	}
-	if (!sp->ffh->valid) {
-		applog(LOG_ERR, "CLD open(%s) failed: invalid fh", sp->ffname);
-		return 0;
-	}
-
-	if (debugging)
-		applog(LOG_DEBUG, "CLD file \"%s\" created", sp->ffname);
-
-	/*
-	 * Lock the file, in case two hosts got the same NID.
-	 */
-	memset(&copts, 0, sizeof(copts));
-	copts.cb = cldu_lock_cb;
-	copts.private = sp;
-	rc = cldc_lock(sp->ffh, &copts, 0, false);
-	if (rc) {
-		applog(LOG_ERR, "cldc_lock call error %d", rc);
-	}
-
-	return 0;
-}
-
-static int cldu_lock_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
-{
-	struct cld_session *sp = carg->private;
-	char *buf = NULL; /* stupid gcc 4.4.1 throws a warning */
-	int len;
-	struct cldc_call_opts copts;
-	int rc;
-
-	if (errc != CLE_OK) {
-		applog(LOG_ERR, "CLD lock(%s) failed: %d", sp->ffname, errc);
-		return 0;
-	}
-
-	if (cldu_make_ffile(&buf, sp))
-		return 0;
-	len = strlen(buf);
-
-	memset(&copts, 0, sizeof(copts));
-	copts.cb = cldu_put_cb;
-	copts.private = sp;
-	rc = cldc_put(sp->ffh, &copts, buf, len);
-	if (rc) {
-		applog(LOG_ERR, "cldc_put(%s) call error: %d\n",
-		       sp->ffname, rc);
-	}
-
-	free(buf);
-
-	return 0;
-}
-
-static int cldu_put_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
-{
-	struct cld_session *sp = carg->private;
-	// struct cldc_call_opts copts;
-	// int rc;
-
-	if (errc != CLE_OK) {
-		applog(LOG_ERR, "CLD put(%s) failed: %d", sp->ffname, errc);
-		return 0;
-	}
-
-	if (debugging)
-		applog(LOG_DEBUG, "CLD file \"%s\" written", sp->ffname);
-
-	return 0;
-}
-
 /*
  * Create the file with our parameters in memory, return as ret.
  */
-static int cldu_make_ffile(char **ret, struct cld_session *sp)
+static int cldu_make_ffile(char **ret, struct cld_session *cs)
 {
 	GList *str_list = NULL;
+	struct geo *loc = cs->ploc;
 	char *buf;
 	char *str;
 	size_t len;
@@ -517,9 +195,9 @@ static int cldu_make_ffile(char **ret, struct cld_session *sp)
 	int rc;
 
 	rc = asprintf(&str,
-		"<Chunk>\r\n"
-		" <NID>%u</NID>\r\n",
-		sp->nid);
+		      "<Chunk>\r\n"
+		      " <NID>%u</NID>\r\n",
+		      cs->nid);
 	if (rc == -1) {
 		applog(LOG_ERR, "OOM in asprintf\n");
 		goto error;
@@ -536,7 +214,7 @@ static int cldu_make_ffile(char **ret, struct cld_session *sp)
 
 		host = cfg->node;
 		if (host == NULL || host[0] == 0)
-			host = sp->ourhost;
+			host = cs->ourhost;
 
 		rc = asprintf(&str,
 			" <Socket>\r\n"
@@ -559,9 +237,9 @@ static int cldu_make_ffile(char **ret, struct cld_session *sp)
 		"  <Rack>%s</Rack>\r\n"
 		" </Geo>\r\n"
 		"</Chunk>\r\n",
-		sp->ploc->area ? sp->ploc->area : "-",
-		sp->ploc->zone ? sp->ploc->zone : "-",
-		sp->ploc->rack ? sp->ploc->rack : "-");
+		loc->area ? loc->area : "-",
+		loc->zone ? loc->zone : "-",
+		loc->rack ? loc->rack : "-");
 	if (rc == -1) {
 		applog(LOG_ERR, "OOM in asprintf\n");
 		goto error;
@@ -597,8 +275,154 @@ error:
 }
 
 /*
+ * Open the library, start its session, and reguster its socket with libevent.
+ * Our session remains consistent in case of an error in this function,
+ * so that we can continue and retry meaningfuly.
+ */
+static int cldu_set_cldc(struct cld_session *cs, int newactive)
+{
+	struct cldc_host *hp;
+	struct ncld_fh *cfh;	/* /chunk-GROUP directory fh */
+	struct timespec tm;
+	char *buf = NULL; /* stupid gcc 4.4.1 throws a warning */
+	int len;
+	int error;
+	int rc;
+
+	if (cs->nsess) {
+		ncld_sess_close(cs->nsess);
+		cs->nsess = NULL;
+	}
+
+	cs->actx = newactive;
+	if (!cs->cldv[cs->actx].known) {
+		applog(LOG_ERR, "No CLD hosts");
+		goto err_addr;
+	}
+	hp = &cs->cldv[cs->actx].h;
+
+	if (debugging)
+		applog(LOG_INFO, "Selected CLD host %s port %u",
+		       hp->host, hp->port);
+
+	cs->nsess = ncld_sess_open(hp->host, hp->port, &error,
+				   cldu_sess_event, cs, "tabled", "tabled");
+	if (cs->nsess == NULL) {
+		if (error < 1000) {
+			applog(LOG_ERR, "ncld_sess_open(%s,%u) error: %s",
+			       hp->host, hp->port, strerror(error));
+		} else {
+			applog(LOG_ERR, "ncld_sess_open(%s,%u) error: %d",
+			       hp->host, hp->port, error);
+		}
+		goto err_nsess;
+	}
+
+	applog(LOG_INFO, "New CLD session created, sid " SIDFMT,
+	       SIDARG(cs->nsess->udp->sess->sid));
+
+	/*
+	 * First, make sure the base directory exists.
+	 */
+	cfh = ncld_open(cs->nsess, cs->cfname,
+			COM_READ | COM_WRITE | COM_CREATE | COM_DIRECTORY,
+			&error, 0 /* CE_MASTER_FAILOVER | CE_SESS_FAILED */,
+			NULL, NULL);
+	if (!cfh) {
+		applog(LOG_ERR, "CLD open(%s) failed: %d", cs->cfname, error);
+		goto err_copen;
+	}
+
+	/*
+	 * We don't use directory handle to open files in it, so close it.
+	 */
+	ncld_close(cfh);
+
+	/*
+	 * Then, create the membership file for us.
+	 *
+	 * It is a bit racy to create a file like this, applications can see
+	 * an empty file, or a file with stale contents. But what to do?
+	 */
+	cs->ffh = ncld_open(cs->nsess, cs->ffname,
+			    COM_WRITE | COM_LOCK | COM_CREATE,
+			    &error, 0 /* CE_MASTER_FAILOVER | CE_SESS_FAILED */,
+			    NULL, NULL);
+	if (cs->ffh == NULL) {
+		applog(LOG_ERR, "CLD open(%s) failed: NULL fh", cs->ffname);
+		goto err_fopen;
+	}
+
+	if (debugging)
+		applog(LOG_DEBUG, "CLD file \"%s\" created", cs->ffname);
+
+	/*
+	 * Lock the file, in case two hosts got the same NID.
+	 */
+	for (;;) {
+		rc = ncld_trylock(cs->ffh);
+		if (!rc)
+			break;
+
+		applog(LOG_ERR, "CLD lock(%s) failed: %d", cs->ffname, rc);
+		if (rc != CLE_LOCK_CONFLICT + 1100)
+			goto err_lock;
+
+		/*
+		 * The usual reason why we get a lock conflict is
+		 * restarting too quickly and hitting the previous lock
+		 * that is going to disappear soon.
+		 */
+		tm.tv_sec = 10;
+		tm.tv_nsec = 0;
+		nanosleep(&tm, NULL);
+	}
+
+	if (cldu_make_ffile(&buf, cs))
+		goto err_buf;
+	len = strlen(buf);
+
+	rc = ncld_write(cs->ffh, buf, len);
+	if (rc) {
+		applog(LOG_ERR, "CLD put(%s) failed: %d", cs->ffname, rc);
+		goto err_write;
+	}
+
+	free(buf);
+
+	if (debugging)
+		applog(LOG_DEBUG, "CLD file \"%s\" written", cs->ffname);
+
+	/*
+	 * At this point we just hang here with cs->ffh open and locked
+	 * until session fails or we shut down completely.
+	 */
+	return 0;
+
+err_write:
+err_buf:
+err_lock:
+	ncld_close(cs->ffh);	/* session-close closes these, maybe drop */
+err_fopen:
+err_copen:
+	ncld_sess_close(cs->nsess);
+	cs->nsess = NULL;
+err_nsess:
+err_addr:
+	return -1;
+}
+
+/*
  */
 static struct cld_session ses;
+
+/*
+ * Global and 1-instance initialization.
+ */
+void cld_init()
+{
+	ncld_init();
+}
 
 /*
  * This initiates our sole session with a CLD instance.
@@ -610,10 +434,10 @@ static struct cld_session ses;
 int cld_begin(const char *thishost, const char *thisgroup, uint32_t nid,
 	      struct geo *locp, void (*cb)(enum st_cld))
 {
+	static struct cld_session *cs = &ses;
 
 	if (!nid)
 		return 0;
-	cldc_init();
 
 	/*
 	 * As long as we permit pre-seeding lists of CLD hosts,
@@ -621,16 +445,16 @@ int cld_begin(const char *thishost, const char *thisgroup, uint32_t nid,
 	 * as cld_end terminates it right, we can call cld_begin again.
 	 */
 	// memset(&ses, 0, sizeof(struct cld_session));
-	ses.state_cb = cb;
+	cs->state_cb = cb;
 
-	timer_init(&ses.timer, "chunkd_cldu_timer", cldu_timer_event, &ses);
+	timer_init(&cs->timer, "chunkd_cldu_timer", cldu_timer_event, cs);
 
-	if (cldu_setgroup(&ses, thisgroup, nid, thishost, locp)) {
+	if (cldu_setgroup(cs, thisgroup, nid, thishost, locp)) {
 		/* Already logged error */
 		goto err_group;
 	}
 
-	if (!ses.forced_hosts) {
+	if (!cs->forced_hosts) {
 		GList *tmp, *host_list = NULL;
 		int i;
 
@@ -646,9 +470,9 @@ int cld_begin(const char *thishost, const char *thisgroup, uint32_t nid,
 		for (tmp = host_list; tmp; tmp = tmp->next) {
 			struct cldc_host *hp = tmp->data;
 			if (i < N_CLD) {
-				memcpy(&ses.cldv[i].h, hp,
+				memcpy(&cs->cldv[i].h, hp,
 				       sizeof(struct cldc_host));
-				ses.cldv[i].known = 1;
+				cs->cldv[i].known = 1;
 				i++;
 			} else {
 				free(hp->host);
@@ -665,7 +489,7 @@ int cld_begin(const char *thishost, const char *thisgroup, uint32_t nid,
 	 * -- Actually, it only works when recovering from CLD failure.
 	 *    Thereafter, any slave CLD redirects us to the master.
 	 */
-	if (cldu_set_cldc(&ses, 0)) {
+	if (cldu_set_cldc(cs, 0)) {
 		/* Already logged error */
 		goto err_net;
 	}
@@ -678,41 +502,14 @@ err_group:
 	return -1;
 }
 
-void cld_end(void)
-{
-	int i;
-
-	if (!ses.nid)
-		return;
-
-	if (ses.lib) {
-		// if (ses.sess_open)	/* kill it always, include half-open */
-		cldc_kill_sess(ses.lib->sess);
-		if (ses.lib->fd >= 0)
-			srv_poll_del(ses.lib->fd);
-		cldc_udp_free(ses.lib);
-		ses.lib = NULL;
-	}
-
-	if (!ses.forced_hosts) {
-		for (i = 0; i < N_CLD; i++) {
-			if (ses.cldv[i].known)
-				free(ses.cldv[i].h.host);
-		}
-	}
-
-	free(ses.cfname);
-	free(ses.ffname);
-}
-
 void cldu_add_host(const char *hostname, unsigned int port)
 {
-	static struct cld_session *sp = &ses;
+	static struct cld_session *cs = &ses;
 	struct cld_host *hp;
 	int i;
 
 	for (i = 0; i < N_CLD; i++) {
-		hp = &sp->cldv[i];
+		hp = &cs->cldv[i];
 		if (!hp->known)
 			break;
 	}
@@ -724,5 +521,36 @@ void cldu_add_host(const char *hostname, unsigned int port)
 		return;
 	hp->known = 1;
 
-	sp->forced_hosts = true;
+	cs->forced_hosts = true;
 }
+
+void cld_end(void)
+{
+	static struct cld_session *cs = &ses;
+	int i;
+
+	if (!cs->nid)
+		return;
+
+	timer_del(&cs->timer);
+
+	if (cs->nsess) {
+		ncld_sess_close(cs->nsess);
+		cs->nsess = NULL;
+	}
+
+	if (!cs->forced_hosts) {
+		for (i = 0; i < N_CLD; i++) {
+			if (cs->cldv[i].known) {
+				free(cs->cldv[i].h.host);
+				cs->cldv[i].known = false;
+			}
+		}
+	}
+
+	free(cs->cfname);
+	cs->cfname = NULL;
+	free(cs->ffname);
+	cs->ffname = NULL;
+}
+

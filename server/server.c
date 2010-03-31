@@ -1756,6 +1756,8 @@ int main (int argc, char *argv[])
 	SSL_CTX_set_mode(ssl_ctx, SSL_CTX_get_mode(ssl_ctx) |
 			 SSL_MODE_ENABLE_PARTIAL_WRITE);
 
+	cld_init();
+
 	/*
 	 * Next, read master configuration. This should be done as
 	 * early as possible, so that tunables are available.
@@ -1817,17 +1819,17 @@ int main (int argc, char *argv[])
 		goto err_out_fs;
 	}
 
-	if (cld_begin(chunkd_srv.ourhost, chunkd_srv.group, chunkd_srv.nid,
-		      &chunkd_srv.loc, NULL)) {
-		rc = 1;
-		goto err_out_cld;
-	}
-
 	/* set up server networking */
 	for (tmpl = chunkd_srv.listeners; tmpl; tmpl = tmpl->next) {
 		rc = net_open(tmpl->data);
 		if (rc)
 			goto err_out_listen;
+	}
+
+	if (cld_begin(chunkd_srv.ourhost, chunkd_srv.group, chunkd_srv.nid,
+		      &chunkd_srv.loc, NULL)) {
+		rc = 1;
+		goto err_out_cld;
 	}
 
 	applog(LOG_INFO, "initialized");
@@ -1836,10 +1838,10 @@ int main (int argc, char *argv[])
 
 	applog(LOG_INFO, "shutting down");
 
+	/* cld_end(); */
+err_out_cld:
 	/* net_close(); */
 err_out_listen:
-	cld_end();
-err_out_cld:
 	fs_close();
 err_out_fs:
 	cmd = CHK_CMD_EXIT;

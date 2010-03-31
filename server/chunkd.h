@@ -289,6 +289,7 @@ extern void cli_out_end(struct client *cli);
 extern void cli_in_end(struct client *cli);
 
 /* cldu.c */
+extern void cld_init(void);
 extern void cldu_add_host(const char *host, unsigned int port);
 extern int cld_begin(const char *thishost, const char *thisgroup, uint32_t nid,
 		     struct geo *locp, void (*cb)(enum st_cld));
