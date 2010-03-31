@@ -30,10 +30,9 @@
 #include <ctype.h>
 #include <errno.h>
 #include <syslog.h>
-#include <stdio.h>
 #include <openssl/hmac.h>
 #include <glib.h>
-#include <cldc.h>
+#include <cld_common.h>
 #include "chunkd.h"
 
 struct config_context {
@@ -56,18 +55,17 @@ struct config_context {
 	struct listen_cfg tmp_listen;
 };
 
-static bool is_good_group_name(const char *s)
+static bool is_good_info_name(const char *s)
 {
 	char c;
 	int n;
 
 	n = 0;
 	while ((c = *s++) != 0) {
-		if (n >= 64)
+		if (n >= CLD_INODE_NAME_MAX)
 			return false;
-		/* whatever we allow in the future, we must filter '/' */
 		if (!(isalpha(c) || isdigit(c) ||
-		    c == '-' || c == '_' || c == '.'))
+		    c == '-' || c == '_' || c == '.' || c == '/'))
 			return false;
 		n++;
 	}
@@ -398,12 +396,6 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		}
 	}
 
-	else if (!strcmp(element_name, "Group") && cc->text) {
-		free(chunkd_srv.group);
-		chunkd_srv.group = cc->text;
-		cc->text = NULL;
-	}
-
 	else if (!strcmp(element_name, "NID") && cc->text) {
 		n = strtol(cc->text, NULL, 10);
 		if (n <= 0 || n >= LONG_MAX) {
@@ -421,6 +413,16 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		 */
 		chunkd_srv.nid = n;
 		free(cc->text);
+		cc->text = NULL;
+	}
+
+	else if (!strcmp(element_name, "InfoPath")) {
+		if (!cc->text) {
+			applog(LOG_WARNING, "InfoPath element empty");
+			return;
+		}
+		free(chunkd_srv.info_path);
+		chunkd_srv.info_path = cc->text;
 		cc->text = NULL;
 	}
 
@@ -515,8 +517,18 @@ void read_config(void)
 		}
 	}
 
-	if (chunkd_srv.group && !is_good_group_name(chunkd_srv.group)) {
-		applog(LOG_ERR, "Group name '%s' is invalid", chunkd_srv.group);
+	if (!chunkd_srv.info_path) {
+		applog(LOG_ERR, "error: no InfoPath defined in cfg file");
+		exit(1);
+	}
+	if (chunkd_srv.info_path[0] != '/') {
+		/* Special-case because most likely a script error or such. */
+		applog(LOG_ERR, "error: InfoPath is not absolute");
+		exit(1);
+	}
+	if (!is_good_info_name(chunkd_srv.info_path)) {
+		applog(LOG_ERR, "error: InfoPath '%s' is invalid",
+		       chunkd_srv.info_path);
 		exit(1);
 	}
 

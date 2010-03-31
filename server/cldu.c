@@ -48,9 +48,8 @@ struct cld_session {
 
 	struct timer timer;
 
-	char *cfname;		/* /chunk-GROUP directory */
-	char *ffname;		/* /chunk-GROUP/NID */
-	struct ncld_fh *ffh;	/* /chunk-GROUP/NID, keep open for lock */
+	char *ffname;
+	struct ncld_fh *ffh;	/* keep open for lock */
 	uint32_t nid;
 	const char *ourhost;	/* N.B. points to some global data. */
 	struct geo *ploc;	/* N.B. points to some global data. */
@@ -59,9 +58,6 @@ struct cld_session {
 };
 
 static int cldu_set_cldc(struct cld_session *cs, int newactive);
-
-#define SVC "chunk"
-static char svc[] = SVC;
 
 struct hail_log cldu_hail_log = {
 	.func		= applog,
@@ -89,44 +85,14 @@ static int cldu_nextactive(struct cld_session *cs)
 	return cs->actx;
 }
 
-static int cldu_setgroup(struct cld_session *sp, const char *thisgroup,
-			 uint32_t thisnid, const char *thishost,
-			 struct geo *loc)
+static void cldu_saveargs(struct cld_session *sp, char *infopath,
+			  uint32_t thisnid, const char *thishost,
+			  struct geo *loc)
 {
-	size_t cnlen;
-	size_t mlen;
-	char nbuf[11];	/* 32 bits in decimal and nul */
-	char *mem;
-
-	if (thisgroup == NULL) {
-		thisgroup = "default";
-	}
-
-	snprintf(nbuf, 11, "%u", thisnid);
-
-	cnlen = strlen(thisgroup);
-
-	mlen = sizeof("/" SVC "-")-1;
-	mlen += cnlen;
-	mlen++;	// '\0'
-	mem = malloc(mlen);
-	sprintf(mem, "/%s-%s", svc, thisgroup);
-	sp->cfname = mem;
-
-	mlen = sizeof("/" SVC "-")-1;
-	mlen += cnlen;
-	mlen++;	// '/'
-	mlen += strlen(nbuf);
-	mlen++;	// '\0'
-	mem = malloc(mlen);
-	sprintf(mem, "/%s-%s/%s", svc, thisgroup, nbuf);
-	sp->ffname = mem;
-
+	sp->ffname = infopath;
 	sp->nid = thisnid;
 	sp->ourhost = thishost;
 	sp->ploc = loc;
-
-	return 0;
 }
 
 static void cldu_timer_event(struct timer *timer)
@@ -179,6 +145,54 @@ static void cldu_sess_event(void *priv, uint32_t what)
 		else
 			applog(LOG_INFO, "cldc event 0x%x no sid", what);
 	}
+}
+
+/*
+ * Create the directories: mkdir -p $(dirname $path).
+ */
+static int cldu_make_path(struct ncld_sess *nsess, const char *path)
+{
+	const char *compdir;	/* the current component directory */
+	const char *compend;	/* the component's end (position of slash) */
+	char *dir;
+	unsigned int mode;
+	struct ncld_fh *dh;
+	int error;
+
+	/* Our configurator has this check too, but let's be safe. */
+	if (path[0] != '/')
+		return -1;
+	compdir = path + sizeof('/');
+
+	for (;;) {
+		if (!compdir[0]) {
+			applog(LOG_ERR, "CLD path (%s) is invalid", path);
+			return -1;	/* Path ends with slash - error */
+		}
+		compend = strchr(compdir, '/');
+		if (!compend)		/* It's a file, all done */
+			return 0;
+
+		dir = strndup(path, compend - path);	/* always absolute */
+		if (!dir) {
+			applog(LOG_ERR, "No core (%d)", compend - path);
+			return -1;
+		}
+
+		mode = COM_READ | COM_WRITE | COM_CREATE | COM_DIRECTORY,
+		dh = ncld_open(nsess, dir, mode, &error, 0, NULL, NULL);
+		if (!dh) {
+			applog(LOG_ERR, "CLD open(%s) failed: %d", dir, error);
+			free(dir);
+			return -1;
+		}
+
+		free(dir);
+		ncld_close(dh);
+
+		compdir = compend + 1;
+	}
+	return 0;
 }
 
 /*
@@ -282,7 +296,6 @@ error:
 static int cldu_set_cldc(struct cld_session *cs, int newactive)
 {
 	struct cldc_host *hp;
-	struct ncld_fh *cfh;	/* /chunk-GROUP directory fh */
 	struct timespec tm;
 	char *buf = NULL; /* stupid gcc 4.4.1 throws a warning */
 	int len;
@@ -324,22 +337,11 @@ static int cldu_set_cldc(struct cld_session *cs, int newactive)
 	/*
 	 * First, make sure the base directory exists.
 	 */
-	cfh = ncld_open(cs->nsess, cs->cfname,
-			COM_READ | COM_WRITE | COM_CREATE | COM_DIRECTORY,
-			&error, 0 /* CE_MASTER_FAILOVER | CE_SESS_FAILED */,
-			NULL, NULL);
-	if (!cfh) {
-		applog(LOG_ERR, "CLD open(%s) failed: %d", cs->cfname, error);
-		goto err_copen;
-	}
+	if (cldu_make_path(cs->nsess, cs->ffname))
+		goto err_path;
 
 	/*
-	 * We don't use directory handle to open files in it, so close it.
-	 */
-	ncld_close(cfh);
-
-	/*
-	 * Then, create the membership file for us.
+	 * Path done, create the membership file for us, keep it open.
 	 *
 	 * It is a bit racy to create a file like this, applications can see
 	 * an empty file, or a file with stale contents. But what to do?
@@ -404,7 +406,7 @@ err_buf:
 err_lock:
 	ncld_close(cs->ffh);	/* session-close closes these, maybe drop */
 err_fopen:
-err_copen:
+err_path:
 	ncld_sess_close(cs->nsess);
 	cs->nsess = NULL;
 err_nsess:
@@ -431,7 +433,7 @@ void cld_init()
  * by reference, so their lifetime must exceed the lifetime of the session
  * (the time between cld_begin and cld_end).
  */
-int cld_begin(const char *thishost, const char *thisgroup, uint32_t nid,
+int cld_begin(const char *thishost, uint32_t nid, char *infopath,
 	      struct geo *locp, void (*cb)(enum st_cld))
 {
 	static struct cld_session *cs = &ses;
@@ -449,10 +451,7 @@ int cld_begin(const char *thishost, const char *thisgroup, uint32_t nid,
 
 	timer_init(&cs->timer, "chunkd_cldu_timer", cldu_timer_event, cs);
 
-	if (cldu_setgroup(cs, thisgroup, nid, thishost, locp)) {
-		/* Already logged error */
-		goto err_group;
-	}
+	cldu_saveargs(cs, infopath, nid, thishost, locp);
 
 	if (!cs->forced_hosts) {
 		GList *tmp, *host_list = NULL;
@@ -498,7 +497,6 @@ int cld_begin(const char *thishost, const char *thisgroup, uint32_t nid,
 
 err_net:
 err_addr:
-err_group:
 	return -1;
 }
 
@@ -548,8 +546,6 @@ void cld_end(void)
 		}
 	}
 
-	free(cs->cfname);
-	cs->cfname = NULL;
 	free(cs->ffname);
 	cs->ffname = NULL;
 }
