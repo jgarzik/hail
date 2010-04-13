@@ -97,7 +97,6 @@ struct cldc_ops {
 				const void *buf, size_t buflen);
 	void		(*event)(void *private, struct cldc_session *,
 				 struct cldc_fh *, uint32_t);
-	void		(*errlog)(int prio, const char *fmt, ...);
 };
 
 /** a single CLD client session */

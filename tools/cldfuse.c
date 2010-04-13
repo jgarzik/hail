@@ -375,7 +375,7 @@ int main(int argc, char *argv[])
 	dr = param.host_list->data;
 
 	sess = ncld_sess_open(dr->host, dr->port, &error, sess_event, NULL,
-			     "cldfuse", "cldfuse");
+			     "cldfuse", "cldfuse", &cldfuse_log);
 	if (!sess) {
 		if (error < 1000) {
 			fprintf(stderr, TAG ": cannot open CLD session: %s\n",

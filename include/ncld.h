@@ -72,7 +72,7 @@ struct ncld_read {
 
 extern struct ncld_sess *ncld_sess_open(const char *host, int port,
 	int *error, void (*event)(void *, unsigned int), void *ev_arg,
-	const char *cld_user, const char *cld_key);
+	const char *cld_user, const char *cld_key, struct hail_log *log);
 extern struct ncld_fh *ncld_open(struct ncld_sess *s, const char *fname,
 	unsigned int mode, int *error, unsigned int events,
 	void (*event)(void *, unsigned int), void *ev_arg);

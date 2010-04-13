@@ -183,29 +183,26 @@ static int rxmsg_generic(struct cldc_session *sess,
 	while (tmp) {
 		req = tmp->data;
 
-		HAIL_DEBUG(&sess->log, "%s: comparing req->xid (%llu) "
-			   "with resp.xid_in (%llu)",
-			   __func__,
-			   (unsigned long long) req->xid,
-			   (unsigned long long) resp.xid_in);
+		HAIL_VERBOSE(&sess->log, "%s: comparing req->xid (%llu) "
+			     "with resp.xid_in (%llu)", __func__,
+			     (unsigned long long) req->xid,
+			     (unsigned long long) resp.xid_in);
 
 		if (req->xid == resp.xid_in)
 			break;
 		tmp = tmp->next;
 	}
 	if (!tmp) {
-		HAIL_DEBUG(&sess->log, "%s: no match found with "
-			   "xid_in %llu",
-			   __func__,
-			   (unsigned long long) resp.xid_in);
+		HAIL_VERBOSE(&sess->log, "%s: no match found with xid_in %llu",
+			     __func__, (unsigned long long) resp.xid_in);
 		return -1005;
 	}
 
 	if (req->done) {
-		HAIL_DEBUG(&sess->log, "%s: re-acking", __func__);
+		HAIL_VERBOSE(&sess->log, "%s: re-acking", __func__);
 	} else {
-		HAIL_DEBUG(&sess->log, "%s: issuing completion, acking",
-			   __func__);
+		HAIL_VERBOSE(&sess->log, "%s: issuing completion, acking",
+			     __func__);
 
 		req->done = true;
 
@@ -264,9 +261,9 @@ static int rxmsg_ack_frag(struct cldc_session *sess,
 			if (seqid != ack_msg.seqid)
 				continue;
 
-			HAIL_DEBUG(&sess->log, "%s: seqid %llu, expiring",
-				   __func__,
-				   (unsigned long long) ack_msg.seqid);
+			HAIL_VERBOSE(&sess->log, "%s: seqid %llu, expiring",
+				     __func__,
+				     (unsigned long long) ack_msg.seqid);
 
 			req->pkt_info[i] = NULL;
 			free(pi);
@@ -287,8 +284,8 @@ static int rxmsg_event(struct cldc_session *sess,
 
 	xdrmem_create(&xdrs, sess->msg_buf, sess->msg_buf_len, XDR_DECODE);
 	if (!xdr_cld_msg_event(&xdrs, &ev)) {
-		HAIL_INFO(&sess->log, "%s: failed to decode cld_msg_event",
-			  __func__);
+		HAIL_DEBUG(&sess->log, "%s: failed to decode cld_msg_event",
+			   __func__);
 		xdr_destroy(&xdrs);
 		return -1008;
 	}
@@ -397,8 +394,8 @@ static int accept_seqid(struct cldc_session *sess, uint64_t seqid,
 		sess->next_seqid_in = seqid + 1;
 		sess->next_seqid_in_tr =
 			sess->next_seqid_in - CLDC_MSG_REMEMBER;
-		HAIL_DEBUG(&sess->log, "%s: setting next_seqid_in to %llu",
-			   __func__, (unsigned long long) seqid);
+		HAIL_VERBOSE(&sess->log, "%s: setting next_seqid_in to %llu",
+			     __func__, (unsigned long long) seqid);
 		return 0;
 
 	case CMO_NOT_MASTER:
@@ -513,9 +510,8 @@ int cldc_receive_pkt(struct cldc_session *sess,
 	sess->expire_time = current_time + CLDC_SESS_EXPIRE;
 
 	if (pkt.mi.order & CLD_PKT_IS_LAST) {
-		HAIL_DEBUG(&sess->log, "%s: receiving complete message of "
-			   "op %s", __func__,
-			   __cld_opstr(sess->msg_buf_op));
+		HAIL_VERBOSE(&sess->log, "%s: receiving complete message of "
+			     "op %s", __func__, __cld_opstr(sess->msg_buf_op));
 		return rx_complete(sess, &pkt, foot);
 	} else {
 		return ack_seqid(sess, foot->seqid);
@@ -821,12 +817,12 @@ static ssize_t new_sess_cb(struct cldc_msg *msg, const void *resp_p,
 	return 0;
 }
 
-int cldc_new_sess(const struct cldc_ops *ops,
-		  const struct cldc_call_opts *copts,
-		  const void *addr, size_t addr_len,
-		  const char *user, const char *secret_key,
-		  void *private,
-		  struct cldc_session **sess_out)
+static int cldc_new_sess_log(const struct cldc_ops *ops,
+			     const struct cldc_call_opts *copts,
+			     const void *addr, size_t addr_len,
+			     const char *user, const char *secret_key,
+			     void *private, struct hail_log *log,
+			     struct cldc_session **sess_out)
 {
 	struct cldc_session *sess;
 	struct cldc_msg *msg;
@@ -845,13 +841,9 @@ int cldc_new_sess(const struct cldc_ops *ops,
 	if (!sess)
 		return -ENOMEM;
 
-#if 0
-	sess->log.verbose = true;
-#endif
-
 	sess->private = private;
 	sess->ops = ops;
-	sess->log.func = ops->errlog ? ops->errlog : cldc_errlog;
+	sess->log = *log;		/* save off caller's stack */
 	sess->fh = g_array_sized_new(FALSE, TRUE, sizeof(struct cldc_fh), 16);
 	strcpy(sess->user, user);
 	strcpy(sess->secret_key, secret_key);
@@ -884,6 +876,22 @@ int cldc_new_sess(const struct cldc_ops *ops,
 			     CLDC_MSG_RETRY);
 
 	return sess_send(sess, msg);
+}
+
+int cldc_new_sess(const struct cldc_ops *ops,
+		  const struct cldc_call_opts *copts,
+		  const void *addr, size_t addr_len,
+		  const char *user, const char *secret_key,
+		  void *private,
+		  struct cldc_session **sess_out)
+{
+	struct hail_log log;
+
+	log.debug = false;
+	log.verbose = false;
+	log.func = cldc_errlog;
+	return cldc_new_sess_log(ops, copts, addr, addr_len, user, secret_key,
+				 private, &log, sess_out);
 }
 
 /*
@@ -1296,7 +1304,8 @@ char *cldc_dirent_name(struct cld_dirent_cur *dc)
 /*
  * On error, return the code (not negated code like a kernel function would).
  */
-static int ncld_getsrv(char **hostp, unsigned short *portp)
+static int ncld_getsrv(char **hostp, unsigned short *portp,
+		       struct hail_log *log)
 {
 	enum { hostsz = 64 };
 	char hostb[hostsz];
@@ -1308,7 +1317,7 @@ static int ncld_getsrv(char **hostp, unsigned short *portp)
 		return errno;
 	hostb[hostsz-1] = 0;
 
-	if (cldc_getaddr(&host_list, hostb, NULL))
+	if (cldc_getaddr(&host_list, hostb, log))
 		return 1001;
 
 	/*
@@ -1501,7 +1510,6 @@ static struct cldc_ops ncld_ops = {
 	.timer_ctl	= ncld_p_timer_ctl,
 	.pkt_send	= ncld_p_pkt_send,
 	.event		= ncld_p_event,
-	.errlog		= NULL,
 };
 
 static int ncld_new_sess(struct cldc_call_opts *copts, enum cle_err_codes errc)
@@ -1547,17 +1555,27 @@ static int ncld_wait_session(struct ncld_sess *nsess)
  * @param ev_arg User-supplied argument to the session event function
  * @param cld_user The user identifier to be used to authentication
  * @param cld_key The user key to be used to authentication
+ * @param log The application log descriptor (ok to be NULL)
  */
 struct ncld_sess *ncld_sess_open(const char *host, int port, int *error,
 				 void (*ev_func)(void *, unsigned int),
-				 void *ev_arg, const char *cld_user,
-				 const char *cld_key)
+				 void *ev_arg,
+				 const char *cld_user, const char *cld_key,
+				 struct hail_log *log)
 {
 	struct ncld_sess *nsess;
+	struct hail_log nlog;
 	struct cldc_call_opts copts;
 	int err;
 	GError *gerr;
 	int rc;
+
+	if (!log) {
+		nlog.debug = false;
+		nlog.verbose = false;
+		nlog.func = cldc_errlog;
+		log = &nlog;
+	}
 
 	err = ENOMEM;
 	nsess = malloc(sizeof(struct ncld_sess));
@@ -1574,7 +1592,7 @@ struct ncld_sess *ncld_sess_open(const char *host, int port, int *error,
 		goto out_cond;
 
 	if (!host) {
-		err = ncld_getsrv(&nsess->host, &nsess->port);
+		err = ncld_getsrv(&nsess->host, &nsess->port, log);
 		if (err)
 			goto out_srv;
 	} else {
@@ -1605,13 +1623,13 @@ struct ncld_sess *ncld_sess_open(const char *host, int port, int *error,
 	memset(&copts, 0, sizeof(copts));
 	copts.cb = ncld_new_sess;
 	copts.private = nsess;
-	if (cldc_new_sess(&ncld_ops, &copts, nsess->udp->addr, nsess->udp->addr_len,
-			  cld_user, cld_key, nsess, &nsess->udp->sess)) {
+	if (cldc_new_sess_log(&ncld_ops, &copts,
+			      nsess->udp->addr, nsess->udp->addr_len,
+			      cld_user, cld_key, nsess, log,
+			      &nsess->udp->sess)) {
 		err = 1024;
 		goto out_session;
 	}
-
-	/* nsess->udp->sess->log.verbose = 1; */
 
 	rc = ncld_wait_session(nsess);
 	if (rc) {

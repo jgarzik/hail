@@ -98,7 +98,6 @@ static void applog(int prio, const char *fmt, ...)
 
 static struct hail_log cli_log = {
 	.func = applog,
-	.verbose = 0,
 };
 
 static void sess_event(void *private, uint32_t what)
@@ -628,15 +627,20 @@ err:
 
 static error_t parse_opt (int key, char *arg, struct argp_state *state)
 {
+	int v;
+
 	switch(key) {
 	case 'D':
-		if (atoi(arg) >= 0 && atoi(arg) <= 2)
-			cli_log.verbose = atoi(arg);
-		else {
+		v = atoi(arg);
+		if (v < 0 || v > 2) {
 			fprintf(stderr, TAG ": invalid debug level: '%s'\n",
 				arg);
 			argp_usage(state);
 		}
+		if (v >= 1)
+			cli_log.debug = true;
+		if (v >= 2)
+			cli_log.verbose = true;
 		break;
 	case 'h':
 		if (!push_host(arg))
@@ -648,9 +652,6 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 			argp_usage(state);
 		} else
 			strcpy(our_user, arg);
-		break;
-	case 'v':
-		cli_log.verbose = true;
 		break;
 	case ARGP_KEY_ARG:
 		argp_usage(state);	/* too many args */
@@ -711,7 +712,7 @@ int main (int argc, char *argv[])
 	dr = host_list->data;
 
 	nsess = ncld_sess_open(dr->host, dr->port, &error, sess_event, NULL,
-			     "cldcli", "cldcli");
+			     "cldcli", "cldcli", &cli_log);
 	if (!nsess) {
 		if (error < 1000) {
 			fprintf(stderr, TAG ": cannot open CLD session: %s\n",

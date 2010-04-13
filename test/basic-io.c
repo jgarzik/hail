@@ -40,7 +40,7 @@ static int test_write(int port)
 	int error;
 
 	nsess = ncld_sess_open(TEST_HOST, port, &error, NULL, NULL,
-			     TEST_USER, TEST_USER_KEY);
+			     TEST_USER, TEST_USER_KEY, NULL);
 	if (!nsess) {
 		fprintf(stderr, "ncld_sess_open(host %s port %u) failed: %d\n",
 			TEST_HOST, port, error);
@@ -74,7 +74,7 @@ static int test_read(int port)
 	int error;
 
 	nsess = ncld_sess_open(TEST_HOST, port, &error, NULL, NULL,
-			     TEST_USER, TEST_USER_KEY);
+			     TEST_USER, TEST_USER_KEY, NULL);
 	if (!nsess) {
 		fprintf(stderr, "ncld_sess_open(host %s port %u) failed: %d\n",
 			TEST_HOST, port, error);

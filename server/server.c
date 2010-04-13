@@ -117,7 +117,6 @@ static void applog(int prio, const char *fmt, ...)
 
 struct hail_log srv_log = {
 	.func = applog,
-	.verbose = 0,
 };
 
 int udp_tx(int sock_fd, struct sockaddr *addr, socklen_t addr_len,
@@ -913,17 +912,22 @@ static void stats_dump(void)
 
 static error_t parse_opt (int key, char *arg, struct argp_state *state)
 {
+	int v;
+
 	switch(key) {
 	case 'd':
 		cld_srv.data_dir = arg;
 		break;
 	case 'D':
-		if (atoi(arg) >= 0 && atoi(arg) <= 2)
-			srv_log.verbose = atoi(arg);
-		else {
+		v = atoi(arg);
+		if (v < 0 || v > 2) {
 			fprintf(stderr, "invalid debug level: '%s'\n", arg);
 			argp_usage(state);
 		}
+		if (v >= 1)
+			srv_log.debug = true;
+		if (v >= 2)
+			srv_log.verbose = true;
 		break;
 	case 'E':
 		use_syslog = false;
@@ -1120,9 +1124,10 @@ int main (int argc, char *argv[])
 	if (rc)
 		goto err_out_pid;
 
-	HAIL_INFO(&srv_log, "initialized: verbose %u%s",
-	       srv_log.verbose,
-	       strict_free ? ", strict-free" : "");
+	HAIL_INFO(&srv_log, "initialized: %s%s%s",
+		  srv_log.debug ? "debug" : "nodebug",
+		  srv_log.verbose ? ", verbose" : "",
+		  strict_free ? ", strict-free" : "");
 
 	/*
 	 * execute main loop
