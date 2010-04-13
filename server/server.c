@@ -66,8 +66,8 @@ enum {
 static struct argp_option options[] = {
 	{ "config", 'C', "FILE", 0,
 	  "Read master configuration from FILE" },
-	{ "debug", 'D', NULL, 0,
-	  "Enable debug output" },
+	{ "debug", 'D', "LEVEL", 0,
+	  "Set debug output to LEVEL (0 = off, 2 = max)" },
 	{ "stderr", 'E', NULL, 0,
 	  "Switch the log to standard error" },
 	{ "foreground", 'F', NULL, 0,
@@ -170,12 +170,24 @@ void applog(int prio, const char *fmt, ...)
 
 static error_t parse_opt (int key, char *arg, struct argp_state *state)
 {
+	int v;
+
 	switch(key) {
 	case 'C':
 		chunkd_srv.config = arg;
 		break;
 	case 'D':
-		debugging = 1;
+		v = atoi(arg);
+		if (v < 0 || v > 2) {
+			fprintf(stderr, "invalid debug level: '%s'\n", arg);
+			argp_usage(state);
+		}
+		if (v >= 1)
+			debugging = 1;
+		if (v >= 2) {
+			cldu_hail_log.debug = true;
+			cldu_hail_log.verbose = true;
+		}
 		break;
 	case 'E':
 		use_syslog = false;
@@ -1736,9 +1748,7 @@ int main (int argc, char *argv[])
 	if (use_syslog)
 		openlog(PROGRAM_NAME, LOG_PID, LOG_LOCAL3);
 	if (debugging)
-		applog(LOG_INFO, "Verbose debug output enabled");
-
-	cldu_hail_log.verbose = debugging;
+		applog(LOG_INFO, "Debug output enabled");
 
 	g_thread_init(NULL);
 	chunkd_srv.bigmutex = g_mutex_new();

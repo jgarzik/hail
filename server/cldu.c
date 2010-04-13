@@ -319,7 +319,8 @@ static int cldu_set_cldc(struct cld_session *cs, int newactive)
 		       hp->host, hp->port);
 
 	cs->nsess = ncld_sess_open(hp->host, hp->port, &error,
-				   cldu_sess_event, cs, "tabled", "tabled");
+				   cldu_sess_event, cs, "tabled", "tabled",
+				   &cldu_hail_log);
 	if (cs->nsess == NULL) {
 		if (error < 1000) {
 			applog(LOG_ERR, "ncld_sess_open(%s,%u) error: %s",
