@@ -1388,10 +1388,12 @@ static void ncld_thread_command(struct ncld_sess *nsess)
 		abort();
 	}
 
-	if (cmd == NCLD_CMD_END) {
+	switch (cmd) {
+	case NCLD_CMD_END:
 		/* No answer to requestor. Wait with g_thread_join. */
 		g_thread_exit(NULL);
-	} else if (cmd == NCLD_CMD_SESEV) {
+		break;
+	case NCLD_CMD_SESEV:
 		rrc = read(nsess->to_thread[0], &what, sizeof(uint32_t));
 		if (rrc < sizeof(uint32_t)) {
 			fprintf(stderr, "bad read param\n");
@@ -1399,7 +1401,8 @@ static void ncld_thread_command(struct ncld_sess *nsess)
 		}
 		if (nsess->event)
 			nsess->event(nsess->event_arg, what);
-	} else {
+		break;
+	default:
 		fprintf(stderr, "bad command 0x%x\n", cmd);
 		abort();
 	}
