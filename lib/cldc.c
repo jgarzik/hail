@@ -1491,6 +1491,8 @@ static void ncld_p_event(void *priv, struct cldc_session *csp,
 	if (what == CE_SESS_FAILED) {
 		if (nsess->udp->sess != csp)
 			abort();
+		if (!nsess->is_up)
+			return;
 		nsess->is_up = false;
 		/* XXX wake up all I/O waiters here */
 		/*
@@ -1519,9 +1521,15 @@ static int ncld_new_sess(struct cldc_call_opts *copts, enum cle_err_codes errc)
 	/*
 	 * All callbacks from cldc layer run on the context of the thread
 	 * with nsess->mutex locked, so we don't lock it again here.
+	 *
+	 * We set is_up on the context that is invoked from cldc,
+	 * so the flag has a sane meaning in case we immediately
+	 * get a session failure event.
 	 */
 	nsess->errc = errc;
-	nsess->is_up = true;
+	nsess->open_done = true;
+	if (!errc)
+		nsess->is_up = true;
 	g_cond_broadcast(nsess->cond);
 	return 0;
 }
@@ -1529,7 +1537,7 @@ static int ncld_new_sess(struct cldc_call_opts *copts, enum cle_err_codes errc)
 static int ncld_wait_session(struct ncld_sess *nsess)
 {
 	g_mutex_lock(nsess->mutex);
-	while (!nsess->is_up)
+	while (!nsess->open_done)
 		g_cond_wait(nsess->cond, nsess->mutex);
 	g_mutex_unlock(nsess->mutex);
 	return nsess->errc;
@@ -1620,6 +1628,7 @@ struct ncld_sess *ncld_sess_open(const char *host, int port, int *error,
 		goto out_thread;
 	}
 
+	g_mutex_lock(nsess->mutex);
 	memset(&copts, 0, sizeof(copts));
 	copts.cb = ncld_new_sess;
 	copts.private = nsess;
@@ -1627,9 +1636,11 @@ struct ncld_sess *ncld_sess_open(const char *host, int port, int *error,
 			      nsess->udp->addr, nsess->udp->addr_len,
 			      cld_user, cld_key, nsess, log,
 			      &nsess->udp->sess)) {
+		g_mutex_unlock(nsess->mutex);
 		err = 1024;
 		goto out_session;
 	}
+	g_mutex_unlock(nsess->mutex);
 
 	rc = ncld_wait_session(nsess);
 	if (rc) {

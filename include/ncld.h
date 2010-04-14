@@ -36,6 +36,7 @@ struct ncld_sess {
 	GCond			*cond;
 	GThread			*thread;
 	bool			is_up;
+	bool			open_done;
 	int			errc;
 	GList			*handles;
 	int			to_thread[2];
