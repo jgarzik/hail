@@ -1595,8 +1595,8 @@ struct ncld_sess *ncld_sess_open(const char *host, int port, int *error,
 	if (!nsess)
 		goto out_sesalloc;
 	memset(nsess, 0, sizeof(struct ncld_sess));
-	cld_timer_init(&nsess->udp_timer, "nsess-udp-timer", ncld_udp_timer_event,
-		       nsess);
+	cld_timer_init(&nsess->udp_timer, "nsess-udp-timer",
+		       ncld_udp_timer_event, nsess);
 	nsess->mutex = g_mutex_new();
 	if (!nsess->mutex)
 		goto out_mutex;
