@@ -31,6 +31,15 @@
 #include <ncld.h>
 #include "test.h"
 
+static void sess_event(void *priv, unsigned int what)
+{
+	if (what == CE_SESS_FAILED) {
+		fprintf(stderr, "Session failed\n");
+		exit(1);
+	}
+	fprintf(stderr, "Unknown event %d\n", what);
+}
+
 int main (int argc, char *argv[])
 {
 	struct ncld_sess *nsess;
@@ -49,7 +58,7 @@ int main (int argc, char *argv[])
 	if (port == 0)
 		return -1;
 
-	nsess = ncld_sess_open(TEST_HOST, port, &error, NULL, NULL,
+	nsess = ncld_sess_open(TEST_HOST, port, &error, sess_event, NULL,
 			     TEST_USER, TEST_USER_KEY, NULL);
 	if (!nsess) {
 		fprintf(stderr, "ncld_sess_open(host %s port %u) failed: %d\n",
