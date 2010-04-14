@@ -3,3 +3,5 @@ basic-session
 basic-io
 lock-file
 
+.libs
+
