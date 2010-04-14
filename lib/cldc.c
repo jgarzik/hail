@@ -677,6 +677,8 @@ static void sess_expire(struct cldc_session *sess)
 static int sess_send_pkt(struct cldc_session *sess,
 			 const void *pkt, size_t pkt_len)
 {
+	HAIL_VERBOSE(&sess->log, "%s: sending %ld bytes",
+		     __func__, (long)pkt_len);
 	return sess->ops->pkt_send(sess->private,
 				   sess->addr, sess->addr_len,
 				   pkt, pkt_len);
