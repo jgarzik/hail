@@ -74,13 +74,15 @@ dnl AC_TYPE_PID_T
 dnl -----------------------------
 dnl Checks for required libraries
 dnl -----------------------------
-AC_CHECK_LIB(db-4.8, db_create, DB4_LIBS=-ldb-4.8,
+AC_CHECK_LIB(db-5.0, db_create, DB4_LIBS=-ldb-5.0,
+	AC_CHECK_LIB(db-4.9, db_create, DB4_LIBS=-ldb-4.9,
+	AC_CHECK_LIB(db-4.8, db_create, DB4_LIBS=-ldb-4.8,
 	AC_CHECK_LIB(db-4.7, db_create, DB4_LIBS=-ldb-4.7,
 	AC_CHECK_LIB(db-4.6, db_create, DB4_LIBS=-ldb-4.6,
 	AC_CHECK_LIB(db-4.5, db_create, DB4_LIBS=-ldb-4.5,
 	AC_CHECK_LIB(db-4.4, db_create, DB4_LIBS=-ldb-4.4,
 	AC_CHECK_LIB(db-4.3, db_create, DB4_LIBS=-ldb-4.3,
-  [AC_MSG_ERROR([Missing required libdb 4.x])]))))))
+  [AC_MSG_ERROR([Missing required libdb 4.x])]))))))))
 AC_CHECK_LIB(crypto, MD5_Init, CRYPTO_LIBS=-lcrypto)
 AC_SEARCH_LIBS(argp_parse, argp)
 AC_SEARCH_LIBS(recv, socket)
