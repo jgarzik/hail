@@ -1046,6 +1046,10 @@ int cldc_close(struct cldc_fh *fh, const struct cldc_call_opts *copts)
 		return -EINVAL;
 
 	sess = fh->sess;
+	if (sess->expired) {
+		fh->valid = false;
+		return -EPIPE;
+	}
 
 	/* create CLOSE message */
 	close_msg.fh = fh->fh;
