@@ -1372,7 +1372,7 @@ enum {
 
 /*
  * All the error printouts are likely to be lost for daemons, but it's
- * not a big deal. We abort instead of exist to indicate that something
+ * not a big deal. We abort instead in order to indicate that something
  * went wrong, so system features should report it (usualy as a core).
  * When debugging, strace or -F mode will capture the output.
  */
@@ -1503,13 +1503,29 @@ static void ncld_p_event(void *priv, struct cldc_session *csp,
 		if (!nsess->is_up)
 			return;
 		nsess->is_up = false;
-		/* XXX wake up all I/O waiters here */
+
+		/*
+		 * The cldc layer must deliver the callbacks for all pending
+		 * CLD operations of the failed session. If we force-wake their
+		 * waiters, all sorts of funny things happen with the lifetimes
+		 * of related structures.
+		 */
+		// 
+		// g_cond_broadcast(nsess->cond);
+
 		/*
 		 * This is a trick. As a direct callback from clcd layer,
 		 * we are running under nsess->mutex, so we cannot call back
 		 * into a user of ncld. If we do, it may invoke another
 		 * ncld operation and deadlock. So, bump session callbacks
 		 * into the part of the helper thread that runs unlocked.
+		 *
+		 * Notice that we are already running on the context of the
+		 * thread that will deliver the event, so pipe really is not
+		 * needed: could as well set a flag and test it right after
+		 * the call to cldc_udp_receive_pkt(). But pipe also provides
+		 * a queue of events, just in case. It's not like these events
+		 * are super-performance critical.
 		 */
 		cmd = NCLD_CMD_SESEV;
 		write(nsess->to_thread[1], &cmd, 1);
@@ -1820,7 +1836,12 @@ int ncld_del(struct ncld_sess *nsess, const char *fname)
 		g_mutex_unlock(nsess->mutex);
 		return -rc;
 	}
-	/* XXX A delete operation is not accounted for end-session */
+	/* 
+	 * A delete operation is not accounted for end-session (e.g. nios).
+	 * This means: do not call ncld_del and ncld_close together.
+	 * The ncld_close can be invoked by ncld_sess_close, so don't
+	 * do that either.
+	 */
 	g_mutex_unlock(nsess->mutex);
 
 	rc = ncld_wait_del(&dpb);
