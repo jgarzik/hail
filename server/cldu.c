@@ -471,6 +471,8 @@ int cld_begin(const char *thishost, uint32_t nid, char *infopath,
 {
 	static struct cld_session *cs = &ses;
 	struct server_poll *sp;
+	int retry_cnt;
+	int newactive;
 
 	if (!nid)
 		return 0;
@@ -540,9 +542,15 @@ int cld_begin(const char *thishost, uint32_t nid, char *infopath,
 	 * -- Actually, it only works when recovering from CLD failure.
 	 *    Thereafter, any slave CLD redirects us to the master.
 	 */
-	if (cldu_set_cldc(cs, 0)) {
+	newactive = 0;
+	retry_cnt = 0;
+	for (;;) {
+		if (!cldu_set_cldc(cs, newactive))
+			break;
 		/* Already logged error */
-		goto err_net;
+		if (++retry_cnt == 5)
+			goto err_net;
+		newactive = cldu_nextactive(cs);
 	}
 
 	return 0;
