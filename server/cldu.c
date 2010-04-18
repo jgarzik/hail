@@ -384,7 +384,7 @@ static int cldu_set_cldc(struct cld_session *cs, int newactive)
 			    &error, 0 /* CE_MASTER_FAILOVER | CE_SESS_FAILED */,
 			    NULL, NULL);
 	if (cs->ffh == NULL) {
-		applog(LOG_ERR, "CLD open(%s) failed: NULL fh", cs->ffname);
+		applog(LOG_ERR, "CLD open(%s) failed: %d", cs->ffname, error);
 		goto err_fopen;
 	}
 
