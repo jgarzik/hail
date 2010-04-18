@@ -47,6 +47,7 @@ struct cld_session {
 	struct cld_host cldv[N_CLD];
 
 	struct cld_timer timer;
+	int event_pipe[2];
 
 	char *ffname;
 	struct ncld_fh *ffh;	/* keep open for lock */
@@ -95,9 +96,8 @@ static void cldu_saveargs(struct cld_session *sp, char *infopath,
 	sp->ploc = loc;
 }
 
-static void cldu_timer_event(struct cld_timer *timer)
+static void cldu_sess_proc(struct cld_session *cs)
 {
-	struct cld_session *cs = timer->userdata;
 	int newactive;
 
 	if (cs->is_dead) {
@@ -106,29 +106,58 @@ static void cldu_timer_event(struct cld_timer *timer)
 		if (debugging)
 			applog(LOG_DEBUG, "Reopening Chunk in %s", cs->ffname);
 
-		ncld_sess_close(cs->nsess);
-		cs->nsess = NULL;
+		if (cs->nsess) {
+			ncld_sess_close(cs->nsess);
+			cs->nsess = NULL;
+		}
 		cs->ffh = NULL;			/* closed automatically */
-		cs->is_dead = false;
 		newactive = cldu_nextactive(cs);
 		if (cldu_set_cldc(cs, newactive)) {
 			/* Oops, should not happen. Just loop, then... */
 			timer_add(&cs->timer, time(NULL) + 30);
 			return;
 		}
+		cs->is_dead = false;
+	} else {
+		/*
+		 * We want to see if this ever happens.
+		 * Probably harmless, but... let's print it.
+		 */
+		applog(LOG_WARNING, "Event on non-dead session");
 	}
+}
+
+static void cldu_timer_event(struct cld_timer *timer)
+{
+	struct cld_session *cs = timer->userdata;
+
+	cldu_sess_proc(cs);
+}
+
+static bool cldu_pipe_event(int fd, short events, void *userdata)
+{
+	struct cld_session *cs = userdata;
+	unsigned char cmd;
+	ssize_t rc;
+
+	rc = read(fd, &cmd, 1);
+	if (rc > 0)
+		cldu_sess_proc(cs);
+	else
+		applog(LOG_WARNING, "Stray CLD event pipe poll");
+	return true;
 }
 
 static void cldu_sess_event(void *priv, uint32_t what)
 {
 	struct cld_session *cs = priv;
+	unsigned char cmd;
 
 	if (what == CE_SESS_FAILED) {
 		/*
 		 * In ncld, we are not allowed to free the session structures
 		 * from an event (it's wages of all-conquering 100% reliable
-		 * ncld_close_sess), so we bounce that off to a thread. Which
-		 * we do not have, so we steal a timer for an erzatz thread.
+		 * ncld_close_sess), so we bounce that off to the main thread.
 		 */
 		if (cs->nsess) {
 			applog(LOG_ERR, "Session failed, sid " SIDFMT,
@@ -137,7 +166,10 @@ static void cldu_sess_event(void *priv, uint32_t what)
 			applog(LOG_ERR, "Session open failed");
 		}
 		cs->is_dead = true;
-		timer_add(&cs->timer, time(NULL) + 1);
+		cmd = 1;
+		if (write(cs->event_pipe[1], &cmd, 1) < 1) {
+			applog(LOG_ERR, "Pipe write failed: %d", errno);
+		}
 	} else {
 		if (cs)
 			applog(LOG_INFO, "cldc event 0x%x sid " SIDFMT,
@@ -438,6 +470,7 @@ int cld_begin(const char *thishost, uint32_t nid, char *infopath,
 	      struct geo *locp, void (*cb)(enum st_cld))
 {
 	static struct cld_session *cs = &ses;
+	struct server_poll *sp;
 
 	if (!nid)
 		return 0;
@@ -483,6 +516,24 @@ int cld_begin(const char *thishost, uint32_t nid, char *infopath,
 		g_list_free(host_list);
 	}
 
+	if (pipe(cs->event_pipe) < 0) {
+		applog(LOG_ERR, "Cannot open pipe: %s", strerror(errno));
+		goto err_pipe;
+	}
+
+	sp = calloc(1, sizeof(*sp));
+	if (!sp) {
+		applog(LOG_ERR, "No core");
+		goto err_sp;
+	}
+
+	sp->fd = cs->event_pipe[0];
+	sp->events = POLLIN;
+	sp->cb = cldu_pipe_event;
+	sp->userdata = cs;
+
+	g_hash_table_insert(chunkd_srv.fd_info, GINT_TO_POINTER(sp->fd), sp);
+
 	/*
 	 * FIXME: We should find next suitable host according to
 	 * the priority and weight (among those which are up).
@@ -497,6 +548,11 @@ int cld_begin(const char *thishost, uint32_t nid, char *infopath,
 	return 0;
 
 err_net:
+	g_hash_table_remove(chunkd_srv.fd_info, GINT_TO_POINTER(sp->fd));
+err_sp:
+	close(cs->event_pipe[0]);
+	close(cs->event_pipe[1]);
+err_pipe:
 err_addr:
 	return -1;
 }
@@ -546,6 +602,11 @@ void cld_end(void)
 			}
 		}
 	}
+
+	g_hash_table_remove(chunkd_srv.fd_info,
+			    GINT_TO_POINTER(cs->event_pipe[0]));
+	close(cs->event_pipe[0]);
+	close(cs->event_pipe[1]);
 
 	free(cs->ffname);
 	cs->ffname = NULL;
