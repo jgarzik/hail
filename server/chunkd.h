@@ -28,6 +28,7 @@
 #include <chunk_msg.h>
 #include <hail_log.h>
 #include <tchdb.h>
+#include <cldc.h>	/* for cld_timer */
 #include <objcache.h>
 
 #ifndef ARRAY_SIZE
@@ -56,15 +57,6 @@ struct client_write;
 
 typedef bool (*cli_evt_func)(struct client *, unsigned int);
 typedef bool (*cli_write_func)(struct client *, struct client_write *, bool);
-
-struct timer {
-	bool			fired;
-	bool			on_list;
-	void			(*cb)(struct timer *);
-	void			*userdata;
-	time_t			expires;
-	char			name[32];
-};
 
 struct client_write {
 	const void		*buf;		/* write buffer */
@@ -303,22 +295,13 @@ extern void syslogerr(const char *prefix);
 extern void strup(char *s);
 extern int write_pid_file(const char *pid_fn);
 extern int fsetflags(const char *prefix, int fd, int or_flags);
-extern void timer_add(struct timer *timer, time_t expires);
-extern void timer_del(struct timer *timer);
+extern void timer_init(struct cld_timer *timer, const char *name,
+		       void (*cb)(struct cld_timer *), void *userdata);
+extern void timer_add(struct cld_timer *timer, time_t expires);
+extern void timer_del(struct cld_timer *timer);
 extern time_t timers_run(void);
 extern char *time2str(char *strbuf, time_t time);
 extern void hexstr(const unsigned char *buf, size_t buf_len, char *outstr);
-
-static inline void timer_init(struct timer *timer, const char *name,
-			      void (*cb)(struct timer *),
-			      void *userdata)
-{
-	memset(timer, 0, sizeof(*timer));
-	timer->cb = cb;
-	timer->userdata = userdata;
-	strncpy(timer->name, name, sizeof(timer->name));
-	timer->name[sizeof(timer->name) - 1] = 0;
-}
 
 /* server.c */
 extern SSL_CTX *ssl_ctx;

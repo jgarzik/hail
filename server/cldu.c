@@ -46,7 +46,7 @@ struct cld_session {
 	int actx;		/* Active host cldv[actx] */
 	struct cld_host cldv[N_CLD];
 
-	struct timer timer;
+	struct cld_timer timer;
 
 	char *ffname;
 	struct ncld_fh *ffh;	/* keep open for lock */
@@ -95,7 +95,7 @@ static void cldu_saveargs(struct cld_session *sp, char *infopath,
 	sp->ploc = loc;
 }
 
-static void cldu_timer_event(struct timer *timer)
+static void cldu_timer_event(struct cld_timer *timer)
 {
 	struct cld_session *cs = timer->userdata;
 	int newactive;
