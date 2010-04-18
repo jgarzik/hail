@@ -2239,14 +2239,12 @@ void ncld_close(struct ncld_fh *fh)
 	free(fh);
 }
 
-static void ncld_func_close(gpointer data, gpointer priv)
-{
-	ncld_close(data);
-}
-
 void ncld_sess_close(struct ncld_sess *nsess)
 {
-	g_list_foreach(nsess->handles, ncld_func_close, NULL);
+	gpointer p;
+
+	while ((p = g_list_nth_data(nsess->handles, 0)))
+		ncld_close(p);
 	g_list_free(nsess->handles);
 
 	cldc_kill_sess(nsess->udp->sess);
