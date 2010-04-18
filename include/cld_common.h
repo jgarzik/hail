@@ -24,16 +24,13 @@
 #include <stdbool.h>
 #include <string.h>
 #include <time.h>
+#include <glib.h>
 #include <openssl/sha.h>
 #include <cld_msg_rpc.h>
 
 #define CLD_ALIGN8(n) ((8 - ((n) & 7)) & 7)
 
 struct hail_log;
-
-struct cld_timer_list {
-	void *list;
-};
 
 struct cld_timer {
 	bool			fired;
@@ -42,6 +39,11 @@ struct cld_timer {
 	void			*userdata;
 	time_t			expires;
 	char			name[32];
+};
+
+struct cld_timer_list {
+	GList *list;		/* of struct cld_timer */
+	time_t			runmark;
 };
 
 extern void cld_timer_add(struct cld_timer_list *tlist, struct cld_timer *timer,

@@ -44,6 +44,17 @@ void cld_timer_add(struct cld_timer_list *tlist, struct cld_timer *timer,
 	if (timer->on_list)
 		timer_list = g_list_remove(timer_list, timer);
 
+	/*
+	 * This additional resiliency is required by the invocations from
+	 * session_retry(). For some reason the computations in it result
+	 * in attempts to add timers in the past sometimes, and then we loop
+	 * when trying to run those. FIXME: maybe fix that one day.
+	 *
+	 * Even if we fix the callers, we probably should keep this.
+	 */
+	if (expires < tlist->runmark + 1)
+		expires = tlist->runmark + 1;
+
 	timer->on_list = true;
 	timer->fired = false;
 	timer->expires = expires;
@@ -66,38 +77,26 @@ time_t cld_timers_run(struct cld_timer_list *tlist)
 	struct cld_timer *timer;
 	time_t now = time(NULL);
 	time_t next_timeout = 0;
-	GList *tmp, *cur;
-	GList *timer_list = tlist->list;
-	GList *exec_list = NULL;
+	GList *cur;
 
-	tmp = timer_list;
-	while (tmp) {
-		timer = tmp->data;
-		cur = tmp;
-		tmp = tmp->next;
-
+	tlist->runmark = now;
+	for (;;) {
+		cur = tlist->list;
+		if (!cur)
+			break;
+		timer = cur->data;
 		if (timer->expires > now)
 			break;
 
-		timer_list = g_list_remove_link(timer_list, cur);
-		exec_list = g_list_concat(exec_list, cur);
-
+		tlist->list = g_list_delete_link(tlist->list, cur);
 		timer->on_list = false;
-	}
-	tlist->list = timer_list;
-
-	tmp = exec_list;
-	while (tmp) {
-		timer = tmp->data;
-		tmp = tmp->next;
 
 		timer->fired = true;
 		timer->cb(timer);
 	}
 
 	if (tlist->list) {
-		timer_list = tlist->list;
-		timer = timer_list->data;
+		timer = tlist->list->data;
 		if (timer->expires > now)
 			next_timeout = (timer->expires - now);
 		else
