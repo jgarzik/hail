@@ -10,4 +10,4 @@ chunkd_SOURCES	= chunkd.h		\
 		  objcache.c
 chunkd_LDADD	= \
 		  @CLDC_LIBS@ @GLIB_LIBS@ @CRYPTO_LIBS@ \
-		  @SSL_LIBS@ @EVENT_LIBS@ @TOKYOCABINET_LIBS@
+		  @SSL_LIBS@ @TOKYOCABINET_LIBS@

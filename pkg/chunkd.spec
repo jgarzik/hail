@@ -15,7 +15,7 @@ Source3:	chunkd.sysconf
 BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 # N.B. We need cld to build, because our "make check" spawns a private copy.
-BuildRequires:	libevent-devel glib2-devel openssl-devel zlib-devel
+BuildRequires:	glib2-devel openssl-devel zlib-devel
 BuildRequires:	libxml2-devel procps tokyocabinet-devel
 BuildRequires:	cld >= 0.2.1
 BuildRequires:	cld-devel >= 0.2.1
