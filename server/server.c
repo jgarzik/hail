@@ -1681,8 +1681,7 @@ static int main_loop(void)
 
 			fired++;
 
-			sp = g_hash_table_lookup(chunkd_srv.fd_info,
-						GINT_TO_POINTER(pfd->fd));
+			sp = srv_poll_lookup(pfd->fd);
 			if (G_UNLIKELY(!sp)) {
 				/* BUG! */
 				continue;
