@@ -712,7 +712,7 @@ int main (int argc, char *argv[])
 	dr = host_list->data;
 
 	nsess = ncld_sess_open(dr->host, dr->port, &error, sess_event, NULL,
-			     "cldcli", "cldcli", &cli_log);
+			     our_user, our_user, &cli_log);
 	if (!nsess) {
 		if (error < 1000) {
 			fprintf(stderr, TAG ": cannot open CLD session: %s\n",
