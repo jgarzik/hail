@@ -143,6 +143,7 @@ struct listen_cfg {
 	char			*node;
 	char			*port;
 	char			*port_file;
+	struct list_head	listeners_node;
 };
 
 struct geo {
@@ -180,6 +181,7 @@ struct server_poll {
 struct server_socket {
 	int			fd;
 	const struct listen_cfg	*cfg;
+	struct list_head	sockets_node;
 };
 
 enum chk_cmd {
@@ -202,8 +204,8 @@ struct server {
 	char			*pid_file;	/* PID file */
 	int			pid_fd;
 
-	GList			*listeners;
-	GList			*sockets;	/* points into listeners */
+	struct list_head	listeners;
+	struct list_head	sockets;	/* points into listeners */
 
 	GHashTable		*fd_info;
 

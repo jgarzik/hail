@@ -165,7 +165,11 @@ static void cfg_elm_end_listen(struct config_context *cc)
 	}
 
 	memcpy(cfg, &cc->tmp_listen, sizeof(*cfg));
-	chunkd_srv.listeners = g_list_append(chunkd_srv.listeners, cfg);
+
+	INIT_LIST_HEAD(&cfg->listeners_node);
+
+	list_add_tail(&cfg->listeners_node, &chunkd_srv.listeners);
+
 	memset(&cc->tmp_listen, 0, sizeof(struct listen_cfg));
 	return;
 
@@ -505,7 +509,7 @@ void read_config(void)
 		exit(1);
 	}
 
-	if (!chunkd_srv.listeners) {
+	if (list_empty(&chunkd_srv.listeners)) {
 		applog(LOG_ERR, "error: no listen addresses specified");
 		exit(1);
 	}

@@ -1450,6 +1450,8 @@ static int net_open_socket(const struct listen_cfg *cfg,
 		goto err_out_fd;
 	}
 
+	INIT_LIST_HEAD(&sock->sockets_node);
+
 	sp = calloc(1, sizeof(*sp));
 	if (!sp) {
 		free(sock);
@@ -1467,7 +1469,8 @@ static int net_open_socket(const struct listen_cfg *cfg,
 	sock->fd = fd;
 	sock->cfg = cfg;
 
-	chunkd_srv.sockets = g_list_append(chunkd_srv.sockets, sock);
+	list_add_tail(&sock->sockets_node, &chunkd_srv.sockets);
+
 	return fd;
 
 err_out_fd:
@@ -1721,8 +1724,12 @@ int main (int argc, char *argv[])
 {
 	error_t aprc;
 	int rc = 1;
-	GList *tmpl;
+	struct list_head *tmpl;
 	unsigned char cmd;
+
+	INIT_LIST_HEAD(&chunkd_srv.listeners);
+	INIT_LIST_HEAD(&chunkd_srv.sockets);
+	INIT_LIST_HEAD(&chunkd_srv.wr_trash);
 
 	/* isspace() and strcasecmp() consistency requires this */
 	setlocale(LC_ALL, "C");
@@ -1815,7 +1822,6 @@ int main (int argc, char *argv[])
 		goto err_out_objcache;
 	}
 
-	INIT_LIST_HEAD(&chunkd_srv.wr_trash);
 	chunkd_srv.trash_sz = 0;
 
 	if (pipe(chunkd_srv.chk_pipe) < 0) {
@@ -1829,8 +1835,11 @@ int main (int argc, char *argv[])
 	}
 
 	/* set up server networking */
-	for (tmpl = chunkd_srv.listeners; tmpl; tmpl = tmpl->next) {
-		rc = net_open(tmpl->data);
+	list_for_each(tmpl, &chunkd_srv.listeners) {
+		struct listen_cfg *tmpcfg;
+
+		tmpcfg = list_entry(tmpl, struct listen_cfg, listeners_node);
+		rc = net_open(tmpcfg);
 		if (rc)
 			goto err_out_listen;
 	}

@@ -237,6 +237,7 @@ static int cldu_make_ffile(char **ret, struct cld_session *cs)
 	char *buf;
 	char *str;
 	size_t len;
+	struct list_head *tmpsock;
 	GList *tmp;
 	int rc;
 
@@ -253,11 +254,13 @@ static int cldu_make_ffile(char **ret, struct cld_session *cs)
 	/*
 	 * XXX FIXME sockets has to be a parameter, not global
 	 */
-	for (tmp = chunkd_srv.sockets; tmp; tmp = tmp->next) {
-		struct server_socket *sock = tmp->data;
-		const struct listen_cfg *cfg = sock->cfg;
+	list_for_each(tmpsock, &chunkd_srv.sockets) {
+		struct server_socket *sock;
+		const struct listen_cfg *cfg;
 		const char *host;
 
+		sock = list_entry(tmpsock, struct server_socket, sockets_node);
+		cfg = sock->cfg;
 		host = cfg->node;
 		if (host == NULL || host[0] == 0)
 			host = cs->ourhost;
