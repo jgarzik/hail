@@ -110,7 +110,7 @@ struct cldc_session {
 	uint8_t		addr[64];		/* server address */
 	size_t		addr_len;
 
-	GArray		*fh;			/* file handle table */
+	GList		*cfh;			/* cldc_fh table */
 
 	GList		*out_msg;
 	time_t		msg_scan_time;

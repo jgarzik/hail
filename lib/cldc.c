@@ -280,7 +280,7 @@ static int rxmsg_event(struct cldc_session *sess,
 	XDR xdrs;
 	struct cld_msg_event ev;
 	struct cldc_fh *fh = NULL;
-	int i;
+	GList *tmp;
 
 	xdrmem_create(&xdrs, sess->msg_buf, sess->msg_buf_len, XDR_DECODE);
 	if (!xdr_cld_msg_event(&xdrs, &ev)) {
@@ -291,8 +291,8 @@ static int rxmsg_event(struct cldc_session *sess,
 	}
 	xdr_destroy(&xdrs);
 
-	for (i = 0; i < sess->fh->len; i++) {
-		fh = &g_array_index(sess->fh, struct cldc_fh, i);
+	for (tmp = sess->cfh; tmp; tmp = tmp->next) {
+		fh = tmp->data;
 		if (fh->fh == ev.fh)
 			break;
 		else
@@ -765,8 +765,11 @@ static void sess_free(struct cldc_session *sess)
 	if (!sess)
 		return;
 
-	if (sess->fh)
-		g_array_free(sess->fh, TRUE);
+	if (sess->cfh) {
+		for (tmp = sess->cfh; tmp; tmp = tmp->next)
+			free(tmp->data);
+		g_list_free(sess->cfh);
+	}
 
 	tmp = sess->out_msg;
 	while (tmp) {
@@ -775,7 +778,7 @@ static void sess_free(struct cldc_session *sess)
 	}
 	g_list_free(sess->out_msg);
 
-	memset(sess, 0, sizeof(*sess));
+	memset(sess, 0x55, sizeof(*sess));
 	free(sess);
 }
 
@@ -846,7 +849,6 @@ static int cldc_new_sess_log(const struct cldc_ops *ops,
 	sess->private = private;
 	sess->ops = ops;
 	sess->log = *log;		/* save off caller's stack */
-	sess->fh = g_array_sized_new(FALSE, TRUE, sizeof(struct cldc_fh), 16);
 	strcpy(sess->user, user);
 	strcpy(sess->secret_key, secret_key);
 
@@ -994,9 +996,8 @@ int cldc_open(struct cldc_session *sess,
 {
 	struct cldc_msg *msg;
 	struct cld_msg_open open;
-	struct cldc_fh fh, *fhtmp;
+	struct cldc_fh *fh;
 	size_t plen;
-	int fh_idx;
 
 	*fh_out = NULL;
 
@@ -1020,20 +1021,36 @@ int cldc_open(struct cldc_session *sess,
 	if (!msg)
 		return -ENOMEM;
 
-	/* add fh to fh table; get pointer to new fh */
-	memset(&fh, 0, sizeof(fh));
-	fh.sess = sess;
-	fh_idx = sess->fh->len;
-	g_array_append_val(sess->fh, fh);
-
-	fhtmp = &g_array_index(sess->fh, struct cldc_fh, fh_idx);
+	fh = calloc(1, sizeof(*fh));
+	if (!fh) {
+		cldc_msg_free(msg);
+		return -ENOMEM;
+	}
+	fh->sess = sess;
+	sess->cfh = g_list_append(sess->cfh, fh);	// kept open - to front
 
 	msg->cb = open_end_cb;
-	msg->cb_private = fhtmp;
+	msg->cb_private = fh;
 
-	*fh_out = fhtmp;
+	*fh_out = fh;
 
 	return sess_send(sess, msg);
+}
+
+static ssize_t close_end_cb(struct cldc_msg *msg, const void *resp_p,
+			      size_t resp_len, enum cle_err_codes resp_rc)
+{
+	struct cldc_fh *fh = msg->cb_private;
+	struct cldc_session *sess = fh->sess;
+
+	if (msg->copts.cb)
+		return msg->copts.cb(&msg->copts, resp_rc);
+
+	sess->cfh = g_list_remove(sess->cfh, fh);
+	memset(fh, 0x77, sizeof(*fh));
+	free(fh);
+
+	return 0;
 }
 
 int cldc_close(struct cldc_fh *fh, const struct cldc_call_opts *copts)
@@ -1061,7 +1078,8 @@ int cldc_close(struct cldc_fh *fh, const struct cldc_call_opts *copts)
 	/* mark FH as invalid from this point forward */
 	fh->valid = false;
 
-	msg->cb = generic_end_cb;
+	msg->cb = close_end_cb;
+	msg->cb_private = fh;
 
 	return sess_send(sess, msg);
 }
