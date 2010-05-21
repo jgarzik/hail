@@ -84,6 +84,7 @@ struct client {
 
 	struct sockaddr_in6	addr;		/* inet address */
 	char			addr_host[64];	/* ASCII version of inet addr */
+	char			addr_port[16];	/* ASCII version of port */
 	int			fd;		/* socket */
 
 	char			user[CHD_USER_SZ + 1];

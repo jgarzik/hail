@@ -343,7 +343,8 @@ static void cli_write_free_all(struct client *cli)
 
 static void cli_free(struct client *cli)
 {
-	applog(LOG_INFO, "client %s disconnected", cli->addr_host);
+	applog(LOG_INFO, "client host %s port %s disconnected",
+	       cli->addr_host, cli->addr_port);
 
 	cli_write_free_all(cli);
 
@@ -1341,6 +1342,7 @@ static bool tcp_srv_event(int fd, short events, void *userdata)
 	socklen_t addrlen = sizeof(struct sockaddr_in6);
 	struct client *cli;
 	char host[64];
+	char port[16];
 	int on = 1;
 	struct server_poll *sp;
 
@@ -1381,13 +1383,16 @@ static bool tcp_srv_event(int fd, short events, void *userdata)
 
 	/* pretty-print incoming cxn info */
 	memset(host, 0, sizeof(host));
+	memset(port, 0, sizeof(port));
 	getnameinfo((struct sockaddr *) &cli->addr, addrlen,
-		    host, sizeof(host), NULL, 0, NI_NUMERICHOST);
+		    host, sizeof(host), port, sizeof(port), NI_NUMERICHOST);
 	host[sizeof(host) - 1] = 0;
-	applog(LOG_INFO, "client %s connected%s", host,
+	host[sizeof(port) - 1] = 0;
+	applog(LOG_INFO, "client host %s port %s connected%s", host, port,
 		cli->ssl ? " via SSL" : "");
 
 	strcpy(cli->addr_host, host);
+	strcpy(cli->addr_port, port);
 
 	if (!srv_poll_ready(fd))
 		applog(LOG_ERR, "unable to ready srv fd for polling");
