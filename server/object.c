@@ -342,6 +342,12 @@ bool object_get(struct client *cli, bool want_body)
 		goto start_write;
 	}
 
+	if (!cli->in_len) {
+		applog(LOG_INFO, "zero-sized object");
+		cli_in_end(cli);
+		goto start_write;
+	}
+
 	if (!object_read_bytes(cli)) {
 		cli_in_end(cli);
 		return cli_err(cli, err, false);

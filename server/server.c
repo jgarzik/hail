@@ -529,14 +529,13 @@ do_write:
 
 	cli_wr_completed(cli, rc, &more_work);
 
-	if (more_work)
-		goto restart;
-
 	/* if we emptied the queue, clear write notification */
 	if (list_empty(&cli->write_q)) {
 		cli->writing = false;
-		if (!cli_wr_set_poll(cli, false))
-			goto err_out;
+		cli_wr_set_poll(cli, false);
+	} else {
+		if (more_work)
+			goto restart;
 	}
 
 	return;
