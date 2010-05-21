@@ -414,14 +414,12 @@ static bool cli_evt_recycle(struct client *cli, unsigned int events)
 	return true;
 }
 
-bool cli_wr_set_poll(struct client *cli, bool writable)
+void cli_wr_set_poll(struct client *cli, bool writable)
 {
 	if (writable)
 		srv_poll_mask(cli->fd, POLLOUT, 0);
 	else
 		srv_poll_mask(cli->fd, 0, POLLOUT);
-
-	return true;
 }
 
 static int cli_wr_iov(struct client *cli, struct iovec *iov, int max_iov)
@@ -565,9 +563,7 @@ bool cli_write_start(struct client *cli)
 		return true;		/* loop, not poll */
 	}
 
-	if (!cli_wr_set_poll(cli, true))
-		return true;		/* loop, not poll */
-
+	cli_wr_set_poll(cli, true);
 	cli->writing = true;
 
 	return false;			/* poll wait */
@@ -643,8 +639,7 @@ do_read:
 				return 0;
 			if (rc == SSL_ERROR_WANT_WRITE) {
 				cli->read_want_write = true;
-				if (!cli_wr_set_poll(cli, true))
-					return -EIO;
+				cli_wr_set_poll(cli, true);
 				return 0;
 			}
 			return -EIO;
@@ -1271,14 +1266,12 @@ static bool cli_evt_ssl_accept(struct client *cli, unsigned int events)
 
 	if (rc == SSL_ERROR_WANT_WRITE) {
 		cli->read_want_write = true;
-		if (!cli_wr_set_poll(cli, true))
-			goto out;
+		cli_wr_set_poll(cli, true);
 		return false;
 	}
 
 	applog(LOG_ERR, "SSL_accept returned %d", rc);
 
-out:
 	cli->state = evt_dispose;
 	return true;
 }
@@ -1299,8 +1292,7 @@ static void tcp_cli_wr_event(int fd, short events, void *userdata)
 
 	if (cli->read_want_write) {
 		cli->read_want_write = false;
-		if (!cli_wr_set_poll(cli, false))
-			cli->state = evt_dispose;
+		cli_wr_set_poll(cli, false);
 	} else
 		cli_writable(cli);
 }

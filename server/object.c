@@ -160,8 +160,7 @@ bool cli_evt_data_in(struct client *cli, unsigned int events)
 				return false;
 			if (rc == SSL_ERROR_WANT_WRITE) {
 				cli->read_want_write = true;
-				if (!cli_wr_set_poll(cli, true))
-					return cli_err(cli, che_InternalError, false);
+				cli_wr_set_poll(cli, true);
 				return false;
 			}
 			return cli_err(cli, che_InternalError, false);
