@@ -170,7 +170,6 @@ struct server_stats {
 };
 
 struct server_poll {
-	int			fd;		/* fd to poll for events */
 	short			events;		/* POLL* from poll.h */
 	bool			busy;		/* if true, do not poll us */
 

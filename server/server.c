@@ -1374,7 +1374,6 @@ static bool tcp_srv_event(int fd, short events, void *userdata)
 	if (!sp)
 		goto err_out_fd;
 
-	sp->fd = cli->fd;
 	sp->events = POLLIN;
 	sp->cb = tcp_cli_event;
 	sp->userdata = cli;
@@ -1476,7 +1475,6 @@ static int net_open_socket(const struct listen_cfg *cfg,
 		goto err_out_fd;
 	}
 
-	sp->fd = fd;
 	sp->events = POLLIN;
 	sp->cb = tcp_srv_event;
 	sp->userdata = sock;
@@ -1710,7 +1708,7 @@ static int main_loop(void)
 			sp->busy = true;
 
 			/* call callback, shutting down server if requested */
-			runrunrun = sp->cb(sp->fd, pfd->revents, sp->userdata);
+			runrunrun = sp->cb(pfd->fd, pfd->revents, sp->userdata);
 			if (!runrunrun) {
 				server_running = false;
 				break;

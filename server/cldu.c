@@ -474,6 +474,7 @@ int cld_begin(const char *thishost, uint32_t nid, char *infopath,
 {
 	static struct cld_session *cs = &ses;
 	struct server_poll *sp;
+	int rfd;
 	int retry_cnt;
 	int newactive;
 
@@ -525,6 +526,7 @@ int cld_begin(const char *thishost, uint32_t nid, char *infopath,
 		applog(LOG_ERR, "Cannot open pipe: %s", strerror(errno));
 		goto err_pipe;
 	}
+	rfd = cs->event_pipe[0];
 
 	sp = calloc(1, sizeof(*sp));
 	if (!sp) {
@@ -532,12 +534,11 @@ int cld_begin(const char *thishost, uint32_t nid, char *infopath,
 		goto err_sp;
 	}
 
-	sp->fd = cs->event_pipe[0];
 	sp->events = POLLIN;
 	sp->cb = cldu_pipe_event;
 	sp->userdata = cs;
 
-	g_hash_table_insert(chunkd_srv.fd_info, GINT_TO_POINTER(sp->fd), sp);
+	g_hash_table_insert(chunkd_srv.fd_info, GINT_TO_POINTER(rfd), sp);
 
 	/*
 	 * FIXME: We should find next suitable host according to
@@ -559,7 +560,7 @@ int cld_begin(const char *thishost, uint32_t nid, char *infopath,
 	return 0;
 
 err_net:
-	g_hash_table_remove(chunkd_srv.fd_info, GINT_TO_POINTER(sp->fd));
+	g_hash_table_remove(chunkd_srv.fd_info, GINT_TO_POINTER(rfd));
 err_sp:
 	close(cs->event_pipe[0]);
 	close(cs->event_pipe[1]);
