@@ -478,7 +478,7 @@ struct backend_obj *fs_obj_open(uint32_t table_id, const char *user,
 			applog(LOG_ERR, "invalid object header key for %s",
 				obj->in_fn);
 		*err_code = che_InternalError;
-		goto err_out_fd;
+		goto err_out_read;
 	}
 
 	strncpy(obj->bo.hashstr, hdr.checksum, sizeof(obj->bo.hashstr));
@@ -488,6 +488,8 @@ struct backend_obj *fs_obj_open(uint32_t table_id, const char *user,
 
 	return &obj->bo;
 
+err_out_read:
+	free(obj->bo.key);
 err_out_fd:
 	close(obj->in_fd);
 err_out_fn:
