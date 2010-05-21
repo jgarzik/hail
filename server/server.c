@@ -399,6 +399,13 @@ static bool cli_evt_dispose(struct client *cli, unsigned int events)
 
 static bool cli_evt_recycle(struct client *cli, unsigned int events)
 {
+
+	/* if write queue is not empty, we should continue to get
+	 * poll callbacks here until it is
+	 */
+	if (!list_empty(&cli->write_q))
+		return false;
+
 	cli->req_ptr = &cli->creq;
 	cli->req_used = 0;
 	cli->state = evt_read_fixed;
@@ -1302,6 +1309,12 @@ static bool tcp_cli_event(int fd, short events, void *userdata)
 {
 	struct client *cli = userdata;
 	bool loop = false, disposing = false;
+
+	if (events & POLLHUP) {
+		cli->state = evt_dispose;
+		cli_free(cli);
+		return true;
+	}
 
 	if (events & POLLOUT)
 		tcp_cli_wr_event(fd, events & ~POLLIN, userdata);
