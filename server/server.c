@@ -1373,12 +1373,10 @@ static bool tcp_srv_event(int fd, short events, void *userdata)
 	g_hash_table_insert(chunkd_srv.fd_info, GINT_TO_POINTER(cli->fd), sp);
 
 	/* pretty-print incoming cxn info */
-	memset(host, 0, sizeof(host));
-	memset(port, 0, sizeof(port));
 	getnameinfo((struct sockaddr *) &cli->addr, addrlen,
 		    host, sizeof(host), port, sizeof(port), NI_NUMERICHOST);
 	host[sizeof(host) - 1] = 0;
-	host[sizeof(port) - 1] = 0;
+	port[sizeof(port) - 1] = 0;
 	applog(LOG_INFO, "client host %s port %s connected%s", host, port,
 		cli->ssl ? " via SSL" : "");
 
