@@ -7,9 +7,9 @@ then
 fi
 
 ## Static port
-# ../server/cld -P cld.pid -d "$PWD/data" -p 18181 --port-file=cld.port -E
+# ../cld/cld -P cld.pid -d "$PWD/data" -p 18181 --port-file=cld.port -E
 ## Dynamic port
-../server/cld -P cld.pid -d "$PWD/data" -p auto --port-file=cld.port -E
+../cld/cld -P cld.pid -d "$PWD/data" -p auto --port-file=cld.port -E
 
 sleep 3
 
