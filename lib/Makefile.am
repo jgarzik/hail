@@ -2,7 +2,7 @@
 BUILT_SOURCES		= cld_msg_rpc.h
 
 EXTRA_DIST = \
-	libcldc.pc.in libcldc-uninstalled.pc.in cld_msg_rpc.x
+	libhail.pc.in libhail-uninstalled.pc.in cld_msg_rpc.x
 
 INCLUDES		= -I$(top_srcdir)/include	\
 			  @GLIB_CFLAGS@
@@ -18,9 +18,9 @@ cld_msg_rpc_xdr.c: $(srcdir)/cld_msg_rpc.x
 
 LINK = $(LIBTOOL) --mode=link $(CC) $(CFLAGS) $(LDFLAGS) -o $@
 
-lib_LTLIBRARIES		= libcldc.la
+lib_LTLIBRARIES		= libhail.la
 
-libcldc_la_SOURCES	=	\
+libhail_la_SOURCES	=	\
 	cldc.c			\
 	cldc-udp.c		\
 	cldc-dns.c		\
@@ -29,12 +29,12 @@ libcldc_la_SOURCES	=	\
 	pkt.c			\
 	cld_msg_rpc_xdr.c
 
-libcldc_la_LDFLAGS = \
-	-version-info $(LIBCLDC_CURRENT):$(LIBCLDC_REVISION):$(LIBCLDC_AGE) \
+libhail_la_LDFLAGS = \
+	-version-info $(LIBHAIL_CURRENT):$(LIBHAIL_REVISION):$(LIBHAIL_AGE) \
 	-no-undefined \
 	-export-symbols-regex "^[^_].*"
 
 pkgconfigdir = $(libdir)/pkgconfig
-pkgconfig_DATA = libcldc.pc
+pkgconfig_DATA = libhail.pc
 
 include_HEADERS = cld_msg_rpc.h

@@ -17,20 +17,20 @@ dnl You should have received a copy of the GNU General Public License
 dnl along with this program; if not, write to the Free Software
 dnl Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
-m4_define([libcldc_major_version], [1])
-m4_define([libcldc_minor_version], [1])
-m4_define([libcldc_micro_version], [1])
-m4_define([libcldc_interface_age], [1])
+m4_define([libhail_major_version], [1])
+m4_define([libhail_minor_version], [1])
+m4_define([libhail_micro_version], [1])
+m4_define([libhail_interface_age], [1])
 # If you need a modifier for the version number. 
 # Normally empty, but can be used to make "fixup" releases.
-m4_define([libcldc_extraversion], [])
+m4_define([libhail_extraversion], [])
 
-dnl libtool versioning from libcldc
-m4_define([libcldc_current], [m4_eval(100 * libcldc_minor_version + libcldc_micro_version - libcldc_interface_age)])
-m4_define([libcldc_binary_age], [m4_eval(100 * libcldc_minor_version + libcldc_micro_version)])
-m4_define([libcldc_revision], [libcldc_interface_age])
-m4_define([libcldc_age], [m4_eval(libcldc_binary_age - libcldc_interface_age)])
-m4_define([libcldc_version], [libcldc_major_version().libcldc_minor_version().libcldc_micro_version()libcldc_extraversion()])
+dnl libtool versioning from libhail
+m4_define([libhail_current], [m4_eval(100 * libhail_minor_version + libhail_micro_version - libhail_interface_age)])
+m4_define([libhail_binary_age], [m4_eval(100 * libhail_minor_version + libhail_micro_version)])
+m4_define([libhail_revision], [libhail_interface_age])
+m4_define([libhail_age], [m4_eval(libhail_binary_age - libhail_interface_age)])
+m4_define([libhail_version], [libhail_major_version().libhail_minor_version().libhail_micro_version()libhail_extraversion()])
 
 AC_INIT([hail], [0.1git],
         [http://hail.wiki.kernel.org/])
@@ -40,18 +40,18 @@ AC_CONFIG_SRCDIR([cld/server.c])
 AM_INIT_AUTOMAKE([gnu])
 AC_CONFIG_HEADERS([cld-config.h])
 
-LIBCLDC_MAJOR_VERSION=libcldc_major_version
-LIBCLDC_MINOR_VERSION=libcldc_minor_version
-LIBCLDC_MICRO_VERSION=libcldc_micro_version
-LIBCLDC_INTERFACE_AGE=libcldc_interface_age
+LIBHAIL_MAJOR_VERSION=libhail_major_version
+LIBHAIL_MINOR_VERSION=libhail_minor_version
+LIBHAIL_MICRO_VERSION=libhail_micro_version
+LIBHAIL_INTERFACE_AGE=libhail_interface_age
 
-LIBCLDC_CURRENT=libcldc_current
-LIBCLDC_REVISION=libcldc_revision
-LIBCLDC_AGE=libcldc_age
+LIBHAIL_CURRENT=libhail_current
+LIBHAIL_REVISION=libhail_revision
+LIBHAIL_AGE=libhail_age
 
-AC_SUBST(LIBCLDC_CURRENT)
-AC_SUBST(LIBCLDC_REVISION)
-AC_SUBST(LIBCLDC_AGE)
+AC_SUBST(LIBHAIL_CURRENT)
+AC_SUBST(LIBHAIL_REVISION)
+AC_SUBST(LIBHAIL_AGE)
 
 dnl Make sure anyone changing configure.ac/Makefile.am has a clue
 AM_MAINTAINER_MODE
@@ -122,8 +122,8 @@ AC_CONFIG_FILES([
 	Makefile
 	doc/Makefile
 	lib/Makefile
-	lib/libcldc.pc
-	lib/libcldc-uninstalled.pc
+	lib/libhail.pc
+	lib/libhail-uninstalled.pc
 	include/Makefile
 	cld/Makefile
 	test/Makefile

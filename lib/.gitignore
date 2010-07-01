@@ -1,10 +1,10 @@
 
 *.lo
 
-libcldc.a
-libcldc.la
-libcldc-uninstalled.pc
-libcldc.pc
+libhail.a
+libhail.la
+libhail-uninstalled.pc
+libhail.pc
 
 libtimer.a
 

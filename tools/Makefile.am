@@ -6,11 +6,11 @@ INCLUDES	= -I$(top_srcdir)/include	\
 bin_PROGRAMS	= cldcli
 noinst_PROGRAMS	= cldfuse
 
-cldcli_LDADD	= ../lib/libcldc.la		\
+cldcli_LDADD	= ../lib/libhail.la		\
 		  @GLIB_LIBS@ @CRYPTO_LIBS@
 
 cldfuse_CFLAGS	= @FUSE_CFLAGS@
-cldfuse_LDADD	= ../lib/libcldc.la		\
+cldfuse_LDADD	= ../lib/libhail.la		\
 		  @GLIB_LIBS@ @CRYPTO_LIBS@
 cldfuse_LDFLAGS	= @FUSE_LIBS@
 

@@ -45,7 +45,7 @@ static struct argp_option options[] = {
 	{ "user", 'u', "USER", 0,
 	  "Set username to USER" },
 	{ "verbose", 'v', NULL, 0,
-	  "Enable verbose libcldc output" },
+	  "Enable verbose libhail output" },
 	{ }
 };
 
