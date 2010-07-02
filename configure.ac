@@ -127,5 +127,6 @@ AC_CONFIG_FILES([
 	include/Makefile
 	cld/Makefile
 	test/Makefile
+	test/cld/Makefile
 	tools/Makefile])
 AC_OUTPUT
