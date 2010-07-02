@@ -2,6 +2,8 @@
 EXTRA_DIST = \
 	api.txt				\
 	cfgfile.txt			\
+	chcli.cfg			\
+	chcli.txt			\
 	concept.txt			\
 	contributions.txt		\
 	doxygen.txt			\

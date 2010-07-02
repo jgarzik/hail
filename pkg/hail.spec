@@ -1,33 +1,63 @@
-Name:		cld
-Version:	0.3
-Release:	0.6.g50fcd615%{?dist}
-Summary:	Coarse locking daemon
+Name:		hail
+Version:	0.7
+Release:	0.1.gc69acd63%{?dist}
+Summary:	Project Hail core cloud services
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-# pulled from upstream git, commit 50fcd61590984c3c12f5584069da98bc8f4aec0f
+# pulled from upstream git, commit c69acd63337ca1126f8170973d991f9c75593ec4
 # to recreate tarball, check out commit, then run "make dist"
-Source0:	cld-%{version}git.tar.gz
+Source0:	hail-%{version}git.tar.gz
 Source2:	cld.init
 Source3:	cld.sysconf
+Source4:	chunkd.init
+Source5:	chunkd.sysconf
 BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 Requires(post):		chkconfig
 Requires(preun):	chkconfig initscripts
 
 BuildRequires:	db4-devel glib2-devel doxygen openssl-devel
-BuildRequires:	texlive-latex
+BuildRequires:	texlive-latex fuse-devel
+BuildRequires:	libevent-devel zlib-devel
+BuildRequires:	libxml2-devel procps tokyocabinet-devel
 
 %description
+Core libraries and document associated with cloud computing related
+Project Hail.
+
+%package cld
+Summary: Coarse locking service for %{name}
+Group: System Environment/Base
+Requires: %{name} = %{version}-%{release}
+Obsoletes: cld <= 0.3
+Provides: cld <= 0.3
+
+%description cld
 Coarse locking daemon for cloud computing.  This software provides
-a cache-coherent, highly-available distributed filesystem for small
+a cache-coherent, highly-available distributed file system for small
 files.
 
 CLD's primary uses include consensus service (election of a master,
 with fail-over, also known as lock service), reliable name space,
 and reliable small file storage.
+
+%package chunkd
+Summary: Single-node data storage service for %{name}
+Group: System Environment/Base
+Requires: %{name} = %{version}-%{release}
+Obsoletes: chunkd <= 0.6
+Provides: chunkd <= 0.6
+
+%description chunkd
+Single-node data storage daemon for cloud computing.
+
+This TCP network service is a very simple PUT/GET/DELETE data storage
+service.  It is intended to be used as a low-level piece of large-scale
+distributed data storage infrastructure.  The service provides
+operations on stored data ("objects").
 
 %package devel
 Summary: Development files for %{name}
@@ -40,7 +70,7 @@ The %{name}-devel package contains libraries and header files for
 developing applications that use %{name}.
 
 %prep
-%setup -q -n cld-0.3git
+%setup -q -n hail-0.7git
 
 %build
 %configure --disable-static
@@ -58,6 +88,12 @@ install -m 755 %{SOURCE2} %{buildroot}%{_initddir}/cld
 mkdir -p %{buildroot}%{_sysconfdir}/sysconfig
 install -m 644 %{SOURCE3} %{buildroot}%{_sysconfdir}/sysconfig/cld
 
+mkdir -p %{buildroot}%{_initddir}
+install -m 755 %{SOURCE4} %{buildroot}%{_initddir}/chunkd
+
+mkdir -p %{buildroot}%{_sysconfdir}/sysconfig
+install -m 644 %{SOURCE5} %{buildroot}%{_sysconfdir}/sysconfig/chunkd
+
 find %{buildroot} -name '*.la' -exec rm -f {} ';'
 
 %check
@@ -66,32 +102,61 @@ make -s check
 %clean
 rm -rf %{buildroot}
 
-%post
-/sbin/ldconfig
+%post -p /sbin/ldconfig
+
+%post cld
 # must be in chkconfig on
 /sbin/chkconfig --add cld
 
-%preun
+%post chunkd
+# must be in chkconfig on
+/sbin/chkconfig --add chunkd
+
+%preun cld
 if [ "$1" = 0 ] ; then
 	/sbin/service cld stop >/dev/null 2>&1 ||:
 	/sbin/chkconfig --del cld
 fi
 
-%postun
-/sbin/ldconfig
+%preun chunkd
+if [ "$1" = 0 ] ; then
+	/sbin/service chunkd stop >/dev/null 2>&1 ||:
+	/sbin/chkconfig --del chunkd
+fi
+
+%postun -p /sbin/ldconfig
+
+%postun cld
 if [ "$1" -ge "1" ]; then
 	/sbin/service cld condrestart >/dev/null 2>&1 ||:
 fi
 
+%postun chunkd
+if [ "$1" -ge "1" ]; then
+	/sbin/service chunkd condrestart >/dev/null 2>&1 ||:
+fi
+
 %files
 %defattr(-,root,root,-)
-%doc AUTHORS COPYING LICENSE README NEWS doc/*.txt
+%doc AUTHORS COPYING LICENSE README NEWS doc/contributions.txt
+%{_libdir}/*.so.*
+
+%files cld
+%defattr(-,root,root,-)
 %{_sbindir}/cld
 %{_sbindir}/cldbadm
 %{_bindir}/cldcli
-%{_libdir}/*.so.*
 %attr(0755,root,root)	%{_initddir}/cld
 %config(noreplace)	%{_sysconfdir}/sysconfig/cld
+
+%files chunkd
+%defattr(-,root,root,-)
+%doc doc/api.txt doc/cfgfile.txt doc/chcli.cfg doc/chcli.txt
+%doc doc/concept.txt doc/logging.txt
+%{_sbindir}/chunkd
+%{_bindir}/chcli
+%attr(0755,root,root)	%{_initddir}/chunkd
+%config(noreplace)	%{_sysconfdir}/sysconfig/chunkd
 
 %files devel
 %defattr(-,root,root,-)
@@ -101,6 +166,33 @@ fi
 %{_includedir}/*
 
 %changelog
+* Fri Jul  2 2010 Jeff Garzik <jgarzik@redhat.com> - 0.7-0.1.gc69acd63
+- update to hail 0.7git commit c69acd63337ca1126f8170973d991f9c75593ec4
+
+* Sun Apr 18 2010 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.14.geb90e3f1
+- update to 0.3git commit eb90e3f1049c1b3e70a8c41e4f631ba81e4619f3
+
+* Wed Apr 14 2010 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.13.gab66f4f4
+- BuildRequires: fuse-devel
+
+* Wed Apr 14 2010 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.12.gab66f4f4
+- update to 0.3git commit ab66f4f49c35e7f35b56f9da0d3828a1c474a9ae
+
+* Sun Feb 14 2010 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.11.g254d1661
+- update to 0.3git commit 254d166198bcb39c70a34ab59baa8e8b929e935a
+
+* Sun Feb 14 2010 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.10.gb19109e9
+- update to 0.3git commit b19109e9ed14cccee7d181db7ff24a56011379e0
+
+* Fri Feb  5 2010 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.9.gad2a2974
+- update to 0.3git commit ad2a2974a99061fd962c2af114287f9ecaf7a4d1
+
+* Tue Dec 16 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.8.g4806aa08
+- update to 0.3git commit 4806aa08577e2bf8e90b681b8be3588a647dd67e
+
+* Tue Dec 16 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.7.ge9d692a5
+- update to 0.3git commit e9d692a54ab2de96bcd1e55b02938c9d35535b27
+
 * Mon Nov 30 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.6.g50fcd615
 - update to 0.3git commit 50fcd61590984c3c12f5584069da98bc8f4aec0f
 
