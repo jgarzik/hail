@@ -1,0 +1,14 @@
+auth
+basic-object
+it-works
+large-object
+lotsa-objects
+nop
+objcache-unit
+selfcheck-unit
+
+.libs
+libtest.a
+
+start-daemon.real
+

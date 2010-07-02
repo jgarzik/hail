@@ -1,0 +1,65 @@
+
+Interface overview, in a nutshell
+=================================
+        PUT (key, value)
+                <- (key, key len, data, data len)
+                -> (sha-1 hash)
+
+        GET (key)
+                -> (len, sha-1 hash, data)
+
+        DELETE (key)
+
+There are no provisions for updating objects.  An update is accomplished via
+GET+DELETE+PUT.
+
+Objects must be retrieved and stored in full.
+
+See include/chunk_msg.h for full network protocol specification in C.
+
+
+
+Keys
+=================================
+Keys are opaque binary strings, from 1 byte to 1,024 bytes in size.
+
+
+
+Authentication and access control
+=================================
+At present, the header signature is verified, but we merely verify that
+username==password, the minimum level of authentication necessary to prove
+that it works.  It does not yet actually authenticate against any password
+database.
+
+
+CLD intergration
+================
+
+This feature may be changing (before version 1.0 especially), so reading
+the file server/cldu.c is probably the best guide.
+
+[root@hitlain zaitcev]# cldcli
+Waiting for thread startup...
+FIXME: timer_ctl
+Type 'help' at the prompt to list commands.
+[cli_user /]$ ls /chunk-default
+9
+[cli_user /]$ cat /chunk-default/9
+<Chunk>
+ <NID>9</NID>
+ <Socket>
+  <Type>chunk</Type>
+  <Host>hitlain.zaitcev.lan</Host>
+  <Port>8082</Port>
+ </Socket>
+ <Geo>
+  <Area>-</Area>
+  <Building>-</Building>
+  <Rack>-</Rack>
+ </Geo>
+</Chunk>
+
+[cli_user /]$ quit
+[root@hitlain zaitcev]#
+

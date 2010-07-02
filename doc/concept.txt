@@ -1,0 +1,30 @@
+
+This daemon implements a very simple PUT/GET/DELETE data storage
+service over a custom binary network protocol.  It is intended to be
+used as a low-level piece of large-scale data storage infrastructure.
+
+The service provides operations on stored data ("objects").
+
+An object is simply an anonymous blob of any length, indexed by a similarly
+opaque key, 1-1024 bytes in size.
+
+When you PUT (upload) an object, you receive in return a hash value
+(currently SHA-1), that may be used for optional end-to-end integrity
+checking.
+
+From this basic service interface
+
+        PUT (key, value)
+                <- (key, key len, data, data len)
+                -> (sha-1 hash)
+
+        GET (key)
+                -> (len, sha-1 hash, data)
+
+        DELETE (key)
+
+See include/chunk_msg.h for the full network protocol definition in C.
+
+Using chunkd, you can build cluster-wide redundant storage services,
+exporting data storage capability from any device supported by your OS.
+

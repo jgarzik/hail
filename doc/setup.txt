@@ -1,0 +1,130 @@
+How to get chunkd running in typical configurations:
+
+*) Unless you run Chunk standalone (which is very rare), make sure a CLD is
+   running somewhere on the network, and has an SRV record, which typically
+   looks like this:
+
+[root@table1 ~]# host -t srv _cld._udp
+_cld._udp.phx2.ex.com has SRV record 10 50 8081 pacman.phx2.ex.com.
+_cld._udp.phx2.ex.com has SRV record 10 50 8081 maika.phx2.ex.com.
+[root@table1 ~]#
+
+   If this does not work, set up CLD before proceeding.
+
+   Also, make sure that your hostname has a domain. We don't want to search
+   for CLD in the DNS root, do we?
+
+*) create XML-like configuration file (filled in, in the following steps).
+   Notice that clause names are case-sensitive, unlike XML.
+
+*) choose TCP listen port for server. For an unknown reason, this clause
+   has no default, so you need to spell it out:
+
+	<Listen>
+		<Port>8082</Port>
+	</Listen>
+
+   For clouds and their many cheap nodes with one Ethernet it usually is
+   not a great idea to specify interfaces, since they often use IPv6 or
+   acquire IP addresses from DHCP. So, just specify a port and the Chunk
+   will listen on a wildcard socket.
+
+   However, just in case anyone needs it, the following syntax works as
+   expected to limit where Chunk listens:
+
+	<Listen>
+		<Node>192.168.128.1</Node>
+		<Port>8082</Port>
+	</Listen>
+
+   An option also exists to let the server to listen on a random port with
+   the "auto" keyword:
+
+	<Listen>auto</Listen>
+
+   This works with CLD-aware clients that find the connection information
+   from Chunk's record in CLD. It's not commonly used in real clouds
+   but may be beneficial in chroots and other odd environments.
+
+*) choose pathname (dir + filename) where daemon should store its
+   PID file. Default is /var/run/chunkd.pid, but it limits you to
+   one Chunk daemon per node, since each Chunk instance wants a separate
+   PID file.
+
+	<PID>/home/developer/run/chunkd.pid</PID>
+
+*) choose a pathname and create the directory where Chunk will keep
+   all of its data. For example, run "mkdir -p /disk1/chunkd" and add
+   an configuration entry like this:
+
+	<Path>/disk1/chunkd</Path>
+
+*) configure SSL if desired, by providing private key and certificate
+
+	<SSL>
+		<PrivateKey>/etc/pki/server-private-key.pem</PrivateKey>
+		<Cert>/etc/pki/cert-public-key.pem</Cert>
+	</SSL>
+
+*) For a typical Chunk configuration (not running it standalone),
+   configure Node ID (NID). It's an integer. The NID follows the data, so
+   the best practice for NIDs is to have site-wide node bring-up scripts
+   create a unique identifier from a per-group counter, instead of using
+   the MAC or IP address. One common trick is to use the creation time,
+   from "date +%s", so for small clouds all you need is to remember not
+   to create storage nodes in parallel. If NIDs conflict (they must be
+   unique within a group), the new node will refuse to come up. This,
+   however, is not bulletproof in the face of nodes going down and then
+   back up, so implement those Jumpstart scripts as soon as you have the
+   first 30..50 or so nodes installed.
+
+	<NID>1247713739</NID>
+
+*) configure a path in CLD where the configuration record is kept
+   (unless you want to use a legacy "group"). The path is like an absolute
+   filename, from the root of local CLD cell. A typical policy would be
+   to use the same directory name for all related Chunk instances and
+   name it according to their function, as in the following example:
+
+	<InfoPath>/chunk/ultracart2/chunk-5-12</InfoPath>
+
+   For legacy applications that expect a "group", the following pattern
+   should be followed:
+
+	<InfoPath>/chunk-GROUP/NID</InfoPath>
+
+   For example, for the default group (that is called "default"):
+
+	<InfoPath>/chunk-default/1247713739</InfoPath>
+
+   It's best to use only ASCII letters, numbers, dash ('-'), underscore ('_'),
+   and period ('.') in names of CLD path components.
+
+*) configure the location information. The Chunk works fine without, so
+   it's only used by clients that want to spread redundant data in a
+   certain pattern. For example, tabled avoids putting all replicas of
+   one object into the same rack, in order to increase availabiliy in the
+   face of power failures from hardware maintenance. Location is safe
+   to skip for small, experimental clouds.
+
+	<Geo>
+		<Area>US</Area>
+		<Building>MTV12</Building>
+		<Rack>F3R18</Rack>
+	</Geo>
+
+*) configure the list of users authorized to initiate background self-check
+
+	<Check>
+		<User>admin_user</User>
+		<User>another_user</User>
+	</Check>
+
+*) start daemon (it will put itself into the background) with the
+   configuration file just created:
+
+	/usr/sbin/chunkd -C /etc/chunkd.conf
+
+   Once you are satisfied with the operation of the server, integrate
+   the daemon into your start-up sequence. Consult your local OS guru to
+   determine the site-appropriate way to do it.

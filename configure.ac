@@ -63,8 +63,9 @@ AM_PROG_CC_C_O
 AM_PROG_LIBTOOL
 
 dnl Checks for header files.
-dnl AC_HEADER_STDC
+AC_HEADER_STDC
 dnl AC_CHECK_HEADERS(sys/ioctl.h unistd.h)
+AC_CHECK_HEADERS(sys/sendfile.h sys/filio.h)
 AC_CHECK_HEADER(db.h,[],exit 1)
 
 dnl Checks for typedefs, structures, and compiler characteristics.
@@ -84,16 +85,19 @@ AC_CHECK_LIB(db-5.0, db_create, DB4_LIBS=-ldb-5.0,
 	AC_CHECK_LIB(db-4.3, db_create, DB4_LIBS=-ldb-4.3,
   [AC_MSG_ERROR([Missing required libdb 4.x])]))))))))
 AC_CHECK_LIB(crypto, MD5_Init, CRYPTO_LIBS=-lcrypto)
+AC_CHECK_LIB(ssl, SSL_new, SSL_LIBS=-lssl)
 AC_SEARCH_LIBS(argp_parse, argp)
-AC_SEARCH_LIBS(recv, socket)
+AC_SEARCH_LIBS(bind, socket)
 AC_SEARCH_LIBS(dn_expand, resolv)
 AC_SEARCH_LIBS(ns_initparse, resolv)
 PKG_CHECK_MODULES(FUSE, fuse)
+PKG_CHECK_MODULES(TOKYOCABINET, tokyocabinet)
+
 
 dnl -------------------------------------
 dnl Checks for optional library functions
 dnl -------------------------------------
-AC_CHECK_FUNCS(strnlen daemon memmem memrchr)
+AC_CHECK_FUNCS(strnlen daemon memmem memrchr sendfile)
 
 case $host in
   *-*-solaris* )
@@ -114,9 +118,11 @@ dnl --------------------------
 PKG_PROG_PKG_CONFIG()
 
 AM_PATH_GLIB_2_0(2.0.0,,,gthread)
+AM_PATH_XML2(2.6.0, , exit 1)
 
 AC_SUBST(DB4_LIBS)
 AC_SUBST(CRYPTO_LIBS)
+AC_SUBST(SSL_LIBS)
 
 AC_CONFIG_FILES([
 	Makefile
@@ -126,7 +132,10 @@ AC_CONFIG_FILES([
 	lib/libhail-uninstalled.pc
 	include/Makefile
 	cld/Makefile
+	chunkd/Makefile
 	test/Makefile
 	test/cld/Makefile
+	test/chunkd/Makefile
+	test/chunkd/start-daemon.real
 	tools/Makefile])
 AC_OUTPUT

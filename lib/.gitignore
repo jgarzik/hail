@@ -1,12 +1,13 @@
 
 *.lo
+*.la
 
 libhail.a
-libhail.la
 libhail-uninstalled.pc
 libhail.pc
 
 libtimer.a
+libchunksrv.a
 
 .libs
 

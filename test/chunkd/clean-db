@@ -1,0 +1,21 @@
+#!/bin/sh
+
+if [ ! -d data ]
+then
+	echo "data dir does not exist"
+	exit 1
+fi
+
+rm -rf data
+
+if [ -f ssl-cert.pem.copied ]
+then
+	rm -f ssl-cert.pem*
+fi
+
+if [ -f ssl-key.pem.copied ]
+then
+	rm -f ssl-key.pem*
+fi
+
+exit 0

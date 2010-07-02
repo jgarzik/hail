@@ -1,0 +1,8 @@
+
+Requests, errors, and other interesting events are logged to
+syslog's LOG_LOCAL3 facility.
+
+Increase the verbosity of the logging by adding --debug to the command line.
+
+In particular, --debug is required for per-request logging.
+

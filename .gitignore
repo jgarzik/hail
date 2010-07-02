@@ -26,6 +26,7 @@ ltmain.sh
 # app-specific
 cld
 cldbadm
+chunkd
 hail*.tar.gz
 hail-config.h*
 

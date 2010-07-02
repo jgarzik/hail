@@ -1,3 +1,3 @@
 
-SUBDIRS = cld
+SUBDIRS = cld chunkd
 

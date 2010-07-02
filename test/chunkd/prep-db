@@ -1,0 +1,22 @@
+#!/bin/sh
+
+DATADIR=data
+CLDDIR=$DATADIR/cld
+CHUNKDIR=$DATADIR/chunk
+
+mkdir -p $CLDDIR
+mkdir -p $CHUNKDIR
+
+if [ ! -f ssl-cert.pem ]
+then
+	cp $top_srcdir/test/chunkd/ssl-cert.pem .
+	touch ssl-cert.pem.copied
+fi
+
+if [ ! -f ssl-key.pem ]
+then
+	cp $top_srcdir/test/chunkd/ssl-key.pem .
+	touch ssl-key.pem.copied
+fi
+
+exit 0

@@ -1,0 +1,11 @@
+
+The daemon modifies default signal behavior in the following manner:
+
+SIGHUP			ignored
+
+SIGPIPE			ignored
+
+SIGINT, SIGTERM		graceful, immediate shutdown
+
+SIGUSR1			log statistics to syslog
+

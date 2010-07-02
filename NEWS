@@ -1,4 +1,6 @@
 
+================== CLD history, prior to 'hail' merge ================
+
 Version 0.2.1 - August 26, 2009
 
 - many bug fixes, most notably:
@@ -21,6 +23,55 @@ Version 0.2 - August 15, 2009
 - many, many bugs fixes
 
 Version 0.1 - July 17, 2009
+- initial release
+
+================== chunkd history, prior to 'hail' merge ================
+
+Version 0.5 - November 13, 2009
+
+- Protocol/API: Add an upper-level key/value namespace ("tables")
+- Protocol/API: each object now indexed by opaque binary keys <= 1K in size
+- Protocol/API: new option to immediately sync data to disk
+- Protocol/API: introduce login sequence, greatly shrinking per-message size
+- API: change error code symbols to avoid clashes with other projects
+- chunkd: automatic selection of TCP listen port
+- chunkd: drop libevent use
+- Add new 'chcli' command line client
+
+Version 0.4 - August 15, 2009
+
+- chunkd: add CLD support; write contact info into CLD
+- chunkd: remove NID requirement
+- chunkd: add user access checking (i.e. real security)
+- chunkd: add -E to permit switching between syslog and strerr logging
+- chunkd: add '-C FILE' option to read config file; '-f FILE' deprecated
+- chunkd: improve PID file use
+- change TCP/UDP ports used in tests, to avoid conflicts
+- OpenSolaris, FreeBSD portability improvements
+- many bug fixes
+
+Version 0.3 - May 15, 2009
+
+- Fix RPM package specfile to match version
+
+Version 0.2 - May 15, 2009
+
+- Client: package and ship pkg-config-enabled libchunkdc
+- Client: add streaming API
+- Client: improve debug output
+- Protocol: sign all messages w/ HMAC
+- Server: add sendfile(2) support, when OS provides it
+- Server: enable TCP_NODELAY, pkt delay really hurt performance
+- Server: improve debug output
+- Server: store PID file in /var/run by default
+- Server: check for invalid text in configuration file
+- Test: print diagnostic timing information to stderr
+- Test: add no-op test
+- Support building on FreeBSD 7.1, OpenSolaris
+- many bug fixes, internal improvements and cleanups
+
+Version 0.1 - March 15, 2009
 
 - initial release
 
+=========================================================================

@@ -1,0 +1,14 @@
+
+general:
+	- support multiple threads handling client activity
+	- global thread pool, shared across volumes
+	- optional private thread pool for a single volume
+		- see "thread" branch in git repo
+
+	- hook into a username/password database
+	- network protocol should include 'start-tls' command,
+	  and not require separate port for SSL
+
+autotools:
+	- stuff package version into RPM specfile, at configure time
+

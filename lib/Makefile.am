@@ -5,7 +5,7 @@ EXTRA_DIST = \
 	libhail.pc.in libhail-uninstalled.pc.in cld_msg_rpc.x
 
 INCLUDES		= -I$(top_srcdir)/include	\
-			  @GLIB_CFLAGS@
+			  @GLIB_CFLAGS@ @XML_CPPFLAGS@
 
 mostlyclean-local:
 	rm -f *_rpc.h *_rpc_xdr.c
@@ -27,7 +27,9 @@ libhail_la_SOURCES	=	\
 	common.c		\
 	libtimer.c		\
 	pkt.c			\
-	cld_msg_rpc_xdr.c
+	cld_msg_rpc_xdr.c	\
+	chunkdc.c		\
+	chunksrv.c
 
 libhail_la_LDFLAGS = \
 	-version-info $(LIBHAIL_CURRENT):$(LIBHAIL_REVISION):$(LIBHAIL_AGE) \

@@ -1,0 +1,40 @@
+#!/bin/sh
+
+killpid () {
+	pidfile=$1
+	kill $(cat $pidfile)
+
+	for n in 0 1 2 3 4 5 6 7 8 9
+	do
+		if [ ! -f $pidfile ]
+		then
+			return 0
+		fi
+
+		sleep 1
+	done
+
+	echo "PID file $pidfile not removed, after signal sent." >&2
+	rm -f $pidfile
+	return 1
+}
+
+ret=0
+
+if [ ! -f chunkd.pid ]
+then
+	echo "No chunkd PID file found." >&2
+else
+	killpid chunkd.pid || ret=1
+fi
+
+if [ ! -f cld.pid ]
+then
+	echo "No cld PID file found." >&2
+else
+	killpid cld.pid || ret=1
+fi
+
+rm -f chunkd.port chunkd-ssl.port cld.port
+
+exit "$ret"

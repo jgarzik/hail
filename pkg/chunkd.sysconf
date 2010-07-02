@@ -1,0 +1,6 @@
+# specify additional command line arguments for chunkd
+#
+
+#example:
+#OPTS="--debug 1"
+
