@@ -4,6 +4,8 @@ EXTRA_DIST = \
 	cfgfile.txt			\
 	chcli.cfg			\
 	chcli.txt			\
+	chcli.8				\
+	chunkd.8			\
 	concept.txt			\
 	contributions.txt		\
 	doxygen.txt			\
@@ -11,4 +13,6 @@ EXTRA_DIST = \
 	setup.txt			\
 	signals.txt			\
 	todo.txt
+
+man_MANS = chcli.8 chunkd.8
 

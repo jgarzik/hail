@@ -1,0 +1,175 @@
+.\" -*- nroff -*-
+.\" Copyright 1999 by David S. Miller.  All Rights Reserved.
+.\" Portions Copyright 2001 Sun Microsystems
+.\" Copyright 2010 Red Hat, Inc.
+.\" This file may be copied under the terms of the GNU Public License.
+.\" 
+.\"	.An - list of n alternative values as in "flav vanilla|strawberry"
+.\"
+.de A1
+\\fB\\$1\\fP|\\fB\\$2\\fP
+..
+.de A2
+\\fB\\$1\\fP\ \\fB\\$2\\fP|\\fB\\$3\\fP
+..
+.de A3
+\\fB\\$1\\fP\ \\fB\\$2\\fP|\\fB\\$3\\fP|\\fB\\$4\\fP
+..
+.de A4
+\\fB\\$1\\fP\ \\fB\\$2\\fP|\\fB\\$3\\fP|\\fB\\$4\\fP|\\fB\\$5\\fP
+..
+.\" 
+.\"	.Bn - same as above but framed by square brackets
+.\"
+.de B1
+[\\fB\\$1\\fP|\\fB\\$2\\fP]
+..
+.de B2
+[\\fB\\$1\\fP\ \\fB\\$2\\fP|\\fB\\$3\\fP]
+..
+.de B3
+[\\fB\\$1\\fP\ \\fB\\$2\\fP|\\fB\\$3\\fP|\\fB\\$4\\fP]
+..
+.de B4
+[\\fB\\$1\\fP\ \\fB\\$2\\fP|\\fB\\$3\\fP|\\fB\\$4\\fP|\\fB\\$5\\fP]
+..
+.TH CHCLI 8 "July 2010" "Project Hail"
+.SH NAME
+chcli \- Issue command to data storage service (chunkd)
+.SH SYNOPSIS
+.B chcli
+.RB [ options ]
+.I command
+.RB [ command-args ]
+
+.B chcli \-?|\-\-help
+.SH DESCRIPTION
+.BI chcli
+is used as a command line interface to the chunkd data storage service.
+
+.I command
+is the name of the command corresponding to the operation chunkd should
+perform:
+get
+put
+del
+ping
+checkstatus
+checkstart
+
+.SH OPTIONS
+.TP
+.B \-? \-\-help
+Shows a short help message.
+.TP
+.B \-c \-\-config
+Load key=value text configuration file.  This permits easy reuse and
+scripting of frequently used options.  See CONFIG FILE section for more
+details.
+.TP
+.B \-\-create
+When opening a table, create the specified table, if it does not already
+exist.
+.TP
+.B \-D \-\-debug
+Set debug verbosity level.  0 == none, 2 == max verbosity.
+.TP
+.B \-h \-\-host
+Set host and TCP port to which chcli should connect, for the chunkd data
+object service.
+.TP
+.B \-i \-\-input
+Obtain value portion of a key/value pair from the specified file, rather
+than the command line.
+.TP
+.B \-k \-\-key
+Obtain key portion of a key/value pair from the specified file,
+rather than the command line.  Keys provided on the command line
+(as opposed to via -k) are stored with a C-style nul terminating
+character appended, adding 1 byte to each key.
+.TP
+.B \-\-list-cmds
+List all supported commands, and a short command usage synopsis.
+.TP
+.B \-o \-\-output
+Send any GET output to the specified file, rather than stdout.
+.TP
+.B \-S \-\-ssl
+Enable TLS/SSL channel security (default disabled).
+.TP
+.B \-t \-\-table
+Retrieve and store data in the specified table's dataspace.
+.TP
+.B \-u \-\-user
+Set username to USER.
+.TP
+.B \-v \-\-verbose
+Enable verbose libhail output.
+.TP
+.B \-V \-\-version
+Print program version, and exit.
+.PD
+.RE
+.SH COMMANDS
+The following commands are available:
+.TP
+.B GET key
+Retrieve the data object associated with the specified key.
+.TP
+.B PUT key val
+Store data object associated with the specified key.
+.TP
+.B DEL key
+Delete data object associated with the specified key.
+.TP
+.B PING
+Ping server
+.TP
+.B CHECKSTATUS
+Fetch status of server self-check
+.TP
+.B CHECKSTART
+Begin server self-check
+.TP
+Keys provided on the command line (as opposed to via -k) are stored
+with a C-style nul terminating character appended, adding 1 byte to
+each key.
+.SH CONFIG FILE
+To avoid repeating commonly specified command line options such as
+.B \-\-host
+or
+.B \-\-table
+a key=value text configuration file facility is available.
+.TP
+The format of the config file is similar to .INI files, a simple
+key=value text file divided into sections by 
+[ section names surrounded by brackets ]
+.TP
+Our configuration file is headed by a single section, [global],
+followed by zero or more of the following key=value pairs:
+.TP
+.B host=HOST:PORT
+Mimics \-\-host
+.TP
+.B table=my_table_name
+Mimics \-\-table
+.TP
+.B username=guest
+Mimics \-\-user
+.TP
+.B password=hello
+Specifies password for authentication.
+.TP
+.B verbose=1
+Mimics \-\-verbose.
+.TP
+.B ssl=1
+Mimics \-\-ssl.
+.TP
+.B debug=1
+Mimics \-\-debug.
+.SH AVAILABILITY
+.B chcli
+is available over the Web at
+http://www.kernel.org/pub/software/network/distsrv/hail/
+
