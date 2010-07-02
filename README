@@ -1,4 +1,4 @@
-This is a coarse locking daemon.
+This is Project Hail's core libraries and services.
 
 Dependencies:
 
@@ -7,14 +7,15 @@ Dependencies:
 	GLib 2.x
 	doxygen
 	openssl
+	FUSE
 
 Home page:	http://hail.wiki.kernel.org/
 
 Source code repository:
-	git://git.kernel.org/pub/scm/daemon/cld/cld.git
+	git://git.kernel.org/pub/scm/daemon/distsrv/hail.git
 
 Download directory:
-	http://www.kernel.org/pub/software/network/distsrv/cld/
+	http://www.kernel.org/pub/software/network/distsrv/hail/
 		or
-	ftp://ftp.kernel.org/pub/software/network/distsrv/cld/
+	ftp://ftp.kernel.org/pub/software/network/distsrv/hail/
 

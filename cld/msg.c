@@ -18,7 +18,7 @@
  */
 
 #define _GNU_SOURCE
-#include "cld-config.h"
+#include "hail-config.h"
 
 #include <stdlib.h>
 #include <string.h>

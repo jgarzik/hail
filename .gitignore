@@ -26,8 +26,8 @@ ltmain.sh
 # app-specific
 cld
 cldbadm
-cld*.tar.gz
-cld-config.h*
+hail*.tar.gz
+hail-config.h*
 
 # cscope files
 cscope.*

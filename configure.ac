@@ -32,13 +32,13 @@ m4_define([libhail_revision], [libhail_interface_age])
 m4_define([libhail_age], [m4_eval(libhail_binary_age - libhail_interface_age)])
 m4_define([libhail_version], [libhail_major_version().libhail_minor_version().libhail_micro_version()libhail_extraversion()])
 
-AC_INIT([hail], [0.1git],
+AC_INIT([hail], [0.7git],
         [http://hail.wiki.kernel.org/])
 
 AC_PREREQ(2.52)
 AC_CONFIG_SRCDIR([cld/server.c])
 AM_INIT_AUTOMAKE([gnu])
-AC_CONFIG_HEADERS([cld-config.h])
+AC_CONFIG_HEADERS([hail-config.h])
 
 LIBHAIL_MAJOR_VERSION=libhail_major_version
 LIBHAIL_MINOR_VERSION=libhail_minor_version

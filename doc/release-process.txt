@@ -1,6 +1,6 @@
 
-This document describes how to generate a new cld release.  It is not
-likely useful to you, unless you are a cld maintainer.
+This document describes how to generate a new hail release.  It is not
+likely useful to you, unless you are a hail maintainer.
 
 1) verify that project builds and passes tests
 
@@ -30,10 +30,10 @@ likely useful to you, unless you are a cld maintainer.
 	$ make distcheck
 
 7) upload tarball to master.kernel.org, directory
-   /pub/software/network/distsrv/cld
+   /pub/software/network/distsrv/hail
 
-	$ scp cld-0.3.tar.gz \
-	  master.kernel.org:/pub/software/network/distsrv/cld
+	$ scp hail-0.3.tar.gz \
+	  master.kernel.org:/pub/software/network/distsrv/hail
 
 8) Adjust configure.ac to next upcoming version;
    add "git" suffix, e.g. "0.4git" follows release "0.3".  Commit
@@ -46,5 +46,5 @@ likely useful to you, unless you are a cld maintainer.
 9) Push git repo changes to master
 
 	$ git push --force --all \
-	  master.kernel.org:/pub/scm/daemon/cld/cld.git
+	  master.kernel.org:/pub/scm/daemon/distsrv/hail.git
 

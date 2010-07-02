@@ -18,7 +18,7 @@
  */
 
 #define _GNU_SOURCE
-#include "cld-config.h"
+#include "hail-config.h"
 
 #include <sys/socket.h>
 #include <netdb.h>
