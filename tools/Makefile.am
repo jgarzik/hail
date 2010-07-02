@@ -4,7 +4,8 @@ INCLUDES	= -I$(top_srcdir)/include	\
 		  @GLIB_CFLAGS@
 
 bin_PROGRAMS	= cldcli chcli
-noinst_PROGRAMS	= cldfuse
+noinst_PROGRAMS	= $(HAIL_FUSE_PROGS)
+EXTRA_PROGRAMS	= cldfuse
 
 cldcli_LDADD	= ../lib/libhail.la		\
 		  @GLIB_LIBS@ @CRYPTO_LIBS@ @SSL_LIBS@ @XML_LIBS@
