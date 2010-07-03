@@ -28,14 +28,12 @@ BuildRequires:	libxml2-devel procps tokyocabinet-devel
 Core libraries and document associated with cloud computing related
 Project Hail.
 
-%package cld
+%package -n cld
 Summary: Coarse locking service for %{name}
 Group: System Environment/Base
 Requires: %{name} = %{version}-%{release}
-Obsoletes: cld <= 0.3
-Provides: cld <= 0.3
 
-%description cld
+%description -n cld
 Coarse locking daemon for cloud computing.  This software provides
 a cache-coherent, highly-available distributed file system for small
 files.
@@ -44,14 +42,12 @@ CLD's primary uses include consensus service (election of a master,
 with fail-over, also known as lock service), reliable name space,
 and reliable small file storage.
 
-%package chunkd
+%package -n chunkd
 Summary: Single-node data storage service for %{name}
 Group: System Environment/Base
 Requires: %{name} = %{version}-%{release}
-Obsoletes: chunkd <= 0.6
-Provides: chunkd <= 0.6
 
-%description chunkd
+%description -n chunkd
 Single-node data storage daemon for cloud computing.
 
 This TCP network service is a very simple PUT/GET/DELETE data storage
@@ -64,6 +60,7 @@ Summary: Development files for %{name}
 Group: Development/Libraries
 Requires: %{name} = %{version}-%{release}
 Requires: pkgconfig
+Conflicts: cld-devel chunkd-devel
 
 %description devel
 The %{name}-devel package contains libraries and header files for
@@ -104,21 +101,21 @@ rm -rf %{buildroot}
 
 %post -p /sbin/ldconfig
 
-%post cld
+%post -n cld
 # must be in chkconfig on
 /sbin/chkconfig --add cld
 
-%post chunkd
+%post -n chunkd
 # must be in chkconfig on
 /sbin/chkconfig --add chunkd
 
-%preun cld
+%preun -n cld
 if [ "$1" = 0 ] ; then
 	/sbin/service cld stop >/dev/null 2>&1 ||:
 	/sbin/chkconfig --del cld
 fi
 
-%preun chunkd
+%preun -n chunkd
 if [ "$1" = 0 ] ; then
 	/sbin/service chunkd stop >/dev/null 2>&1 ||:
 	/sbin/chkconfig --del chunkd
@@ -126,12 +123,12 @@ fi
 
 %postun -p /sbin/ldconfig
 
-%postun cld
+%postun -n cld
 if [ "$1" -ge "1" ]; then
 	/sbin/service cld condrestart >/dev/null 2>&1 ||:
 fi
 
-%postun chunkd
+%postun -n chunkd
 if [ "$1" -ge "1" ]; then
 	/sbin/service chunkd condrestart >/dev/null 2>&1 ||:
 fi
@@ -141,7 +138,7 @@ fi
 %doc AUTHORS COPYING LICENSE README NEWS doc/contributions.txt
 %{_libdir}/*.so.*
 
-%files cld
+%files -n cld
 %defattr(-,root,root,-)
 %{_sbindir}/cld
 %{_sbindir}/cldbadm
@@ -149,7 +146,7 @@ fi
 %attr(0755,root,root)	%{_initddir}/cld
 %config(noreplace)	%{_sysconfdir}/sysconfig/cld
 
-%files chunkd
+%files -n chunkd
 %defattr(-,root,root,-)
 %doc doc/api.txt doc/cfgfile.txt doc/chcli.cfg doc/chcli.txt
 %doc doc/concept.txt doc/logging.txt
