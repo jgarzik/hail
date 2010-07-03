@@ -155,6 +155,8 @@ fi
 %doc doc/concept.txt doc/logging.txt
 %{_sbindir}/chunkd
 %{_bindir}/chcli
+%{_mandir}/man8/chcli.8*
+%{_mandir}/man8/chunkd.8*
 %attr(0755,root,root)	%{_initddir}/chunkd
 %config(noreplace)	%{_sysconfdir}/sysconfig/chunkd
 
