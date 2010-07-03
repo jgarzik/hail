@@ -1,0 +1,131 @@
+.\" -*- nroff -*-
+.\" Copyright 1999 by David S. Miller.  All Rights Reserved.
+.\" Portions Copyright 2001 Sun Microsystems
+.\" Copyright 2010 Red Hat, Inc.
+.\" This file may be copied under the terms of the GNU Public License.
+.\" 
+.\"	.An - list of n alternative values as in "flav vanilla|strawberry"
+.\"
+.de A1
+\\fB\\$1\\fP|\\fB\\$2\\fP
+..
+.de A2
+\\fB\\$1\\fP\ \\fB\\$2\\fP|\\fB\\$3\\fP
+..
+.de A3
+\\fB\\$1\\fP\ \\fB\\$2\\fP|\\fB\\$3\\fP|\\fB\\$4\\fP
+..
+.de A4
+\\fB\\$1\\fP\ \\fB\\$2\\fP|\\fB\\$3\\fP|\\fB\\$4\\fP|\\fB\\$5\\fP
+..
+.\" 
+.\"	.Bn - same as above but framed by square brackets
+.\"
+.de B1
+[\\fB\\$1\\fP|\\fB\\$2\\fP]
+..
+.de B2
+[\\fB\\$1\\fP\ \\fB\\$2\\fP|\\fB\\$3\\fP]
+..
+.de B3
+[\\fB\\$1\\fP\ \\fB\\$2\\fP|\\fB\\$3\\fP|\\fB\\$4\\fP]
+..
+.de B4
+[\\fB\\$1\\fP\ \\fB\\$2\\fP|\\fB\\$3\\fP|\\fB\\$4\\fP|\\fB\\$5\\fP]
+..
+.TH CLDCLI 8 "July 2010" "Project Hail"
+.SH NAME
+cldcli \- Issue commands to CLD reliable file storage service
+.SH SYNOPSIS
+.B cldcli
+.RB [ options ]
+
+.B cldcli \-?|\-\-help
+.SH DESCRIPTION
+.BI cldcli
+is used as a standard input (stdin)-based command line interface to
+the CLD reliable file storage service.
+.SH OPTIONS
+.TP
+.B \-? \-\-help
+Shows a short help message.
+.TP
+.B \-D \-\-debug
+Set debug verbosity level.  0 == none, 2 == max verbosity.
+.TP
+.B \-h \-\-host
+Set host and TCP port to which cldcli should connect.  SHOULD be specified
+multiple times, once for each CLD server.
+.TP
+.B \-u \-\-user
+Set username to USER.
+.TP
+.B \-v \-\-verbose
+Enable verbose libhail output.
+.TP
+.B \-V \-\-version
+Print program version, and exit.
+.PD
+.RE
+.SH COMMANDS
+Once a CLD session has been successfully established,
+the following commands are available:
+.TP
+.B help
+Display short cldcli command reference.
+.TP
+.B cat FILE
+Output contents of FILE
+.TP
+.B cd
+Change to root dir
+.TP
+.B cd DIR
+Change to DIR
+.TP
+.B cpin FS-FILE CLD-FILE
+Copy contents of FS-FILE into CLD as CLD-FILE
+.TP
+.B cpout CLD-FILE FS-FILE
+Copy contents of CLD-FILE out of CLD into FS-FILE
+.TP
+.B list locks
+List locks currently held by this session
+.TP
+.B lock FILE
+Obtain exclusive lock on FILE, waiting in b/g if necessary
+.TP
+.B ls
+List files in current dir
+.TP
+.B ls DIR
+List files in DIR
+.TP
+.B mkdir DIR
+Create new directory DIR
+.TP
+.B rm FILE
+Delete FILE
+.TP
+.B trylock FILE
+Attempt to obtain exclusive lock on FILE
+.TP
+.B unlock FILE
+Remove exclusive lock from FILE
+.TP
+.B quit
+Exit cldcli
+.TP
+.B exit
+Exit cldcli
+.TP
+.B <end-of-file>
+Exit cldcli
+.SH BUGS
+At present, this utility assumes that username==password, and therefore does
+not ask for a password.
+.SH AVAILABILITY
+.B cldcli
+is available over the Web at
+http://www.kernel.org/pub/software/network/distsrv/hail/
+

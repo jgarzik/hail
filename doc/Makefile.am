@@ -6,6 +6,8 @@ EXTRA_DIST = \
 	chcli.txt			\
 	chcli.8				\
 	chunkd.8			\
+	cld.8				\
+	cldcli.8			\
 	concept.txt			\
 	contributions.txt		\
 	doxygen.txt			\
@@ -14,5 +16,5 @@ EXTRA_DIST = \
 	signals.txt			\
 	todo.txt
 
-man_MANS = chcli.8 chunkd.8
+man_MANS = chcli.8 chunkd.8 cld.8 cldcli.8
 

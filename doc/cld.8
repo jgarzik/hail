@@ -1,0 +1,88 @@
+.\" -*- nroff -*-
+.\" Copyright 1999 by David S. Miller.  All Rights Reserved.
+.\" Portions Copyright 2001 Sun Microsystems
+.\" Copyright 2010 Red Hat, Inc.
+.\" This file may be copied under the terms of the GNU Public License.
+.\" 
+.\"	.An - list of n alternative values as in "flav vanilla|strawberry"
+.\"
+.de A1
+\\fB\\$1\\fP|\\fB\\$2\\fP
+..
+.de A2
+\\fB\\$1\\fP\ \\fB\\$2\\fP|\\fB\\$3\\fP
+..
+.de A3
+\\fB\\$1\\fP\ \\fB\\$2\\fP|\\fB\\$3\\fP|\\fB\\$4\\fP
+..
+.de A4
+\\fB\\$1\\fP\ \\fB\\$2\\fP|\\fB\\$3\\fP|\\fB\\$4\\fP|\\fB\\$5\\fP
+..
+.\" 
+.\"	.Bn - same as above but framed by square brackets
+.\"
+.de B1
+[\\fB\\$1\\fP|\\fB\\$2\\fP]
+..
+.de B2
+[\\fB\\$1\\fP\ \\fB\\$2\\fP|\\fB\\$3\\fP]
+..
+.de B3
+[\\fB\\$1\\fP\ \\fB\\$2\\fP|\\fB\\$3\\fP|\\fB\\$4\\fP]
+..
+.de B4
+[\\fB\\$1\\fP\ \\fB\\$2\\fP|\\fB\\$3\\fP|\\fB\\$4\\fP|\\fB\\$5\\fP]
+..
+.TH CLD 8 "July 2010" "Project Hail"
+.SH NAME
+cld \- reliable file storage service for small files
+.SH SYNOPSIS
+.B cld
+.RB [ options ]
+
+.B cld \-?|\-\-help
+.SH DESCRIPTION
+.BI cld
+provides one instance of a reliable, networked file storage service
+for small files.  Used as a base layer of a cloud computing system.
+.SH OPTIONS
+.TP
+.B \-? \-\-help
+Shows a short help message.
+.TP
+.B \-d \-\-data
+Store database environment in specified directory.
+.TP
+.B \-D \-\-debug
+Set debug verbosity level.  0 == none, 2 == max verbosity.
+.TP
+.B \-E \-\-stderr
+Switch logging from syslog to standard error (stderr) output.
+.TP
+.B \-F \-\-foreground
+Run daemon in foreground, do not fork.  Commonly used for debugging
+purposes.
+.TP
+.B \-p \-\-port
+Bind to specified UDP port.
+.TP
+.B \-\-port-file
+Write automatically-discovered UDP listen port to specified file.
+.TP
+.B \-P \-\-pid
+Write daemon process id to specified file.
+.TP
+.B \-\-strict-free
+Carefully free allocated object, rather than letting the operating
+system clean up after a process exists.  This enables improved tracking
+by valgrind and similar debugging systems.
+.TP
+.B \-V \-\-version
+Print program version, and exit.
+.PD
+.RE
+.SH AVAILABILITY
+.B cld
+is available over the Web at
+http://www.kernel.org/pub/software/network/distsrv/hail/
+

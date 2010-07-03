@@ -140,6 +140,8 @@ fi
 %defattr(-,root,root,-)
 %{_sbindir}/cld
 %{_bindir}/cldcli
+%{_mandir}/man8/cldcli.8*
+%{_mandir}/man8/cld.8*
 %attr(0755,root,root)	%{_initddir}/cld
 %config(noreplace)	%{_sysconfdir}/sysconfig/cld
 
