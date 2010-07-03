@@ -1,4 +1,26 @@
 
+Version 0.7 - July 3, 2010
+
+- cld and chunkd merged into single 'hail' package, providing
+  libhail, cld and chunkd binaries.  libcldc and libchunkdc libraries
+  no longer exist.
+- cld: bug fixes
+- cld: use XDR for all messages
+- cldc: bug fixes
+- cldc: improve verbose output
+- cldc: add new 'ncld' client API
+- add experimental 'cldfuse' FUSE filesystem
+- support db 4.9, 5.0
+- chunkd: bug fixes
+- chunkd: update to ncld, fix CLD-related bugs
+- chunkd: improve and canonicalize verbosity controls and output
+- chunkd: be less inflexible about CLD paths
+- chunkd: (protocol change) replace SSL/no-SSL split ports with
+	  in-band SSL negotiation
+- chunkd: integrity self-checking
+- chunkd: fix GET/PUT for larger than 2GB values
+- chcli: bug fixes
+
 ================== CLD history, prior to 'hail' merge ================
 
 Version 0.2.1 - August 26, 2009
