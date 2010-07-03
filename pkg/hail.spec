@@ -139,7 +139,6 @@ fi
 %files -n cld
 %defattr(-,root,root,-)
 %{_sbindir}/cld
-%{_sbindir}/cldbadm
 %{_bindir}/cldcli
 %attr(0755,root,root)	%{_initddir}/cld
 %config(noreplace)	%{_sysconfdir}/sysconfig/cld

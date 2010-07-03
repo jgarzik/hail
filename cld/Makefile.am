@@ -5,7 +5,8 @@ INCLUDES	= -I$(top_srcdir)/include	\
 		  -DCLD_LIBDIR=\""$(libdir)"\"	\
 		  -DCLD_LOCAL_STATE_DIR="\"$(localstatedir)\""
 
-sbin_PROGRAMS	= cld cldbadm
+sbin_PROGRAMS	= cld
+noinst_PROGRAMS	= cldbadm
 
 cld_SOURCES	= cldb.h cld.h \
 		  ../lib/common.c ../lib/libtimer.c ../lib/pkt.c \
