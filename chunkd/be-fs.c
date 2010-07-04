@@ -48,6 +48,7 @@ struct fs_obj {
 
 	int			out_fd;
 	char			*out_fn;
+	uint64_t		written_bytes;
 
 	int			in_fd;
 	char			*in_fn;
@@ -57,7 +58,7 @@ struct fs_obj {
 struct be_fs_obj_hdr {
 	char			magic[4];
 	uint32_t		key_len;
-	char			reserved[8];
+	uint64_t		value_len;
 
 	char			checksum[128];
 	char			owner[128];
@@ -405,6 +406,7 @@ struct backend_obj *fs_obj_open(uint32_t table_id, const char *user,
 	struct stat st;
 	struct be_fs_obj_hdr hdr;
 	ssize_t rrc;
+	uint64_t value_len;
 
 	if (!key_valid(key, key_len)) {
 		*err_code = che_InvalidKey;
@@ -457,6 +459,7 @@ struct backend_obj *fs_obj_open(uint32_t table_id, const char *user,
 
 	/* verify magic number in header */
 	if (memcmp(hdr.magic, BE_FS_OBJ_MAGIC, strlen(BE_FS_OBJ_MAGIC))) {
+		applog(LOG_ERR, "obj(%s) hdr magic corrupted", obj->in_fn);
 		*err_code = che_InternalError;
 		goto err_out_fd;
 	}
@@ -469,6 +472,14 @@ struct backend_obj *fs_obj_open(uint32_t table_id, const char *user,
 
 	/* verify object key length matches input key length */
 	if (GUINT32_FROM_LE(hdr.key_len) != key_len) {
+		*err_code = che_InternalError;
+		goto err_out_fd;
+	}
+
+	/* verify file size large enough to contain value */
+	value_len = GUINT64_FROM_LE(hdr.value_len);
+	if ((st.st_size - sizeof(hdr) - key_len) < value_len) {
+		applog(LOG_ERR, "obj(%s) unexpected size change", obj->in_fn);
 		*err_code = che_InternalError;
 		goto err_out_fd;
 	}
@@ -495,7 +506,7 @@ struct backend_obj *fs_obj_open(uint32_t table_id, const char *user,
 
 	strncpy(obj->bo.hashstr, hdr.checksum, sizeof(obj->bo.hashstr));
 	obj->bo.hashstr[sizeof(obj->bo.hashstr) - 1] = 0;
-	obj->bo.size = st.st_size - sizeof(hdr) - key_len;
+	obj->bo.size = value_len;
 	obj->bo.mtime = st.st_mtime;
 
 	return &obj->bo;
@@ -562,6 +573,8 @@ ssize_t fs_obj_write(struct backend_obj *bo, const void *ptr, size_t len)
 	if (rc < 0)
 		applog(LOG_ERR, "obj write(%s) failed: %s",
 		       obj->out_fn, strerror(errno));
+	else
+		obj->written_bytes += rc;
 
 	return rc;
 }
@@ -634,6 +647,7 @@ bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 	strncpy(hdr.checksum, hashstr, sizeof(hdr.checksum));
 	strncpy(hdr.owner, user, sizeof(hdr.owner));
 	hdr.key_len = GUINT32_TO_LE(bo->key_len);
+	hdr.value_len = GUINT64_TO_LE(obj->written_bytes);
 
 	/* go back to beginning of file */
 	if (lseek(obj->out_fd, 0, SEEK_SET) < 0) {
@@ -666,6 +680,8 @@ bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 
 	free(obj->out_fn);
 	obj->out_fn = NULL;
+
+	obj->written_bytes = 0;
 
 	return true;
 }
@@ -865,7 +881,7 @@ int fs_obj_hdr_read(const char *fn, char **owner, char **csum,
 	ssize_t rrc;
 	void *key_in;
 	size_t klen_in;
-	unsigned long long sz;
+	uint64_t vlen_in;
 
 	fd = open(fn, O_RDONLY);
 	if (fd < 0) {
@@ -899,6 +915,13 @@ int fs_obj_hdr_read(const char *fn, char **owner, char **csum,
 		goto err_fix;
 	}
 
+	vlen_in = GUINT64_FROM_LE(hdr.value_len);
+	if ((st.st_size - sizeof(hdr) - klen_in) < vlen_in) {
+		applog(LOG_WARNING, "%s hdr value len (0x%llx) invalid",
+		       fn, (unsigned long long)vlen_in);
+		goto err_fix;
+	}
+
 	key_in = malloc(klen_in);
 	if (!key_in) {
 		applog(LOG_WARNING, "NO CORE");
@@ -928,13 +951,7 @@ int fs_obj_hdr_read(const char *fn, char **owner, char **csum,
 
 	*keyp = key_in;
 	*klenp = klen_in;
-
-	sz = st.st_size;
-	if (sz < klen_in + sizeof(struct be_fs_obj_hdr))
-		sz = 0;
-	else
-		sz = st.st_size - (sizeof(struct be_fs_obj_hdr) + klen_in);
-	*size = sz;
+	*size = vlen_in;
 	*mtime = st.st_mtime;
 
 	close(fd);
