@@ -41,6 +41,8 @@
 #include <chunk-private.h>
 #include "chunkd.h"
 
+#define BE_FS_OBJ_MAGIC		"CHU1"
+
 struct fs_obj {
 	struct backend_obj	bo;
 
@@ -53,10 +55,13 @@ struct fs_obj {
 };
 
 struct be_fs_obj_hdr {
+	char			magic[4];
+	uint32_t		key_len;
+	char			reserved[8];
+
 	char			checksum[128];
 	char			owner[128];
-	uint32_t		key_len;
-};
+} __attribute__ ((packed));
 
 int fs_open(void)
 {
@@ -320,6 +325,7 @@ struct backend_obj *fs_obj_new(uint32_t table_id,
 	ssize_t wrc;
 
 	memset(&hdr, 0, sizeof(hdr));
+	memcpy(hdr.magic, BE_FS_OBJ_MAGIC, strlen(BE_FS_OBJ_MAGIC));
 
 	if (!key_valid(key, key_len)) {
 		*err_code = che_InvalidKey;
@@ -445,6 +451,12 @@ struct backend_obj *fs_obj_open(uint32_t table_id, const char *user,
 		else
 			applog(LOG_ERR, "invalid object header for %s",
 				obj->in_fn);
+		*err_code = che_InternalError;
+		goto err_out_fd;
+	}
+
+	/* verify magic number in header */
+	if (memcmp(hdr.magic, BE_FS_OBJ_MAGIC, strlen(BE_FS_OBJ_MAGIC))) {
 		*err_code = che_InternalError;
 		goto err_out_fd;
 	}
@@ -618,6 +630,7 @@ bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 	ssize_t wrc;
 
 	memset(&hdr, 0, sizeof(hdr));
+	memcpy(hdr.magic, BE_FS_OBJ_MAGIC, strlen(BE_FS_OBJ_MAGIC));
 	strncpy(hdr.checksum, hashstr, sizeof(hdr.checksum));
 	strncpy(hdr.owner, user, sizeof(hdr.owner));
 	hdr.key_len = GUINT32_TO_LE(bo->key_len);
@@ -704,6 +717,12 @@ bool fs_obj_delete(uint32_t table_id, const char *user,
 	if (close(fd) < 0) {
 		applog(LOG_ERR, "close hdr obj(%s) failed: %s",
 			fn, strerror(errno));
+		goto err_out;
+	}
+
+	/* basic sanity check: verify magic number in header */
+	if (memcmp(hdr.magic, BE_FS_OBJ_MAGIC, strlen(BE_FS_OBJ_MAGIC))) {
+		*err_code = che_InternalError;
 		goto err_out;
 	}
 
@@ -865,6 +884,11 @@ int fs_obj_hdr_read(const char *fn, char **owner, char **csum,
 			syslogerr(fn);
 		else
 			applog(LOG_WARNING, "%s hdr read failed", fn);
+		goto err_fix;
+	}
+
+	if (memcmp(hdr.magic, BE_FS_OBJ_MAGIC, strlen(BE_FS_OBJ_MAGIC))) {
+		applog(LOG_WARNING, "%s hdr magic invalid", fn);
 		goto err_fix;
 	}
 
