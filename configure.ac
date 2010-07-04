@@ -32,7 +32,7 @@ m4_define([libhail_revision], [libhail_interface_age])
 m4_define([libhail_age], [m4_eval(libhail_binary_age - libhail_interface_age)])
 m4_define([libhail_version], [libhail_major_version().libhail_minor_version().libhail_micro_version()libhail_extraversion()])
 
-AC_INIT([hail], [0.7],
+AC_INIT([hail], [0.8git],
         [http://hail.wiki.kernel.org/])
 
 AC_PREREQ(2.52)
