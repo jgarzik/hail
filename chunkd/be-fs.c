@@ -60,6 +60,8 @@ struct be_fs_obj_hdr {
 	uint32_t		key_len;
 	uint64_t		value_len;
 
+	char			reserved[16];
+
 	char			checksum[128];
 	char			owner[128];
 } __attribute__ ((packed));
