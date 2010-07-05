@@ -320,8 +320,6 @@ extern bool cli_cb_free(struct client *cli, struct client_write *wr,
 extern bool cli_write_start(struct client *cli);
 extern int cli_req_avail(struct client *cli);
 extern int cli_poll_mod(struct client *cli);
-extern bool srv_poll_del(int fd);
-extern bool srv_poll_ready(int fd);
 extern void resp_init_req(struct chunksrv_resp *resp,
 		   const struct chunksrv_req *req);
 

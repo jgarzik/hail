@@ -272,7 +272,7 @@ static struct server_poll *srv_poll_lookup(int fd)
 	return g_hash_table_lookup(chunkd_srv.fd_info, GINT_TO_POINTER(fd));
 }
 
-bool srv_poll_del(int fd)
+static bool srv_poll_del(int fd)
 {
 	return g_hash_table_remove(chunkd_srv.fd_info, GINT_TO_POINTER(fd));
 }
@@ -290,7 +290,7 @@ static bool srv_poll_mask(int fd, short mask_set, short mask_clear)
 	return true;
 }
 
-bool srv_poll_ready(int fd)
+static bool srv_poll_ready(int fd)
 {
 	struct server_poll *sp;
 
@@ -1305,6 +1305,7 @@ static bool tcp_cli_event(int fd, short events, void *userdata)
 {
 	struct client *cli = userdata;
 	bool loop = false, disposing = false;
+	bool do_poll = true;
 
 	if (events & POLLHUP) {
 		cli->state = evt_dispose;
@@ -1326,7 +1327,10 @@ static bool tcp_cli_event(int fd, short events, void *userdata)
 		loop = state_funcs[cli->state](cli, events);
 	}
 
-	if (!disposing && !srv_poll_ready(fd))
+	if (disposing)
+		do_poll = false;
+
+	if (do_poll && !srv_poll_ready(fd))
 		applog(LOG_ERR, "unable to ready cli fd for polling");
 
 	return true;	/* continue main loop; do NOT terminate server */
