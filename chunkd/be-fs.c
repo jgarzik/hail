@@ -355,7 +355,7 @@ struct backend_obj *fs_obj_new(uint32_t table_id,
 			syslogerr(fn);
 			*err_code = che_InternalError;
 		} else {
-			*err_code = che_NoSuchKey;
+			*err_code = che_KeyExists;
 		}
 		goto err_out;
 	}

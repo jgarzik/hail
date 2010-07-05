@@ -61,6 +61,7 @@ enum chunk_errcode {
 	che_InvalidKey			= 7,
 	che_InvalidTable		= 8,
 	che_Busy			= 9,
+	che_KeyExists			= 10,
 };
 
 enum chunk_flags {

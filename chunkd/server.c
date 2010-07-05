@@ -145,6 +145,10 @@ static struct {
 	[che_Busy] =
 	{ "che_Busy", 500,
 	  "Temporarily unable to process the command" },
+
+	[che_KeyExists] =
+	{ "che_KeyExists", 403,
+	  "Key already exists" },
 };
 
 void applog(int prio, const char *fmt, ...)
