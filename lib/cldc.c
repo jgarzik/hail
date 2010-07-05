@@ -149,7 +149,7 @@ static int ack_seqid(struct cldc_session *sess, uint64_t seqid_le)
 	xdr_destroy(&xdrs);
 
 	secret_key = user_key(sess, sess->user);
-	ret = __cld_authsign(&sess->log, secret_key,
+	ret = cld_authsign(&sess->log, secret_key,
 			     buf, total_len - SHA_DIGEST_LENGTH, foot->sha);
 	if (ret) {
 		HAIL_ERR(&sess->log, "%s: authsign failed: %d",
@@ -464,7 +464,7 @@ int cldc_receive_pkt(struct cldc_session *sess,
 	foot = (const struct cld_pkt_ftr *)
 		(((char *)pktbuf) + (pkt_len - CLD_PKT_FTR_LEN));
 	secret_key = user_key(sess, pkt.user);
-	ret = __cld_authcheck(&sess->log, secret_key,
+	ret = cld_authcheck(&sess->log, secret_key,
 			      pktbuf, pkt_len - SHA_DIGEST_LENGTH, foot->sha);
 	if (ret) {
 		HAIL_DEBUG(&sess->log, "%s: invalid auth (ret=%d)",
@@ -511,7 +511,7 @@ int cldc_receive_pkt(struct cldc_session *sess,
 
 	if (pkt.mi.order & CLD_PKT_IS_LAST) {
 		HAIL_VERBOSE(&sess->log, "%s: receiving complete message of "
-			     "op %s", __func__, __cld_opstr(sess->msg_buf_op));
+			     "op %s", __func__, cld_opstr(sess->msg_buf_op));
 		return rx_complete(sess, &pkt, foot);
 	} else {
 		return ack_seqid(sess, foot->seqid);
@@ -575,7 +575,7 @@ static struct cldc_msg *cldc_new_msg(struct cldc_session *sess,
 		return NULL;
 
 	msg->n_pkts = n_pkts;
-	__cld_rand64(&msg->xid);
+	cld_rand64(&msg->xid);
 	msg->op = op;
 	msg->sess = sess;
 	if (copts)
@@ -741,7 +741,7 @@ static int sess_send(struct cldc_session *sess, struct cldc_msg *msg)
 		sess_next_seqid(sess, &foot->seqid);
 
 		/* Add the signature to the end of the packet */
-		ret = __cld_authsign(&sess->log, secret_key,
+		ret = cld_authsign(&sess->log, secret_key,
 				     pi->data,
 				     pi->pkt_len - SHA_DIGEST_LENGTH,foot->sha);
 		if (ret)
@@ -853,8 +853,8 @@ static int cldc_new_sess_log(const struct cldc_ops *ops,
 	strcpy(sess->secret_key, secret_key);
 
 	/* create random SID, next_seqid_out */
-	__cld_rand64(sess->sid);
-	__cld_rand64(&sess->next_seqid_out);
+	cld_rand64(sess->sid);
+	cld_rand64(&sess->next_seqid_out);
 
 	/* init other session vars */
 	memcpy(sess->addr, addr, addr_len);
@@ -2288,6 +2288,6 @@ void ncld_init(void)
  */
 void cldc_init()
 {
-	srand(time(NULL) ^ getpid());	// for __cld_rand64 et.al.
+	srand(time(NULL) ^ getpid());	// for cld_rand64 et.al.
 }
 

@@ -1098,7 +1098,7 @@ bool stc_check_status(struct st_client *stc, struct chunk_check_status *out)
  */
 void stc_init(void)
 {
-	srand(time(NULL) ^ getpid());	// for __cld_rand64 et.al.
+	srand(time(NULL) ^ getpid());	// for cld_rand64 et.al.
 }
 
 /*

@@ -28,7 +28,7 @@
 #include "cld_msg_rpc.h"
 #include <hail_log.h>
 
-int __cld_authcheck(struct hail_log *log, const char *key,
+int cld_authcheck(struct hail_log *log, const char *key,
 		    const void *buf, size_t buf_len, const void *sha)
 {
 	unsigned char md[SHA_DIGEST_LENGTH];
@@ -50,7 +50,7 @@ int __cld_authcheck(struct hail_log *log, const char *key,
 	return 0;
 }
 
-int __cld_authsign(struct hail_log *log, const char *key,
+int cld_authsign(struct hail_log *log, const char *key,
 		   const void *buf, size_t buf_len, void *sha)
 {
 	unsigned char md[SHA_DIGEST_LENGTH];
@@ -73,7 +73,7 @@ int __cld_authsign(struct hail_log *log, const char *key,
 	return 0;
 }
 
-const char *__cld_opstr(enum cld_msg_op op)
+const char *cld_opstr(enum cld_msg_op op)
 {
 	switch (op) {
 	case CMO_NOP:		return "CMO_NOP";
@@ -97,7 +97,7 @@ const char *__cld_opstr(enum cld_msg_op op)
 	}
 }
 
-const char *__cld_pkt_hdr_to_str(char *scratch,
+const char *cld_pkt_hdr_to_str(char *scratch,
 				 const char *pkt_hdr, size_t pkt_len)
 {
 	XDR xin;
@@ -135,7 +135,7 @@ const char *__cld_pkt_hdr_to_str(char *scratch,
 		struct cld_pkt_msg_infos *infos =
 			&pkt.mi.cld_pkt_msg_info_u.mi;
 		snprintf(temp, sizeof(temp), "[TYPE:%s, XID:%llx]",
-			 __cld_opstr(infos->op),
+			 cld_opstr(infos->op),
 			 (unsigned long long) infos->xid);
 		switch (infos->op) {
 		case CMO_ACK_FRAG: {

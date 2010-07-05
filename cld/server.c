@@ -157,7 +157,7 @@ static int udp_rx_handle(struct session *sess,
 	xdrmem_create(&xin, sess->msg_buf, sess->msg_buf_len, XDR_DECODE);
 	if (!xdrproc(&xin, xdrdata)) {
 		HAIL_DEBUG(&srv_log, "%s: couldn't parse %s message",
-			   __func__, __cld_opstr(sess->msg_op));
+			   __func__, cld_opstr(sess->msg_op));
 		xdr_destroy(&xin);
 		return CLE_BAD_PKT;
 	}
@@ -279,7 +279,7 @@ static enum cle_err_codes udp_rx(int sock_fd, const struct client *cli,
 		return 0;
 	default:
 		HAIL_DEBUG(&srv_log, "%s: unexpected %s packet",
-			   __func__, __cld_opstr(info->op));
+			   __func__, cld_opstr(info->op));
 		/* do nothing */
 		return 0;
 	}
@@ -441,7 +441,7 @@ static enum cle_err_codes pkt_chk_sig(const char *raw_pkt, int raw_len,
 			(raw_pkt + (raw_len - CLD_PKT_FTR_LEN));
 	secret_key = user_key(pkt->user);
 
-	auth_rc = __cld_authcheck(&srv_log, secret_key, raw_pkt,
+	auth_rc = cld_authcheck(&srv_log, secret_key, raw_pkt,
 				  raw_len - SHA_DIGEST_LENGTH,
 				  foot->sha);
 	if (auth_rc) {
@@ -497,7 +497,7 @@ void simple_sendmsg(int fd, const struct client *cli,
 	pkt.user = (char *)user;
 	pkt.mi.order = CLD_PKT_ORD_FIRST_LAST;
 	infos = &pkt.mi.cld_pkt_msg_info_u.mi;
-	__cld_rand64(&infos->xid);
+	cld_rand64(&infos->xid);
 	infos->op = op;
 
 	/* Determine sizes */
@@ -534,7 +534,7 @@ void simple_sendmsg(int fd, const struct client *cli,
 	foot->seqid = cpu_to_le64(seqid);
 	secret_key = user_key(user);
 
-	auth_rc =__cld_authsign(&srv_log, secret_key, buf,
+	auth_rc =cld_authsign(&srv_log, secret_key, buf,
 				buf_len - SHA_DIGEST_LENGTH,
 				foot->sha);
 	if (auth_rc)

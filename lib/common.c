@@ -39,7 +39,7 @@ unsigned long long cld_sid2llu(const uint8_t *sid)
 	return v;
 }
 
-void __cld_rand64(void *p)
+void cld_rand64(void *p)
 {
 	uint32_t *v = p;
 

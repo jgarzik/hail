@@ -62,7 +62,7 @@ static inline void cld_timer_init(struct cld_timer *timer, const char *name,
 }
 
 extern unsigned long long cld_sid2llu(const uint8_t *sid);
-extern void __cld_rand64(void *p);
+extern void cld_rand64(void *p);
 extern const char *cld_errstr(enum cle_err_codes ecode);
 extern int cld_readport(const char *fname);
 
@@ -77,7 +77,7 @@ extern int cld_readport(const char *fname);
  *
  * @return		0 on success; error code otherwise
  */
-extern int __cld_authcheck(struct hail_log *log, const char *key,
+extern int cld_authcheck(struct hail_log *log, const char *key,
 			   const void *buf, size_t buf_len, const void *sha);
 
 /*** Sign a byte buffer.
@@ -91,11 +91,11 @@ extern int __cld_authcheck(struct hail_log *log, const char *key,
  *
  * @return		0 on success; error code otherwise
  */
-extern int __cld_authsign(struct hail_log *log, const char *key,
+extern int cld_authsign(struct hail_log *log, const char *key,
 			  const void *buf, size_t buf_len, void *sha);
 
 /* Returns a constant string representing a message operation */
-extern const char *__cld_opstr(enum cld_msg_op);
+extern const char *cld_opstr(enum cld_msg_op);
 
 /*
  * We use a unified format for sid so it can be searched in log files (* in vi).
@@ -112,7 +112,7 @@ extern const char *__cld_opstr(enum cld_msg_op);
  *
  * @return			pointer to 'scratch'
  */
-extern const char *__cld_pkt_hdr_to_str(char *scratch,
+extern const char *cld_pkt_hdr_to_str(char *scratch,
 					const char *pkt_hdr, size_t pkt_len);
 
 extern void __cld_dump_buf(const void *buf, size_t len);

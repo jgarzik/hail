@@ -85,7 +85,7 @@ static struct session *session_new(void)
 
 	sess->next_fh = 2;
 
-	__cld_rand64(&sess->next_seqid_out);
+	cld_rand64(&sess->next_seqid_out);
 
 	cld_timer_init(&sess->timer, "session-timeout", session_timeout, sess);
 	cld_timer_init(&sess->retry_timer, "session-retry", session_retry, sess);
@@ -539,7 +539,7 @@ static int sess_retry_output(struct session *sess, time_t *next_retry_out)
 			char scratch[PKT_HDR_TO_STR_SCRATCH_LEN];
 			HAIL_DEBUG(&srv_log, "%s: retrying %s",
 				   __func__,
-				   __cld_pkt_hdr_to_str(scratch, op->pkt_data,
+				   cld_pkt_hdr_to_str(scratch, op->pkt_data,
 				  			op->pkt_len));
 		}
 
@@ -633,7 +633,7 @@ bool sess_sendmsg(struct session *sess,
 				pkt.mi.order = CLD_PKT_ORD_FIRST_LAST;
 			else
 				pkt.mi.order = CLD_PKT_ORD_FIRST;
-			__cld_rand64(&infos->xid);
+			cld_rand64(&infos->xid);
 			infos->op = msg_op;
 		} else {
 			if (last)
@@ -684,7 +684,7 @@ bool sess_sendmsg(struct session *sess,
 		int ret;
 
 		foot->seqid = next_seqid_le(&sess->next_seqid_out);
-		ret = __cld_authsign(&srv_log, secret_key,
+		ret = cld_authsign(&srv_log, secret_key,
 				op->pkt_data, op->pkt_len - SHA_DIGEST_LENGTH,
 				foot->sha);
 		if (ret) {
@@ -848,7 +848,7 @@ err_out:
 
 	HAIL_DEBUG(&srv_log, "%s err: sid " SIDFMT ", op %s",
 		   __func__,
-		   (unsigned long long) pkt->sid, __cld_opstr(CMO_NEW_SESS));
+		   (unsigned long long) pkt->sid, cld_opstr(CMO_NEW_SESS));
 
 	resp.code = resp_rc;
 	resp.xid_in = info->xid;
