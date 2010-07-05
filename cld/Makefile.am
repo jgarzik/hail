@@ -9,10 +9,10 @@ sbin_PROGRAMS	= cld
 noinst_PROGRAMS	= cldbadm
 
 cld_SOURCES	= cldb.h cld.h \
-		  ../lib/common.c ../lib/libtimer.c ../lib/pkt.c \
-		  cldb.c msg.c server.c session.c util.c \
-		  ../lib/cld_msg_rpc_xdr.c
-cld_LDADD	= @CRYPTO_LIBS@ @GLIB_LIBS@ @DB4_LIBS@
+		  cldb.c msg.c server.c session.c util.c
+cld_LDADD	= \
+		  ../lib/libhail.la @GLIB_LIBS@ @CRYPTO_LIBS@ \
+		  @SSL_LIBS@ @DB4_LIBS@ @XML_LIBS@
 
 cldbadm_SOURCES	= cldb.h cldbadm.c
 cldbadm_LDADD	= @CRYPTO_LIBS@ @GLIB_LIBS@ @DB4_LIBS@
