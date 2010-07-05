@@ -39,6 +39,7 @@
 #include <cldc.h>
 #include <cld_msg_rpc.h>
 #include <ncld.h>
+#include <hail_private.h>
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 

@@ -29,7 +29,8 @@ libhail_la_SOURCES	=	\
 	pkt.c			\
 	cld_msg_rpc_xdr.c	\
 	chunkdc.c		\
-	chunksrv.c
+	chunksrv.c		\
+	xdr_sizeof.c
 
 libhail_la_LDFLAGS = \
 	-version-info $(LIBHAIL_CURRENT):$(LIBHAIL_REVISION):$(LIBHAIL_AGE) \

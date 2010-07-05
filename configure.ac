@@ -97,7 +97,7 @@ PKG_CHECK_MODULES(TOKYOCABINET, tokyocabinet)
 dnl -------------------------------------
 dnl Checks for optional library functions
 dnl -------------------------------------
-AC_CHECK_FUNCS(strnlen daemon memmem memrchr sendfile)
+AC_CHECK_FUNCS(strnlen daemon memmem memrchr sendfile xdr_sizeof)
 
 case $host in
   *-*-solaris* )

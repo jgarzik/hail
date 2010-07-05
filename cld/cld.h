@@ -28,6 +28,7 @@
 #include <cld_msg_rpc.h>
 #include <cld_common.h>
 #include <hail_log.h>
+#include <hail_private.h>
 
 struct client;
 struct session_outpkt;
