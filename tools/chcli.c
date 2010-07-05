@@ -439,7 +439,7 @@ static bool stc_put_file(struct st_client *stc, const void *key, size_t key_len,
 	bool rcb;
 	int fd;
 	struct stat st;
-	off64_t content_len;
+	uint64_t content_len;
 	int rc;
 
 	fd = open(filename, O_RDONLY);
@@ -462,8 +462,8 @@ static int cmd_put(void)
 {
 	struct st_client *stc;
 	bool rcb;
-	char *value_data;
-	gsize value_data_len;
+	char *value_data = NULL;
+	gsize value_data_len = 0;
 
 	if (key_in_file && value_in_file) {
 		if (n_cmd_args) {

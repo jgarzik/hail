@@ -206,7 +206,7 @@ struct cld_msg_del {
 
 /** UNLOCK message */
 struct cld_msg_unlock {
-	uint64_t		fh;		/**< open file handle */
+	unsigned hyper		fh;		/**< open file handle */
 };
 
 /** LOCK message */
