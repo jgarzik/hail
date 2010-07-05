@@ -1641,7 +1641,7 @@ static void fill_poll_arr(gpointer key, gpointer val, gpointer userdata)
 	GArray *pollers = userdata;
 	struct pollfd pfd;
 
-	if (sp->busy)
+	if (sp->busy || !sp->events)
 		return;
 
 	pfd.fd = fd;
