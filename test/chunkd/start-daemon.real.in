@@ -13,6 +13,8 @@ fi
 
 ../../cld/cld -d data/cld -P cld.pid -p auto --port-file=cld.port -E
 
+sleep 3
+
 ../../chunkd/chunkd -C $top_srcdir/test/chunkd/server-test.cfg -E $*
 
 sleep 3
