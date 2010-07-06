@@ -692,7 +692,13 @@ static int cmd_check_status(void)
 	printf("state: %s\n", state);
 
 	last_done = GUINT64_FROM_LE(status.lastdone);
+
+#ifdef HAVE_3ARG_CTIME_R
+	ctime_r(&last_done, chartime, sizeof(chartime));
+#else
 	ctime_r(&last_done, chartime);
+#endif
+
 	if ((s = strchr(chartime, '\n'))) *s = 0;
 	printf("last: %lld (%s)\n", (long long) last_done, chartime);
 

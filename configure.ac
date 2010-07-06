@@ -97,13 +97,20 @@ PKG_CHECK_MODULES(TOKYOCABINET, tokyocabinet)
 dnl -------------------------------------
 dnl Checks for optional library functions
 dnl -------------------------------------
-AC_CHECK_FUNCS(strnlen daemon memmem memrchr sendfile xdr_sizeof)
+AC_CHECK_FUNCS(strnlen daemon memmem memrchr sendfile)
+AC_CHECK_FUNC(xdr_sizeof,
+	[AC_DEFINE([HAVE_XDR_SIZEOF], [1],
+		[Define to 1 if you have xdr_sizeof.])],
+	AC_CHECK_LIB(nsl, xdr_sizeof,
+		     [AC_DEFINE([HAVE_XDR_SIZEOF], [1],
+		     	[Define to 1 if you have xdr_sizeof.])],))
 
 case $host in
   *-*-solaris* )
      AC_DEFINE(_XOPEN_SOURCE_EXTENDED, 1, Needed to get declarations for msg_control and msg_controllen on Solaris)
      AC_DEFINE(_XOPEN_SOURCE,          2, Needed to get declarations for msg_control and msg_controllen on Solaris)
      AC_DEFINE(__EXTENSIONS__,         1, Needed to get declarations for msg_control and msg_controllen on Solaris)
+     AC_DEFINE(HAVE_3ARG_CTIME_R,      1, Needed to support Solaris ctime_r)
      ;;
 esac
 
