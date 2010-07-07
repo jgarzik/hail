@@ -86,7 +86,6 @@ void cli_out_end(struct client *cli)
 static bool object_put_end(struct client *cli)
 {
 	unsigned char md[SHA_DIGEST_LENGTH];
-	char hashstr[50];
 	int rc;
 	enum chunk_errcode err = che_InternalError;
 	bool rcb;
@@ -103,15 +102,13 @@ static bool object_put_end(struct client *cli)
 	cli->state = evt_recycle;
 
 	SHA1_Final(md, &cli->out_hash);
-	hexstr(md, SHA_DIGEST_LENGTH, hashstr);
 
 	rcb = fs_obj_write_commit(cli->out_bo, cli->out_user,
-				  hashstr, (cli->creq.flags & CHF_SYNC));
+				  md, (cli->creq.flags & CHF_SYNC));
 	if (!rcb)
 		goto err_out;
 
-	memcpy(resp->checksum, hashstr, sizeof(hashstr));
-	resp->checksum[sizeof(hashstr)] = 0;
+	memcpy(resp->hash, md, sizeof(resp->hash));
 
 	cli_out_end(cli);
 
@@ -326,8 +323,7 @@ bool object_get(struct client *cli, bool want_body)
 	cli->in_len = obj->size;
 
 	get_resp->resp.data_len = cpu_to_le64(obj->size);
-	memcpy(get_resp->resp.checksum, obj->hashstr, sizeof(obj->hashstr));
-	get_resp->resp.checksum[sizeof(obj->hashstr)] = 0;
+	memcpy(get_resp->resp.hash, obj->hash, sizeof(obj->hash));
 	get_resp->mtime = cpu_to_le64(obj->mtime);
 
 	rc = cli_writeq(cli, get_resp, sizeof(*get_resp), cli_cb_free, get_resp);
@@ -365,7 +361,6 @@ static void worker_cp_thr(struct worker_info *wi)
 	struct backend_obj *obj = NULL, *out_obj = NULL;
 	enum chunk_errcode err = che_InternalError;
 	unsigned char md[SHA_DIGEST_LENGTH];
-	char hashstr[50];
 
 	buf = malloc(bufsz);
 	if (!buf)
@@ -412,9 +407,8 @@ static void worker_cp_thr(struct worker_info *wi)
 	}
 
 	SHA1_Final(md, &cli->out_hash);
-	hexstr(md, SHA_DIGEST_LENGTH, hashstr);
 
-	if (!fs_obj_write_commit(out_obj, cli->user, hashstr, false))
+	if (!fs_obj_write_commit(out_obj, cli->user, md, false))
 		goto err_out;
 
 	err = che_Success;

@@ -136,7 +136,7 @@ struct backend_obj {
 
 	uint64_t		size;
 	time_t			mtime;
-	char			hashstr[50];
+	unsigned char		hash[CHD_CSUM_SZ];
 };
 
 enum st_cld {
@@ -270,7 +270,7 @@ extern ssize_t fs_obj_write(struct backend_obj *bo, const void *ptr, size_t len)
 extern ssize_t fs_obj_read(struct backend_obj *bo, void *ptr, size_t len);
 extern void fs_obj_free(struct backend_obj *bo);
 extern bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
-				const char *hashstr, bool sync_data);
+				unsigned char *md, bool sync_data);
 extern bool fs_obj_delete(uint32_t table_id, const char *user,
 		          const void *kbuf, size_t klen,
 			  enum chunk_errcode *err_code);
@@ -280,14 +280,15 @@ extern int fs_list_objs_open(struct fs_obj_lister *t,
 			     const char *root_path, uint32_t table_id);
 extern int fs_list_objs_next(struct fs_obj_lister *t, char **fnp);
 extern void fs_list_objs_close(struct fs_obj_lister *t);
-extern int fs_obj_hdr_read(const char *fn, char **owner, char **checksum,
+extern int fs_obj_hdr_read(const char *fn, char **owner,
+			   unsigned char *hash,
 			   void **keyp, size_t *klenp,
 			   unsigned long long *size, time_t *mtime);
 extern GList *fs_list_objs(uint32_t table_id, const char *user);
 extern bool fs_table_open(const char *user, const void *kbuf, size_t klen,
 		   bool tbl_creat, bool excl_creat, uint32_t *table_id,
 		   enum chunk_errcode *err_code);
-extern int fs_obj_do_sum(const char *fn, unsigned int klen, char **csump);
+extern int fs_obj_do_sum(const char *fn, unsigned int klen, unsigned char *md);
 
 /* object.c */
 extern bool object_del(struct client *cli);

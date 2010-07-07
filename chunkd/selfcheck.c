@@ -28,9 +28,9 @@ static void chk_list_objs(struct chk_tls *tls, uint32_t table_id)
 {
 	struct fs_obj_lister lister;
 	char *fn;
-	char *csum, *csum_act;
 	char *owner;
 	unsigned long long size;
+	unsigned char md[CHD_CSUM_SZ], md_act[CHD_CSUM_SZ];
 	time_t mtime;
 	void *key_in;
 	size_t klen_in;
@@ -47,7 +47,7 @@ static void chk_list_objs(struct chk_tls *tls, uint32_t table_id)
 
 	while (fs_list_objs_next(&lister, &fn) > 0) {
 
-		rc = fs_obj_hdr_read(fn, &owner, &csum, &key_in, &klen_in,
+		rc = fs_obj_hdr_read(fn, &owner, md, &key_in, &klen_in,
 				     &size, &mtime);
 		if (rc < 0) {
 			free(fn);
@@ -59,22 +59,27 @@ static void chk_list_objs(struct chk_tls *tls, uint32_t table_id)
 			/* This is pretty much impossible unless OOM */
 			applog(LOG_ERR, "chk: objcache_get failed");
 			free(owner);
-			free(csum);
 			free(key_in);
 			free(fn);
 			break;
 		}
 
-		rc = fs_obj_do_sum(fn, klen_in, &csum_act);
+		rc = fs_obj_do_sum(fn, klen_in, md_act);
 		if (rc) {
 			applog(LOG_INFO, "Cannot compute checksum for %s", fn);
 		} else {
 			if (!objcache_test_dirty(&chunkd_srv.actives, cep)) {
-				if (strcmp(csum, csum_act)) {
+				if (memcmp(md, md_act, sizeof(md))) {
+					char hashstr[(CHD_CSUM_SZ*2) + 1];
+					char hashstr_act[(CHD_CSUM_SZ*2) + 1];
+
+					hexstr(md, CHD_CSUM_SZ, hashstr);
+					hexstr(md_act, CHD_CSUM_SZ,hashstr_act);
+
 					applog(LOG_INFO,
 					       "Checksum mismatch for %s: "
 					       "expected %s actual %s",
-					       fn, csum, csum_act);
+					       fn, hashstr, hashstr_act);
 					fs_obj_disable(fn);
 					/*
 					 * FIXME Suicide the whole server if
@@ -87,12 +92,10 @@ static void chk_list_objs(struct chk_tls *tls, uint32_t table_id)
 			} else {
 				tls->stat_conflict++;
 			}
-			free(csum_act);
 		}
 
 		objcache_put(&chunkd_srv.actives, cep);
 		free(owner);
-		free(csum);
 		free(key_in);
 
 		free(fn);

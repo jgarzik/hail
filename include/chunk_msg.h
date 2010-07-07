@@ -27,7 +27,7 @@ enum {
 	CHD_MAGIC_SZ		= 8,
 	CHD_USER_SZ		= 64,
 	CHD_KEY_SZ		= 1024,	/* key size limit; max 65534 (fffe) */
-	CHD_CSUM_SZ		= 64,
+	CHD_CSUM_SZ		= 20,	/* == SHA_DIGEST_LENGTH */
 	CHD_SIG_SZ		= 64,
 };
 
@@ -90,7 +90,7 @@ struct chunksrv_resp {
 	uint8_t			rsv1[3];
 	uint32_t		nonce;	/* txn id, copied from request */
 	uint64_t		data_len;		/* len of addn'l data */
-	char			checksum[CHD_CSUM_SZ];	/* SHA1 checksum */
+	unsigned char		hash[CHD_CSUM_SZ];	/* SHA1 checksum */
 };
 
 struct chunksrv_resp_get {

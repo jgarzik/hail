@@ -62,7 +62,7 @@ struct be_fs_obj_hdr {
 
 	char			reserved[16];
 
-	char			checksum[128];
+	unsigned char		hash[CHD_CSUM_SZ];
 	char			owner[128];
 } __attribute__ ((packed));
 
@@ -506,8 +506,7 @@ struct backend_obj *fs_obj_open(uint32_t table_id, const char *user,
 		goto err_out_read;
 	}
 
-	strncpy(obj->bo.hashstr, hdr.checksum, sizeof(obj->bo.hashstr));
-	obj->bo.hashstr[sizeof(obj->bo.hashstr) - 1] = 0;
+	memcpy(obj->bo.hash, hdr.hash, sizeof(obj->bo.hash));
 	obj->bo.size = value_len;
 	obj->bo.mtime = st.st_mtime;
 
@@ -638,7 +637,7 @@ ssize_t fs_obj_sendfile(struct backend_obj *bo, int out_fd, size_t len)
 #endif /* HAVE_SENDFILE && HAVE_SYS_SENDFILE_H */
 
 bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
-				const char *hashstr, bool sync_data)
+			 unsigned char *md, bool sync_data)
 {
 	struct fs_obj *obj = bo->private;
 	struct be_fs_obj_hdr hdr;
@@ -646,7 +645,7 @@ bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 
 	memset(&hdr, 0, sizeof(hdr));
 	memcpy(hdr.magic, BE_FS_OBJ_MAGIC, strlen(BE_FS_OBJ_MAGIC));
-	strncpy(hdr.checksum, hashstr, sizeof(hdr.checksum));
+	memcpy(hdr.hash, md, sizeof(hdr.hash));
 	strncpy(hdr.owner, user, sizeof(hdr.owner));
 	hdr.key_len = GUINT32_TO_LE(bo->key_len);
 	hdr.value_len = GUINT64_TO_LE(obj->written_bytes);
@@ -873,7 +872,7 @@ void fs_list_objs_close(struct fs_obj_lister *t)
  * Read an object by filename.
  * TODO - possibly factor out some code from fs_obj_open and fs_obj_delete.
  */
-int fs_obj_hdr_read(const char *fn, char **owner, char **csum,
+int fs_obj_hdr_read(const char *fn, char **owner, unsigned char *hash,
 		    void **keyp, size_t *klenp,
 		    unsigned long long *size, time_t *mtime)
 {
@@ -945,11 +944,8 @@ int fs_obj_hdr_read(const char *fn, char **owner, char **csum,
 		applog(LOG_WARNING, "NO CORE");
 		goto err_owner;
 	}
-	*csum = strndup(hdr.checksum, sizeof(hdr.checksum));
-	if (!*csum) {
-		applog(LOG_WARNING, "NO CORE");
-		goto err_csum;
-	}
+
+	memcpy(hash, hdr.hash, sizeof(hdr.hash));
 
 	*keyp = key_in;
 	*klenp = klen_in;
@@ -959,8 +955,6 @@ int fs_obj_hdr_read(const char *fn, char **owner, char **csum,
 	close(fd);
 	return 0;
 
- err_csum:
-	free(*owner);
  err_owner:
  err_var:
 	free(key_in);
@@ -988,16 +982,17 @@ GList *fs_list_objs(uint32_t table_id, const char *user)
 
 	while (fs_list_objs_next(&lister, &fn) > 0) {
 		char *owner;
-		char *csum;
 		unsigned long long size;
 		time_t mtime;
 		struct volume_entry *ve;
 		void *p;
+		unsigned char md[CHD_CSUM_SZ];
 		size_t alloc_len;
 		void *key_in;
 		size_t klen_in;
+		char hashstr[(CHD_CSUM_SZ * 2) + 1];
 
-		rc = fs_obj_hdr_read(fn, &owner, &csum, &key_in, &klen_in,
+		rc = fs_obj_hdr_read(fn, &owner, md, &key_in, &klen_in,
 				     &size, &mtime);
 		if (rc < 0) {
 			free(fn);
@@ -1005,23 +1000,23 @@ GList *fs_list_objs(uint32_t table_id, const char *user)
 		}
 		free(fn);
 
+		hexstr(md, CHD_CSUM_SZ, hashstr);
+
 		/* filter out results that do not match
 		 * the authenticated user
 		 */
 		if (strcmp(user, owner)) {
 			free(owner);
-			free(csum);
 			free(key_in);
 			continue;
 		}
 
 		/* one alloc, for fixed + var length struct */
-		alloc_len = sizeof(*ve) + strlen(csum) + 1 + strlen(owner) + 1;
+		alloc_len = sizeof(*ve) + strlen(hashstr)+1 + strlen(owner) + 1;
 
 		ve = malloc(alloc_len);
 		if (!ve) {
 			free(owner);
-			free(csum);
 			free(key_in);
 			applog(LOG_ERR, "OOM");
 			break;
@@ -1040,7 +1035,7 @@ GList *fs_list_objs(uint32_t table_id, const char *user)
 
 		p = (ve + 1);
 		ve->hash = p;
-		strcpy(ve->hash, csum);
+		strcpy(ve->hash, hashstr);
 
 		p += strlen(ve->hash) + 1;
 		ve->owner = p;
@@ -1050,14 +1045,13 @@ GList *fs_list_objs(uint32_t table_id, const char *user)
 		res = g_list_append(res, ve);
 
 		free(owner);
-		free(csum);
 	}
 
 	fs_list_objs_close(&lister);
 	return res;
 }
 
-int fs_obj_do_sum(const char *fn, unsigned int klen, char **csump)
+int fs_obj_do_sum(const char *fn, unsigned int klen, unsigned char *md)
 {
 	enum { BUFLEN = 128 * 1024 };
 	void *buf;
@@ -1065,8 +1059,6 @@ int fs_obj_do_sum(const char *fn, unsigned int klen, char **csump)
 	ssize_t rrc;
 	int rc;
 	SHA_CTX hash;
-	char *csum;
-	unsigned char md[SHA_DIGEST_LENGTH];
 
 	rc = ENOMEM;
 	buf = malloc(BUFLEN);
@@ -1097,19 +1089,10 @@ int fs_obj_do_sum(const char *fn, unsigned int klen, char **csump)
 	}
 	SHA1_Final(md, &hash);
 
-	csum = malloc(SHA_DIGEST_LENGTH*2 + 1);
-	if (!csum) {
-		rc = ENOMEM;
-		goto err_retdup;
-	}
-	hexstr(md, SHA_DIGEST_LENGTH, csum);
-
 	close(fd);
 	free(buf);
-	*csump = csum;
 	return 0;
 
- err_retdup:
  err_read:
 	close(fd);
  err_seek:
