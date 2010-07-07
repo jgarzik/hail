@@ -3,6 +3,7 @@ basic-object
 it-works
 large-object
 lotsa-objects
+cp
 nop
 objcache-unit
 selfcheck-unit

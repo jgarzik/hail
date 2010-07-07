@@ -24,19 +24,12 @@ libtool
 ltmain.sh
 
 # app-specific
-cld
-cldbadm
-chunkd
 hail*.tar.gz
 hail-config.h*
 
 # cscope files
 cscope.*
 ncscope.*
-
-# XDR files
-*_rpc.h
-*_rpc_xdr.c
 
 # ignore Doxygen output directory
 gendoc

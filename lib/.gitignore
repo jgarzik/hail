@@ -6,8 +6,9 @@ libhail.a
 libhail-uninstalled.pc
 libhail.pc
 
-libtimer.a
-libchunksrv.a
+# XDR files
+*_rpc.h
+*_rpc_xdr.c
 
 .libs
 
