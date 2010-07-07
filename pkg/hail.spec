@@ -19,7 +19,7 @@ Requires(preun):	chkconfig initscripts
 
 BuildRequires:	db4-devel glib2-devel doxygen openssl-devel
 BuildRequires:	texlive-latex fuse-devel
-BuildRequires:	libevent-devel zlib-devel
+BuildRequires:	libevent-devel zlib-devel libcurl-devel
 BuildRequires:	libxml2-devel procps tokyocabinet-devel
 
 %description

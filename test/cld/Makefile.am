@@ -26,7 +26,7 @@ check_PROGRAMS		= basic-session \
 			  lock-file
 
 TESTLDADD		= ../../lib/libhail.la	\
-		  	  @GLIB_LIBS@ @CRYPTO_LIBS@ @SSL_LIBS@ @XML_LIBS@
+		  	  @GLIB_LIBS@ @CRYPTO_LIBS@ @SSL_LIBS@ @XML_LIBS@ @LIBCURL@
 basic_session_LDADD	= $(TESTLDADD)
 basic_io_LDADD		= $(TESTLDADD)
 lock_file_LDADD		= $(TESTLDADD)

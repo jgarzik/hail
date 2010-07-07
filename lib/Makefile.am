@@ -30,6 +30,9 @@ libhail_la_SOURCES	=	\
 	cld_msg_rpc_xdr.c	\
 	chunkdc.c		\
 	chunksrv.c		\
+	hstor.c			\
+	hutil.c			\
+	huri.c			\
 	xdr_sizeof.c
 
 libhail_la_LDFLAGS = \

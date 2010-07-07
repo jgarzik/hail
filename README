@@ -5,9 +5,15 @@ Dependencies:
 	DB 4.x
 	argp or argp-standalone
 	GLib 2.x
-	doxygen
 	openssl
-	FUSE
+	libevent
+	libcurl
+	zlib
+	libxml2
+	tokyocabinet
+	doxygen and TeX (optional)
+	FUSE (optional)
+
 
 Home page:	http://hail.wiki.kernel.org/
 

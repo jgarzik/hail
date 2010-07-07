@@ -38,7 +38,7 @@ check_PROGRAMS		= auth basic-object cp it-works large-object \
 TESTLDADD		= ../../lib/libhail.la	\
 			  libtest.a		\
 			  @GLIB_LIBS@ @CRYPTO_LIBS@ \
-			  @XML_LIBS@ @SSL_LIBS@
+			  @XML_LIBS@ @SSL_LIBS@ @LIBCURL@
 basic_object_LDADD	= $(TESTLDADD)
 cp_LDADD		= $(TESTLDADD)
 auth_LDADD		= $(TESTLDADD)

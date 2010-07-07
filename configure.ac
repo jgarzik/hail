@@ -126,6 +126,8 @@ PKG_PROG_PKG_CONFIG()
 
 AM_PATH_GLIB_2_0(2.0.0,,,gthread)
 AM_PATH_XML2(2.6.0, , exit 1)
+LIBCURL_CHECK_CONFIG(, 7.10.1, ,
+  [AC_MSG_ERROR([Missing required libcurl >= 7.10.1])])
 
 AC_SUBST(DB4_LIBS)
 AC_SUBST(CRYPTO_LIBS)
