@@ -512,6 +512,9 @@ do_write:
 			if (rc == SSL_ERROR_WANT_WRITE)
 				return;
 
+			applog(LOG_INFO, "client %s SSL error %ld",
+			       cli->addr_host,
+			       (long) rc);
 			goto err_out;
 		}
 	} else {
