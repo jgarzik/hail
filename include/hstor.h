@@ -131,7 +131,7 @@ enum ReqACLC {
 
 /* hutil.c */
 extern char *hutil_time2str(char *buf, int len, time_t time);
-extern time_t str2time(const char *timestr);
+extern time_t hutil_str2time(const char *timestr);
 extern int hreq_hdr_push(struct http_req *req, char *key, char *val);
 extern char *hreq_hdr(struct http_req *req, const char *key);
 extern void hreq_sign(struct http_req *req, const char *bucket, const char *key,
@@ -142,6 +142,7 @@ extern void hreq_free(struct http_req *req);
 extern int hreq_acl_canned(struct http_req *req);
 
 /* uri.c */
+extern struct http_uri *huri_parse(struct http_uri *uri_dest, char *uri_src_text);
 extern int huri_field_unescape(char *s, int s_len);
 extern char* huri_field_escape (char *signed_str, unsigned char mask);
 
