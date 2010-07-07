@@ -418,6 +418,16 @@ static bool cli_evt_recycle(struct client *cli, unsigned int events)
 	return true;
 }
 
+bool cli_rd_set_poll(struct client *cli, bool readable)
+{
+	if (readable)
+		srv_poll_mask(cli->fd, POLLIN, 0);
+	else
+		srv_poll_mask(cli->fd, 0, POLLIN);
+	
+	return true;
+}
+
 void cli_wr_set_poll(struct client *cli, bool writable)
 {
 	if (writable)
@@ -1052,6 +1062,7 @@ static const char *op2str(enum chunksrv_ops op)
 	case CHO_CHECK_START:	return "CHO_CHECK_START";
 	case CHO_CHECK_STATUS:	return "CHO_CHECK_STATUS";
 	case CHO_START_TLS:	return "CHO_START_TLS";
+	case CHO_CP:		return "CHO_CP";
 
 	default:
 		return "BUG/UNKNOWN!";
@@ -1146,6 +1157,9 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 	case CHO_DEL:
 		rcb = object_del(cli);
 		break;
+	case CHO_CP:
+		rcb = object_cp(cli);
+		break;
 	case CHO_LIST:
 		rcb = volume_list(cli);
 		break;
@@ -1229,8 +1243,10 @@ static bool cli_evt_read_fixed(struct client *cli, unsigned int events)
 
 	/* otherwise, go to read-variable-len-record state */
 	cli->req_ptr = &cli->key;
+	cli->var_len = cli->key_len;
 	cli->req_used = 0;
 	cli->state = evt_read_var;
+	cli->second_var = false;
 
 	return true;
 }
@@ -1238,7 +1254,7 @@ static bool cli_evt_read_fixed(struct client *cli, unsigned int events)
 static bool cli_evt_read_var(struct client *cli, unsigned int events)
 {
 	int rc = cli_read_data(cli, cli->req_ptr,
-			       cli->key_len - cli->req_used);
+			       cli->var_len - cli->req_used);
 	if (rc < 0) {
 		cli->state = evt_dispose;
 		return true;
@@ -1248,10 +1264,17 @@ static bool cli_evt_read_var(struct client *cli, unsigned int events)
 	cli->req_used += rc;
 
 	/* poll for more, if variable-length record not yet received */
-	if (cli->req_used < cli->key_len)
+	if (cli->req_used < cli->var_len)
 		return false;
 
-	cli->state = evt_exec_req;
+	if (cli->creq.op == CHO_CP && !cli->second_var) {
+		cli->req_ptr = &cli->key2;
+		cli->var_len = le64_to_cpu(cli->creq.data_len);
+		cli->req_used = 0;
+		cli->state = evt_read_var;
+		cli->second_var = true;
+	} else
+		cli->state = evt_exec_req;
 
 	return true;
 }
@@ -1304,7 +1327,7 @@ static void tcp_cli_wr_event(int fd, short events, void *userdata)
 		cli_writable(cli);
 }
 
-static bool tcp_cli_event(int fd, short events, void *userdata)
+bool tcp_cli_event(int fd, short events, void *userdata)
 {
 	struct client *cli = userdata;
 	bool loop = false, disposing = false;
@@ -1420,6 +1443,25 @@ static int net_write_port(const char *port_file, const char *port_str)
 	fprintf(portf, "%s\n", port_str);
 	fclose(portf);
 	return 0;
+}
+
+static bool pipe_watch(int pipe_fd_0, 
+		       bool (*cb)(int fd, short events, void *userdata),
+		       void *userdata)
+{
+	struct server_poll *sp;
+
+	sp = calloc(1, sizeof(*sp));
+	if (!sp)
+		return false;
+
+	sp->events = POLLIN;
+	sp->cb = cb;
+	sp->userdata = userdata;
+
+	g_hash_table_insert(chunkd_srv.fd_info, GINT_TO_POINTER(pipe_fd_0), sp);
+
+	return true;
 }
 
 static int net_open_socket(const struct listen_cfg *cfg,
@@ -1637,6 +1679,45 @@ static int net_open(struct listen_cfg *cfg)
 		return net_open_known(cfg);
 }
 
+static void worker_thread(gpointer data, gpointer userdata)
+{
+	struct worker_info *wi = data;
+
+	wi->thr_ev(wi);
+}
+
+bool worker_pipe_signal(struct worker_info *wi)
+{
+	ssize_t wrc;
+
+	wrc = write(chunkd_srv.worker_pipe[1], &wi, sizeof(wi));
+	if (wrc != sizeof(wi)) {
+		applog(LOG_ERR, "worker pipe output failed: %s",
+		       strerror(errno));
+		return false;
+	}
+	
+	return true;
+}
+
+static bool worker_pipe_evt(int fd, short events, void *userdata)
+{
+	struct worker_info *wi = NULL;
+
+	if (read(fd, &wi, sizeof(wi)) != sizeof(wi)) {
+		applog(LOG_ERR, "worker pipe input failed: %s",
+		       strerror(errno));
+		return false;
+	}
+
+	wi->pipe_ev(wi);
+
+	if (!srv_poll_ready(fd))
+		applog(LOG_ERR, "unable to ready worker fd for polling");
+
+	return true;
+}
+
 static void fill_poll_arr(gpointer key, gpointer val, gpointer userdata)
 {
 	int fd = GPOINTER_TO_INT(key);
@@ -1833,21 +1914,38 @@ int main (int argc, char *argv[])
 		goto err_out_session;
 	}
 
+	chunkd_srv.max_workers = 10;
+	chunkd_srv.workers = g_thread_pool_new(worker_thread, NULL,
+					       chunkd_srv.max_workers,
+					       FALSE, NULL);
+	if (!chunkd_srv.workers) {
+		rc = 1;
+		goto err_out_fd_info;
+	}
+
 	if (objcache_init(&chunkd_srv.actives) != 0) {
 		rc = 1;
-		goto err_out_objcache;
+		goto err_out_workers;
 	}
 
 	chunkd_srv.trash_sz = 0;
 
 	if (pipe(chunkd_srv.chk_pipe) < 0) {
 		rc = 1;
-		goto err_out_pipe;
+		goto err_out_objcache;
+	}
+	if (pipe(chunkd_srv.worker_pipe) < 0) {
+		rc = 1;
+		goto err_out_chk_pipe;
+	}
+	if (!pipe_watch(chunkd_srv.worker_pipe[0], worker_pipe_evt, NULL)) {
+		rc = 1;
+		goto err_out_chk_pipe;
 	}
 
 	if (fs_open()) {
 		rc = 1;
-		goto err_out_fs;
+		goto err_out_worker_pipe;
 	}
 
 	/* set up server networking */
@@ -1877,13 +1975,17 @@ err_out_cld:
 	/* net_close(); */
 err_out_listen:
 	fs_close();
-err_out_fs:
+err_out_worker_pipe:
+err_out_chk_pipe:
 	cmd = CHK_CMD_EXIT;
 	write(chunkd_srv.chk_pipe[1], &cmd, 1);
 	close(chunkd_srv.chk_pipe[1]);
-err_out_pipe:
-	objcache_fini(&chunkd_srv.actives);
 err_out_objcache:
+	objcache_fini(&chunkd_srv.actives);
+err_out_workers:
+	if (strict_free)
+		g_thread_pool_free(chunkd_srv.workers, TRUE, FALSE);
+err_out_fd_info:
 	if (strict_free)
 		g_hash_table_destroy(chunkd_srv.fd_info);
 err_out_session:

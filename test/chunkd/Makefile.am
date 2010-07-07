@@ -1,5 +1,6 @@
 
 INCLUDES	= -I$(top_srcdir)/include	\
+		  -I$(top_srcdir)/lib		\
 		  @GLIB_CFLAGS@ @XML_CPPFLAGS@
 
 EXTRA_DIST =			\
@@ -24,13 +25,14 @@ TESTS =				\
 	nop			\
 	basic-object		\
 	auth			\
+	cp			\
 	large-object		\
 	lotsa-objects		\
 	selfcheck-unit		\
 	stop-daemon		\
 	clean-db
 
-check_PROGRAMS		= auth basic-object it-works large-object \
+check_PROGRAMS		= auth basic-object cp it-works large-object \
 			  lotsa-objects nop objcache-unit selfcheck-unit
 
 TESTLDADD		= ../../lib/libhail.la	\
@@ -38,6 +40,7 @@ TESTLDADD		= ../../lib/libhail.la	\
 			  @GLIB_LIBS@ @CRYPTO_LIBS@ \
 			  @XML_LIBS@ @SSL_LIBS@
 basic_object_LDADD	= $(TESTLDADD)
+cp_LDADD		= $(TESTLDADD)
 auth_LDADD		= $(TESTLDADD)
 it_works_LDADD		= $(TESTLDADD)
 large_object_LDADD	= $(TESTLDADD)

@@ -56,6 +56,8 @@ static struct argp_option options[] = {
 	  "Read value from FILE, rather than command line" },
 	{ "output", 'o', "FILE", 0,
 	  "Send GET output to FILE, rather than stdout" },
+	{ "src", 's', "FILE", 0,
+	  "Read source key from FILE, rather than command line" },
 	{ "ssl", 'S', NULL, 0,
 	  "Enable SSL channel security" },
 	{ "table", 't', "TABLE", 0,
@@ -91,6 +93,7 @@ enum chcli_cmd {
 	CHC_PING,
 	CHC_CHECKSTATUS,
 	CHC_CHECKSTART,
+	CHC_CP,
 };
 
 struct chcli_host {
@@ -107,6 +110,9 @@ static char *output_fn;
 static char *key_data;
 static gsize key_data_len;
 static bool key_in_file;
+static char *key2_data;
+static gsize key2_data_len;
+static bool key2_in_file;
 static char *input_fn;
 static bool value_in_file;
 static char *table_name;
@@ -186,6 +192,7 @@ static void show_cmds(void)
 "PING          Ping server\n"
 "CHECKSTATUS   Fetch status of server self-check\n"
 "CHECKSTART    Begin server self-check\n"
+"CP dst src    Copy object 'src' into new object 'dst'\n"
 "\n"
 "Keys provided on the command line (as opposed to via -k) are stored\n"
 "with a C-style nul terminating character appended, adding 1 byte to\n"
@@ -283,6 +290,14 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 		}
 		key_in_file = true;
 		break;
+	case 's':
+		if (!g_file_get_contents(arg, &key2_data, &key2_data_len,
+					 NULL)) {
+			fprintf(stderr, "failed to read src file %s\n", arg);
+			argp_usage(state);
+		}
+		key2_in_file = true;
+		break;
 	case 'i':
 		input_fn = arg;
 		value_in_file = true;
@@ -324,6 +339,8 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 			cmd_mode = CHC_CHECKSTATUS;
 		else if (!strcasecmp(arg, "checkstart"))
 			cmd_mode = CHC_CHECKSTART;
+		else if (!strcasecmp(arg, "cp"))
+			cmd_mode = CHC_CP;
 		else
 			argp_usage(state);	/* invalid cmd */
 		break;
@@ -377,6 +394,64 @@ static int cmd_ping(void)
 
 	if (!stc_ping(stc)) {
 		fprintf(stderr, "PING failed\n");
+		stc_free(stc);
+		return 1;
+	}
+
+	stc_free(stc);
+
+	return 0;
+}
+
+static int cmd_cp(void)
+{
+	struct st_client *stc;
+
+	/* if dest key data not supplied via file, absorb first cmd arg */
+	if (!key_data) {
+		if (!n_cmd_args) {
+			fprintf(stderr, "CP requires dst,src args\n");
+			return 1;
+		}
+
+		key_data = cmd_args[0];
+		key_data_len = strlen(cmd_args[0]) + 1;
+
+		cmd_args++;
+		n_cmd_args--;
+	}
+
+	/* if src key data not supplied via file, absorb second cmd arg */
+	if (!key2_data) {
+		if (!n_cmd_args) {
+			fprintf(stderr, "CP requires dst,src args\n");
+			return 1;
+		}
+
+		key2_data = cmd_args[0];
+		key2_data_len = strlen(cmd_args[0]) + 1;
+
+		cmd_args++;
+		n_cmd_args--;
+	}
+
+	if (key_data_len < 1 || key_data_len > CHD_KEY_SZ) {
+		fprintf(stderr, "CP: invalid key size %u\n",
+			(unsigned int) key_data_len);
+		return 1;
+	}
+	if (key2_data_len < 1 || key2_data_len > CHD_KEY_SZ) {
+		fprintf(stderr, "CP: invalid key size %u\n",
+			(unsigned int) key2_data_len);
+		return 1;
+	}
+
+	stc = chcli_stc_new();
+	if (!stc)
+		return 1;
+
+	if (!stc_cp(stc, key_data, key_data_len, key2_data, key2_data_len)) {
+		fprintf(stderr, "CP failed\n");
 		stc_free(stc);
 		return 1;
 	}
@@ -765,6 +840,8 @@ int main (int argc, char *argv[])
 		return cmd_check_status();
 	case CHC_CHECKSTART:
 		return cmd_check_start();
+	case CHC_CP:
+		return cmd_cp();
 	}
 
 	return 0;

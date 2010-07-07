@@ -104,6 +104,8 @@ struct client {
 	unsigned int		req_used;	/* amount of req_buf in use */
 	void			*req_ptr;	/* start of unexamined data */
 	uint16_t		key_len;
+	unsigned int		var_len;	/* len of vari len record */
+	bool			second_var;	/* inside 2nd vari len rec? */
 
 	char			*hdr_start;	/* current hdr start */
 	char			*hdr_end;	/* current hdr end (so far) */
@@ -124,6 +126,7 @@ struct client {
 	char			netbuf_out[CLI_DATA_BUF_SZ];
 	char			key[CHD_KEY_SZ];
 	char			table[CHD_KEY_SZ];
+	char			key2[CHD_KEY_SZ];
 };
 
 struct backend_obj {
@@ -160,6 +163,14 @@ struct volume_entry {
 	int			key_len;
 	char			*hash;		/* obj SHA1 checksum */
 	char			*owner;		/* obj owner username */
+};
+
+struct worker_info {
+	enum chunk_errcode	err;		/* error returned to pipe */
+	struct client		*cli;		/* associated client conn */
+
+	void			(*thr_ev)(struct worker_info *);
+	void			(*pipe_ev)(struct worker_info *);
 };
 
 struct server_stats {
@@ -208,6 +219,10 @@ struct server {
 	struct list_head	sockets;	/* points into listeners */
 
 	GHashTable		*fd_info;
+
+	GThreadPool		*workers;	/* global thread worker pool */
+	int			max_workers;
+	int			worker_pipe[2];
 
 	struct list_head	wr_trash;
 	unsigned int		trash_sz;
@@ -278,6 +293,7 @@ extern int fs_obj_do_sum(const char *fn, unsigned int klen, char **csump);
 extern bool object_del(struct client *cli);
 extern bool object_put(struct client *cli);
 extern bool object_get(struct client *cli, bool want_body);
+extern bool object_cp(struct client *cli);
 extern bool cli_evt_data_in(struct client *cli, unsigned int events);
 extern void cli_out_end(struct client *cli);
 extern void cli_in_end(struct client *cli);
@@ -314,12 +330,15 @@ extern bool cli_err(struct client *cli, enum chunk_errcode code, bool recycle_ok
 extern int cli_writeq(struct client *cli, const void *buf, unsigned int buflen,
 		     cli_write_func cb, void *cb_data);
 extern bool cli_wr_sendfile(struct client *, cli_write_func);
+extern bool cli_rd_set_poll(struct client *cli, bool readable);
 extern void cli_wr_set_poll(struct client *cli, bool writable);
 extern bool cli_cb_free(struct client *cli, struct client_write *wr,
 			bool done);
 extern bool cli_write_start(struct client *cli);
 extern int cli_req_avail(struct client *cli);
 extern int cli_poll_mod(struct client *cli);
+extern bool worker_pipe_signal(struct worker_info *wi);
+extern bool tcp_cli_event(int fd, short events, void *userdata);
 extern void resp_init_req(struct chunksrv_resp *resp,
 		   const struct chunksrv_req *req);
 

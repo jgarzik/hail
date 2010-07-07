@@ -1091,6 +1091,62 @@ bool stc_check_status(struct st_client *stc, struct chunk_check_status *out)
 	return true;
 }
 
+bool stc_cp(struct st_client *stc,
+	    const void *dest_key, size_t dest_key_len,
+	    const void *src_key, size_t src_key_len)
+{
+	struct chunksrv_resp resp;
+	struct chunksrv_req *req;
+	void *p;
+	bool rcb = false;
+	size_t alloc_len;
+
+	if (stc->verbose)
+		fprintf(stderr, "libstc: CP\n");
+
+	alloc_len = sizeof(*req) + src_key_len + dest_key_len;
+	req = malloc(alloc_len);
+	if (!req)
+		return false;
+
+	/* initialize request */
+	req_init(stc, req);
+	req->op = CHO_CP;
+	req->data_len = cpu_to_le64(src_key_len);
+
+	/* store destination (new) key in key (1st) buffer area */
+	req_set_key(req, dest_key, dest_key_len);
+
+	/* store source (old) key in data (2nd) buffer area */
+	p = (req + 1);
+	p += dest_key_len;
+	memcpy(p, src_key, src_key_len);
+
+	/* sign request */
+	chreq_sign(req, stc->key, req->sig);
+
+	/* write request */
+	if (!net_write(stc, req, alloc_len))
+		goto out;
+
+	/* read response header */
+	if (!net_read(stc, &resp, sizeof(resp)))
+		goto out;
+
+	/* check response code */
+	if (resp.resp_code != che_Success) {
+		if (stc->verbose)
+			fprintf(stderr, "CP resp code: %d\n", resp.resp_code);
+		goto out;
+	}
+
+	rcb = true;
+
+out:
+	free(req);
+	return rcb;
+}
+
 /*
  * For extra safety, call stc_init after g_thread_init, if present.
  * Currently we just call srand(), but since we use GLib, we may need

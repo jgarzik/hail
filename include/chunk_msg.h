@@ -48,6 +48,8 @@ enum chunksrv_ops {
 	 * functions' success/failure is sufficient indication.
 	 */
 	CHO_START_TLS		= 10,	/* Encrypt all subsequent msgs */
+
+	CHO_CP			= 11,	/* local object copy (intra-table) */
 };
 
 enum chunk_errcode {

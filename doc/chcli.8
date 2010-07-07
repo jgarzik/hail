@@ -86,7 +86,14 @@ than the command line.
 Obtain key portion of a key/value pair from the specified file,
 rather than the command line.  Keys provided on the command line
 (as opposed to via -k) are stored with a C-style nul terminating
-character appended, adding 1 byte to each key.
+character appended, adding 1 byte to each key.  If the command is copy (CP),
+this represents the destination key.
+.TP
+.B \-s \-\-src
+Obtain source-key portion of a source-key/source-value pair from the
+specified file, rather than the command line.  Keys provided on the
+command line (as opposed to via -s) are stored with a C-style nul
+terminating character appended, adding 1 byte to each key.
 .TP
 .B \-\-list-cmds
 List all supported commands, and a short command usage synopsis.
@@ -130,6 +137,10 @@ Fetch status of server self-check
 .TP
 .B CHECKSTART
 Begin server self-check
+.TP
+.B CP dest-key src-key
+Copy object represented by 'src-key' into new object referenced
+by 'dest-key'
 .TP
 Keys provided on the command line (as opposed to via -k) are stored
 with a C-style nul terminating character appended, adding 1 byte to

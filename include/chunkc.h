@@ -85,6 +85,9 @@ extern bool stc_put_sync(struct st_client *stc);
 extern bool stc_put_inline(struct st_client *stc, const void *key,
 			   size_t key_len, void *data, uint64_t len,
 			   uint32_t flags);
+extern bool stc_cp(struct st_client *stc,
+		   const void *dest_key, size_t dest_key_len,
+		   const void *src_key, size_t src_key_len);
 
 extern bool stc_del(struct st_client *stc, const void *key, size_t key_len);
 extern bool stc_ping(struct st_client *stc);
@@ -131,6 +134,13 @@ static inline bool stc_table_openz(struct st_client *stc, const char *key,
 				   uint32_t flags)
 {
 	return stc_table_open(stc, key, strlen(key) + 1, flags);
+}
+
+static inline bool stc_cpz(struct st_client *stc,
+			   const char *dest_key, const char *src_key)
+{
+	return stc_cp(stc, dest_key, strlen(dest_key) + 1,
+		      src_key, strlen(src_key) + 1);
 }
 
 #endif /* __STC_H__ */
