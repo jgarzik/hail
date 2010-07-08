@@ -621,13 +621,13 @@ bool hstor_del(struct hstor_client *hstor, const char *bucket, const char *key)
 static GString *append_qparam(GString *str, const char *key, const char *val,
 		       char *arg_char)
 {
-	char *stmp, s[32];
+	char *stmp;
 
 	str = g_string_append(str, arg_char);
 	arg_char[0] = '&';
 
-	sprintf(s, "%s=", key);
 	str = g_string_append(str, key);
+	str = g_string_append(str, "=");
 
 	stmp = huri_field_escape(strdup(val), QUERY_ESCAPE_MASK);
 	str = g_string_append(str, stmp);
@@ -868,7 +868,7 @@ struct hstor_keylist *hstor_keys(struct hstor_client *hstor, const char *bucket,
 		}
 		else if (!_strcmp(node->name, "Prefix")) {
 			xs = xmlNodeListGetString(doc, node->children, 1);
-			keylist->prefix = strdup((char *)xs);
+			keylist->prefix = strdup(xs? (char *)xs: "");
 			xmlFree(xs);
 		}
 		else if (!_strcmp(node->name, "Marker")) {
