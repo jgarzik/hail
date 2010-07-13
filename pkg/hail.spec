@@ -1,25 +1,24 @@
 Name:		hail
-Version:	0.7
-Release:	1%{?dist}
+Version:	0.8
+Release:	0.1.gee257f18%{?dist}
 Summary:	Project Hail core cloud services
 
-Group:		System Environment/Base
+Group:		System Environment/Libraries
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-Source0:	http://www.kernel.org/pub/software/network/distsrv/hail/hail-%{version}.tar.gz
+# pulled from upstream git, commit ee257f18f601922df84687736c6bd1ac76b16580
+# to recreate tarball, check out commit, then run "make dist"
+Source0:	hail-%{version}git.tar.gz
 Source2:	cld.init
 Source3:	cld.sysconf
 Source4:	chunkd.init
 Source5:	chunkd.sysconf
 BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
-Requires(post):		chkconfig
-Requires(preun):	chkconfig initscripts
-
 BuildRequires:	db4-devel glib2-devel doxygen openssl-devel
 BuildRequires:	texlive-latex fuse-devel
-BuildRequires:	libevent-devel zlib-devel libcurl-devel
+BuildRequires:	libevent-devel libcurl-devel
 BuildRequires:	libxml2-devel procps tokyocabinet-devel
 
 %description
@@ -30,6 +29,8 @@ Project Hail.
 Summary: Coarse locking service for %{name}
 Group: System Environment/Base
 Requires: %{name} = %{version}-%{release}
+Requires(post):		chkconfig
+Requires(preun):	chkconfig initscripts
 
 %description -n cld
 Coarse locking daemon for cloud computing.  This software provides
@@ -44,6 +45,8 @@ and reliable small file storage.
 Summary: Single-node data storage service for %{name}
 Group: System Environment/Base
 Requires: %{name} = %{version}-%{release}
+Requires(post):		chkconfig
+Requires(preun):	chkconfig initscripts
 
 %description -n chunkd
 Single-node data storage daemon for cloud computing.
@@ -57,7 +60,7 @@ operations on stored data ("objects").
 Summary: Development files for %{name}
 Group: Development/Libraries
 Requires: %{name} = %{version}-%{release}
-Requires: pkgconfig
+Requires: pkgconfig openssl-devel glib2-devel
 Conflicts: cld-devel chunkd-devel
 
 %description devel
@@ -65,7 +68,7 @@ The %{name}-devel package contains libraries and header files for
 developing applications that use %{name}.
 
 %prep
-%setup -q
+%setup -q -n hail-0.8git
 
 %build
 %configure --disable-static
@@ -88,6 +91,8 @@ install -m 755 %{SOURCE4} %{buildroot}%{_initddir}/chunkd
 
 mkdir -p %{buildroot}%{_sysconfdir}/sysconfig
 install -m 644 %{SOURCE5} %{buildroot}%{_sysconfdir}/sysconfig/chunkd
+
+mkdir -p %{buildroot}%{_libdir}/cld/lib
 
 find %{buildroot} -name '*.la' -exec rm -f {} ';'
 
@@ -142,6 +147,7 @@ fi
 %{_bindir}/cldcli
 %{_mandir}/man8/cldcli.8*
 %{_mandir}/man8/cld.8*
+%{_libdir}/cld
 %attr(0755,root,root)	%{_initddir}/cld
 %config(noreplace)	%{_sysconfdir}/sysconfig/cld
 
@@ -164,6 +170,9 @@ fi
 %{_includedir}/*
 
 %changelog
+* Tue Jul 13 2010 Jeff Garzik <jgarzik@redhat.com> - 0.8-0.1.gee257f18
+- Update to upstream commit ee257f18f601922df84687736c6bd1ac76b16580
+
 * Fri Jul  2 2010 Jeff Garzik <jgarzik@redhat.com> - 0.7-1
 - Initial release.
 
