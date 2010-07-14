@@ -1,19 +1,23 @@
 Name:		hail
 Version:	0.8
-Release:	0.1.gee257f18%{?dist}
+Release:	0.2.gf9c5b967%{?dist}
 Summary:	Project Hail core cloud services
 
 Group:		System Environment/Libraries
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-# pulled from upstream git, commit ee257f18f601922df84687736c6bd1ac76b16580
+# pulled from upstream git, commit f9c5b967cb409cb3e38870b21292374ccea3ee6e
 # to recreate tarball, check out commit, then run "make dist"
 Source0:	hail-%{version}git.tar.gz
+
+# cld, chunkd init.d and sysconfig data.  copied from pkg/* in upstream git,
+# commit 554f1338e29342ba6dcfa0bce648d304afc2c1e1
 Source2:	cld.init
 Source3:	cld.sysconf
 Source4:	chunkd.init
 Source5:	chunkd.sysconf
+
 BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 BuildRequires:	db4-devel glib2-devel doxygen openssl-devel
@@ -169,6 +173,9 @@ fi
 %{_includedir}/*
 
 %changelog
+* Wed Jul 14 2010 Jeff Garzik <jgarzik@redhat.com> - 0.8-0.2.gf9c5b967
+- Update to upstream commit f9c5b967cb409cb3e38870b21292374ccea3ee6e
+
 * Tue Jul 13 2010 Jeff Garzik <jgarzik@redhat.com> - 0.8-0.1.gee257f18
 - Update to upstream commit ee257f18f601922df84687736c6bd1ac76b16580
 
