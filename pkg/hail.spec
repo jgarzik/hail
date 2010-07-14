@@ -17,8 +17,7 @@ Source5:	chunkd.sysconf
 BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 BuildRequires:	db4-devel glib2-devel doxygen openssl-devel
-BuildRequires:	texlive-latex fuse-devel
-BuildRequires:	libevent-devel libcurl-devel
+BuildRequires:	texlive-latex fuse-devel libcurl-devel
 BuildRequires:	libxml2-devel procps tokyocabinet-devel
 
 %description

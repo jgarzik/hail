@@ -6,7 +6,6 @@ Dependencies:
 	argp or argp-standalone
 	GLib 2.x
 	openssl
-	libevent
 	libcurl
 	zlib
 	libxml2
