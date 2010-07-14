@@ -35,6 +35,8 @@ libhail_la_SOURCES	=	\
 	huri.c			\
 	xdr_sizeof.c
 
+libhail_la_LIBADD = \
+		  @GLIB_LIBS@ @CRYPTO_LIBS@ @SSL_LIBS@ @XML_LIBS@ @LIBCURL@
 libhail_la_LDFLAGS = \
 	-version-info $(LIBHAIL_CURRENT):$(LIBHAIL_REVISION):$(LIBHAIL_AGE) \
 	-no-undefined \
