@@ -324,7 +324,7 @@ error:
 }
 
 /*
- * Open the library, start its session, and reguster its socket with libevent.
+ * Open the library and start its session.
  * Our session remains consistent in case of an error in this function,
  * so that we can continue and retry meaningfuly.
  */

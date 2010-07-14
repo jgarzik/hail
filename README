@@ -7,7 +7,6 @@ Dependencies:
 	GLib 2.x
 	openssl
 	libcurl
-	zlib
 	libxml2
 	tokyocabinet
 	doxygen and TeX (optional)
