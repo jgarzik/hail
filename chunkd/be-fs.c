@@ -326,6 +326,7 @@ struct backend_obj *fs_obj_new(uint32_t table_id,
 	char *fn = NULL;
 	struct be_fs_obj_hdr hdr;
 	ssize_t wrc;
+	enum chunk_errcode erc = che_InternalError;
 
 	memset(&hdr, 0, sizeof(hdr));
 	memcpy(hdr.magic, BE_FS_OBJ_MAGIC, strlen(BE_FS_OBJ_MAGIC));
@@ -343,60 +344,52 @@ struct backend_obj *fs_obj_new(uint32_t table_id,
 
 	/* build local fs pathname */
 	fn = fs_obj_pathname(table_id, key, key_len);
-	if (!fn) {
-		applog(LOG_ERR, "OOM in object_put");
-		*err_code = che_InternalError;
+	if (!fn)
 		goto err_out;
-	}
 
 	obj->out_fd = open(fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
 	if (obj->out_fd < 0) {
-		if (errno != EEXIST) {
+		if (errno != EEXIST)
 			syslogerr(fn);
-			*err_code = che_InternalError;
-		} else {
-			*err_code = che_KeyExists;
-		}
+		else
+			erc = che_KeyExists;
 		goto err_out;
 	}
+
+	/* we cannot set ->out_fn immediately, because fs_obj_free +
+	 * an error may trigger an erroneous unlink
+	 */
+	obj->out_fn = fn;
 
 	/* write fixed-length portion of object header */
 	wrc = write(obj->out_fd, &hdr, sizeof(hdr));
 	if (wrc != sizeof(hdr)) {
-		if (wrc < 0)
-			applog(LOG_ERR, "obj hdr write(%s) failed: %s",
-				fn, strerror(errno));
-		else
-			applog(LOG_ERR, "obj hdr write(%s) failed for %s",
-				fn, "unknown raisins!!!");
-		*err_code = che_InternalError;
-		goto err_out_fd;
+		applog(LOG_ERR, "obj hdr write(%s) failed: %s",
+		       fn, (wrc < 0) ? strerror(errno) : "<unknown reasons>");
+		goto err_out;
 	}
 
 	/* write variable-length portion of object header */
 	wrc = write(obj->out_fd, key, key_len);
 	if (wrc != key_len) {
-		if (wrc < 0)
-			applog(LOG_ERR, "obj hdr key write(%s) failed: %s",
-				fn, strerror(errno));
-		else
-			applog(LOG_ERR, "obj hdr key write(%s) failed for %s",
-				fn, "unknown raisins!!!");
-		*err_code = che_InternalError;
-		goto err_out_fd;
+		applog(LOG_ERR, "obj hdr key write(%s) failed: %s",
+		       fn, (wrc < 0) ? strerror(errno) : "<unknown reasons>");
+		goto err_out;
 	}
 
-	obj->out_fn = fn;
 	obj->bo.key = g_memdup(key, key_len);
+	if (!obj->bo.key)
+		goto err_out;
 	obj->bo.key_len = key_len;
 
+	*err_code = che_Success;
 	return &obj->bo;
 
-err_out_fd:
-	close(obj->out_fd);
 err_out:
-	free(fn);
-	free(obj);
+	if (!obj->out_fn)	/* avoid double-free */
+		free(fn);
+	fs_obj_free(&obj->bo);
+	*err_code = erc;
 	return NULL;
 }
 
@@ -409,6 +402,7 @@ struct backend_obj *fs_obj_open(uint32_t table_id, const char *user,
 	struct be_fs_obj_hdr hdr;
 	ssize_t rrc;
 	uint64_t value_len;
+	enum chunk_errcode erc = che_InternalError;
 
 	if (!key_valid(key, key_len)) {
 		*err_code = che_InvalidKey;
@@ -423,103 +417,80 @@ struct backend_obj *fs_obj_open(uint32_t table_id, const char *user,
 
 	/* build local fs pathname */
 	obj->in_fn = fs_obj_pathname(table_id, key, key_len);
-	if (!obj->in_fn) {
-		*err_code = che_InternalError;
+	if (!obj->in_fn)
 		goto err_out;
-	}
 
 	obj->in_fd = open(obj->in_fn, O_RDONLY);
 	if (obj->in_fd < 0) {
 		applog(LOG_ERR, "open obj(%s) failed: %s",
 		       obj->in_fn, strerror(errno));
 		if (errno == ENOENT)
-			*err_code = che_NoSuchKey;
-		else
-			*err_code = che_InternalError;
-		goto err_out_fn;
+			erc = che_NoSuchKey;
+		goto err_out;
 	}
 
 	if (fstat(obj->in_fd, &st) < 0) {
 		applog(LOG_ERR, "fstat obj(%s) failed: %s", obj->in_fn,
 			strerror(errno));
-		*err_code = che_InternalError;
-		goto err_out_fd;
+		goto err_out;
 	}
 
 	/* read object fixed-length header */
 	rrc = read(obj->in_fd, &hdr, sizeof(hdr));
 	if (rrc != sizeof(hdr)) {
-		if (rrc < 0)
-			applog(LOG_ERR, "read hdr obj(%s) failed: %s",
-				obj->in_fn, strerror(errno));
-		else
-			applog(LOG_ERR, "invalid object header for %s",
-				obj->in_fn);
-		*err_code = che_InternalError;
-		goto err_out_fd;
+		applog(LOG_ERR, "read hdr obj(%s) failed: %s",
+			obj->in_fn,
+			(rrc < 0) ? strerror(errno) : "<unknown reasons>");
+		goto err_out;
 	}
 
 	/* verify magic number in header */
 	if (memcmp(hdr.magic, BE_FS_OBJ_MAGIC, strlen(BE_FS_OBJ_MAGIC))) {
 		applog(LOG_ERR, "obj(%s) hdr magic corrupted", obj->in_fn);
-		*err_code = che_InternalError;
-		goto err_out_fd;
+		goto err_out;
 	}
 
 	/* authenticated user must own this object */
 	if (strcmp(hdr.owner, user)) {
-		*err_code = che_AccessDenied;
-		goto err_out_fd;
+		erc = che_AccessDenied;
+		goto err_out;
 	}
 
 	/* verify object key length matches input key length */
-	if (GUINT32_FROM_LE(hdr.key_len) != key_len) {
-		*err_code = che_InternalError;
-		goto err_out_fd;
-	}
+	if (GUINT32_FROM_LE(hdr.key_len) != key_len)
+		goto err_out;
 
 	/* verify file size large enough to contain value */
 	value_len = GUINT64_FROM_LE(hdr.value_len);
 	if ((st.st_size - sizeof(hdr) - key_len) < value_len) {
 		applog(LOG_ERR, "obj(%s) unexpected size change", obj->in_fn);
-		*err_code = che_InternalError;
-		goto err_out_fd;
+		goto err_out;
 	}
 
 	obj->bo.key = malloc(key_len);
 	obj->bo.key_len = key_len;
-	if (!obj->bo.key) {
-		*err_code = che_InternalError;
-		goto err_out_fd;
-	}
+	if (!obj->bo.key)
+		goto err_out;
 
 	/* read object variable-length header */
 	rrc = read(obj->in_fd, obj->bo.key, key_len);
 	if ((rrc != key_len) || (memcmp(key, obj->bo.key, key_len))) {
-		if (rrc < 0)
-			applog(LOG_ERR, "read hdr key obj(%s) failed: %s",
-				obj->in_fn, strerror(errno));
-		else
-			applog(LOG_ERR, "invalid object header key for %s",
-				obj->in_fn);
-		*err_code = che_InternalError;
-		goto err_out_read;
+		applog(LOG_ERR, "read hdr key obj(%s) failed: %s",
+			obj->in_fn,
+			(rrc < 0) ? strerror(errno) : "<unknown reasons>");
+		goto err_out;
 	}
 
 	memcpy(obj->bo.hash, hdr.hash, sizeof(obj->bo.hash));
 	obj->bo.size = value_len;
 	obj->bo.mtime = st.st_mtime;
 
+	*err_code = che_Success;
 	return &obj->bo;
 
-err_out_read:
-	free(obj->bo.key);
-err_out_fd:
-	close(obj->in_fd);
-err_out_fn:
-	free(obj->in_fn);
 err_out:
-	free(obj);
+	fs_obj_free(&obj->bo);
+	*err_code = erc;
 	return NULL;
 }
 
@@ -533,8 +504,7 @@ void fs_obj_free(struct backend_obj *bo)
 	obj = bo->private;
 	g_assert(obj != NULL);
 
-	if (bo->key)
-		free(bo->key);
+	free(bo->key);
 
 	if (obj->out_fn) {
 		unlink(obj->out_fn);
@@ -544,8 +514,7 @@ void fs_obj_free(struct backend_obj *bo)
 	if (obj->out_fd >= 0)
 		close(obj->out_fd);
 
-	if (obj->in_fn)
-		free(obj->in_fn);
+	free(obj->in_fn);
 	if (obj->in_fd >= 0)
 		close(obj->in_fd);
 
