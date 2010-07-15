@@ -324,12 +324,8 @@ struct backend_obj *fs_obj_new(uint32_t table_id,
 {
 	struct fs_obj *obj;
 	char *fn = NULL;
-	struct be_fs_obj_hdr hdr;
-	ssize_t wrc;
 	enum chunk_errcode erc = che_InternalError;
-
-	memset(&hdr, 0, sizeof(hdr));
-	memcpy(hdr.magic, BE_FS_OBJ_MAGIC, strlen(BE_FS_OBJ_MAGIC));
+	off_t skip_len;
 
 	if (!key_valid(key, key_len)) {
 		*err_code = che_InvalidKey;
@@ -361,19 +357,16 @@ struct backend_obj *fs_obj_new(uint32_t table_id,
 	 */
 	obj->out_fn = fn;
 
-	/* write fixed-length portion of object header */
-	wrc = write(obj->out_fd, &hdr, sizeof(hdr));
-	if (wrc != sizeof(hdr)) {
-		applog(LOG_ERR, "obj hdr write(%s) failed: %s",
-		       fn, (wrc < 0) ? strerror(errno) : "<unknown reasons>");
-		goto err_out;
-	}
+	/* calculate size of front-of-file metadata area */
+	skip_len = sizeof(struct be_fs_obj_hdr) + key_len;
 
-	/* write variable-length portion of object header */
-	wrc = write(obj->out_fd, key, key_len);
-	if (wrc != key_len) {
-		applog(LOG_ERR, "obj hdr key write(%s) failed: %s",
-		       fn, (wrc < 0) ? strerror(errno) : "<unknown reasons>");
+	/* position file pointer where object data (as in, not metadata)
+	 * will begin
+	 */
+	errno = 0;
+	if (lseek(obj->out_fd, skip_len, SEEK_SET) != skip_len) {
+		applog(LOG_ERR, "obj hdr seek(%s) failed: %s",
+		       fn, strerror(errno));
 		goto err_out;
 	}
 
@@ -611,6 +604,8 @@ bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 	struct fs_obj *obj = bo->private;
 	struct be_fs_obj_hdr hdr;
 	ssize_t wrc;
+	size_t total_wr_len;
+	struct iovec iov[2];
 
 	memset(&hdr, 0, sizeof(hdr));
 	memcpy(hdr.magic, BE_FS_OBJ_MAGIC, strlen(BE_FS_OBJ_MAGIC));
@@ -626,15 +621,18 @@ bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 		return false;
 	}
 
-	/* write final object header */
-	wrc = write(obj->out_fd, &hdr, sizeof(hdr));
-	if (wrc != sizeof(hdr)) {
-		if (wrc < 0)
-			applog(LOG_ERR, "obj hdr write(%s) failed: %s",
-				obj->out_fn, strerror(errno));
-		else
-			applog(LOG_ERR, "obj hdr write(%s) failed for %s",
-				obj->out_fn, "unknown raisins!!!");
+	/* init header segment list */
+	iov[0].iov_base = &hdr;
+	iov[0].iov_len = sizeof(hdr);
+	iov[1].iov_base = bo->key;
+	iov[1].iov_len = bo->key_len;
+	total_wr_len = iov[0].iov_len + iov[1].iov_len;
+
+	/* write object header segments */
+	wrc = writev(obj->out_fd, iov, ARRAY_SIZE(iov));
+	if (wrc != total_wr_len) {
+		applog(LOG_ERR, "obj hdr writev(%s) failed: %s",
+		       obj->out_fn, (wrc < 0) ? strerror(errno) : "<unknown>");
 		return false;
 	}
 
@@ -645,7 +643,9 @@ bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 		return false;
 	}
 
-	close(obj->out_fd);
+	if (close(obj->out_fd) < 0)
+		applog(LOG_WARNING, "close(%s) failed: %s",
+		       obj->out_fn, strerror(errno));
 	obj->out_fd = -1;
 
 	free(obj->out_fn);
