@@ -355,14 +355,13 @@ start_write:
 
 static void worker_cp_thr(struct worker_info *wi)
 {
-	static const unsigned bufsz = (1 * 1024 * 1024);
 	void *buf = NULL;
 	struct client *cli = wi->cli;
 	struct backend_obj *obj = NULL, *out_obj = NULL;
 	enum chunk_errcode err = che_InternalError;
 	unsigned char md[SHA_DIGEST_LENGTH];
 
-	buf = malloc(bufsz);
+	buf = malloc(CLI_DATA_BUF_SZ);
 	if (!buf)
 		goto out;
 
@@ -388,7 +387,7 @@ static void worker_cp_thr(struct worker_info *wi)
 	while (cli->in_len > 0) {
 		ssize_t rrc, wrc;
 
-		rrc = fs_obj_read(obj, buf, MIN(cli->in_len, bufsz));
+		rrc = fs_obj_read(obj, buf, MIN(cli->in_len, CLI_DATA_BUF_SZ));
 		if (rrc < 0)
 			goto err_out;
 		if (rrc == 0)
