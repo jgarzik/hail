@@ -394,7 +394,7 @@ struct backend_obj *fs_obj_open(uint32_t table_id, const char *user,
 	struct stat st;
 	struct be_fs_obj_hdr hdr;
 	ssize_t rrc;
-	uint64_t value_len;
+	uint64_t value_len, tmp64;
 	enum chunk_errcode erc = che_InternalError;
 
 	if (!key_valid(key, key_len)) {
@@ -438,7 +438,8 @@ struct backend_obj *fs_obj_open(uint32_t table_id, const char *user,
 	}
 
 	/* verify magic number in header */
-	if (memcmp(hdr.magic, BE_FS_OBJ_MAGIC, strlen(BE_FS_OBJ_MAGIC))) {
+	if (G_UNLIKELY(memcmp(hdr.magic, BE_FS_OBJ_MAGIC,
+		       strlen(BE_FS_OBJ_MAGIC)))) {
 		applog(LOG_ERR, "obj(%s) hdr magic corrupted", obj->in_fn);
 		goto err_out;
 	}
@@ -450,13 +451,15 @@ struct backend_obj *fs_obj_open(uint32_t table_id, const char *user,
 	}
 
 	/* verify object key length matches input key length */
-	if (GUINT32_FROM_LE(hdr.key_len) != key_len)
+	if (G_UNLIKELY(GUINT32_FROM_LE(hdr.key_len) != key_len))
 		goto err_out;
 
-	/* verify file size large enough to contain value */
 	value_len = GUINT64_FROM_LE(hdr.value_len);
-	if ((st.st_size - sizeof(hdr) - key_len) < value_len) {
-		applog(LOG_ERR, "obj(%s) unexpected size change", obj->in_fn);
+
+	/* verify file size large enough to contain value */
+	tmp64 = value_len + sizeof(hdr) + key_len;
+	if (G_UNLIKELY(st.st_size < tmp64)) {
+		applog(LOG_ERR, "obj(%s) size error, too small", obj->in_fn);
 		goto err_out;
 	}
 
@@ -707,7 +710,8 @@ bool fs_obj_delete(uint32_t table_id, const char *user,
 	}
 
 	/* basic sanity check: verify magic number in header */
-	if (memcmp(hdr.magic, BE_FS_OBJ_MAGIC, strlen(BE_FS_OBJ_MAGIC))) {
+	if (G_UNLIKELY(memcmp(hdr.magic, BE_FS_OBJ_MAGIC,
+			      strlen(BE_FS_OBJ_MAGIC)))) {
 		*err_code = che_InternalError;
 		goto err_out;
 	}
