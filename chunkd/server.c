@@ -322,7 +322,7 @@ static bool cli_write_free(struct client *cli, struct client_write *tmp,
 		rcb = tmp->cb(cli, tmp, done);
 	list_del(&tmp->node);
 
-	if (chunkd_srv.trash_sz < STD_TRASH_MAX) {
+	if (chunkd_srv.trash_sz < CHD_TRASH_MAX) {
 
 		/* recycle struct for future use */
 		memset(tmp, 0, sizeof(*tmp));
