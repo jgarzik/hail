@@ -137,6 +137,24 @@ static bool net_write(struct st_client *stc, const void *data, size_t datalen)
 	return true;
 }
 
+static bool resp_valid(const struct chunksrv_resp *resp)
+{
+	if (memcmp(resp->magic, CHUNKD_MAGIC, strlen(CHUNKD_MAGIC)))
+		return false;
+	
+	return true;
+}
+
+static bool resp_read(struct st_client *stc, struct chunksrv_resp *resp)
+{
+	/* read and validate response header */
+	if (!net_read(stc, resp, sizeof(*resp)) ||
+	    !resp_valid(resp))
+		return false;
+
+	return true;
+}
+
 void stc_free(struct st_client *stc)
 {
 	if (!stc)
@@ -177,7 +195,7 @@ static bool stc_login(struct st_client *stc)
 		return false;
 
 	/* read response header */
-	if (!net_read(stc, &resp, sizeof(resp)))
+	if (!resp_read(stc, &resp))
 		return false;
 
 	/* check response code */
@@ -354,7 +372,7 @@ static bool stc_get_req(struct st_client *stc, const void *key,
 		return false;
 
 	/* read response header */
-	if (!net_read(stc, &get_resp, sizeof(get_resp.resp)))
+	if (!resp_read(stc, &get_resp.resp))
 		return false;
 
 	/* check response code */
@@ -531,7 +549,7 @@ bool stc_table_open(struct st_client *stc, const void *key, size_t key_len,
 		return false;
 
 	/* read response header */
-	if (!net_read(stc, &resp, sizeof(resp)))
+	if (!resp_read(stc, &resp))
 		return false;
 
 	/* check response code */
@@ -592,7 +610,7 @@ bool stc_put(struct st_client *stc, const void *key, size_t key_len,
 	}
 
 	/* read response header */
-	if (!net_read(stc, &resp, sizeof(resp)))
+	if (!resp_read(stc, &resp))
 		goto err_out;
 
 	/* check response code */
@@ -707,7 +725,7 @@ bool stc_put_sync(struct st_client *stc)
 	struct chunksrv_resp resp;
 
 	/* read response header */
-	if (!net_read(stc, &resp, sizeof(resp)))
+	if (!resp_read(stc, &resp))
 		goto err_out;
 
 	/* check response code */
@@ -778,7 +796,7 @@ bool stc_del(struct st_client *stc, const void *key, size_t key_len)
 		return false;
 
 	/* read response header */
-	if (!net_read(stc, &resp, sizeof(resp)))
+	if (!resp_read(stc, &resp))
 		return false;
 
 	/* check response code */
@@ -900,7 +918,7 @@ struct st_keylist *stc_keys(struct st_client *stc)
 		return false;
 
 	/* read response header */
-	if (!net_read(stc, &resp, sizeof(resp)))
+	if (!resp_read(stc, &resp))
 		return false;
 
 	/* check response code */
@@ -996,7 +1014,7 @@ bool stc_ping(struct st_client *stc)
 		return false;
 
 	/* read response header */
-	if (!net_read(stc, &resp, sizeof(resp)))
+	if (!resp_read(stc, &resp))
 		return false;
 
 	/* check response code */
@@ -1029,7 +1047,7 @@ bool stc_check_start(struct st_client *stc)
 		return false;
 
 	/* read response header */
-	if (!net_read(stc, &resp, sizeof(resp)))
+	if (!resp_read(stc, &resp))
 		return false;
 
 	/* check response code */
@@ -1064,7 +1082,7 @@ bool stc_check_status(struct st_client *stc, struct chunk_check_status *out)
 		return false;
 
 	/* read response header */
-	if (!net_read(stc, &resp, sizeof(resp)))
+	if (!resp_read(stc, &resp))
 		return false;
 
 	/* check response code */
@@ -1130,7 +1148,7 @@ bool stc_cp(struct st_client *stc,
 		goto out;
 
 	/* read response header */
-	if (!net_read(stc, &resp, sizeof(resp)))
+	if (!resp_read(stc, &resp))
 		goto out;
 
 	/* check response code */
