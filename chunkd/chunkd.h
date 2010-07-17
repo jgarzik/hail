@@ -113,11 +113,11 @@ struct client {
 
 	/* we put the big arrays and objects at the end... */
 
-	char			netbuf[CLI_DATA_BUF_SZ];
-	char			netbuf_out[CLI_DATA_BUF_SZ];
 	char			key[CHD_KEY_SZ];
 	char			table[CHD_KEY_SZ];
 	char			key2[CHD_KEY_SZ];
+	char			netbuf[CLI_DATA_BUF_SZ];
+	char			netbuf_out[CLI_DATA_BUF_SZ];
 };
 
 struct backend_obj {
