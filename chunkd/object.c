@@ -223,7 +223,8 @@ bool object_put(struct client *cli)
 	if (!cli->out_ce)
 		return cli_err(cli, che_InternalError, true);
 
-	cli->out_bo = fs_obj_new(cli->table_id, cli->key, cli->key_len, &err);
+	cli->out_bo = fs_obj_new(cli->table_id, cli->key, cli->key_len,
+				 content_len, &err);
 	if (!cli->out_bo)
 		return cli_err(cli, err, true);
 
@@ -378,7 +379,8 @@ static void worker_cp_thr(struct worker_info *wi)
 		goto out;
 
 	cli->out_bo = out_obj = fs_obj_new(cli->table_id,
-					   cli->key, cli->key_len, &err);
+					   cli->key, cli->key_len,
+					   obj->size, &err);
 	if (!cli->out_bo)
 		goto out;
 

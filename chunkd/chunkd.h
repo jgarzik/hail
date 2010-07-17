@@ -252,7 +252,9 @@ struct fs_obj_lister {
 extern int fs_open(void);
 extern void fs_close(void);
 extern void fs_free(void);
-extern struct backend_obj *fs_obj_new(uint32_t table_id, const void *kbuf, size_t klen,
+extern struct backend_obj *fs_obj_new(uint32_t table_id,
+				      const void *kbuf, size_t klen,
+				      uint64_t data_len,
 				      enum chunk_errcode *err_code);
 extern struct backend_obj *fs_obj_open(uint32_t table_id, const char *user,
 				       const void *kbuf, size_t klen,

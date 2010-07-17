@@ -320,6 +320,7 @@ static bool key_valid(const void *key, size_t key_len)
 
 struct backend_obj *fs_obj_new(uint32_t table_id,
 			       const void *key, size_t key_len,
+			       uint64_t data_len,
 			       enum chunk_errcode *err_code)
 {
 	struct fs_obj *obj;
@@ -374,6 +375,7 @@ struct backend_obj *fs_obj_new(uint32_t table_id,
 	if (!obj->bo.key)
 		goto err_out;
 	obj->bo.key_len = key_len;
+	obj->bo.size = data_len;
 
 	*err_code = che_Success;
 	return &obj->bo;
@@ -609,6 +611,14 @@ bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 	ssize_t wrc;
 	size_t total_wr_len;
 	struct iovec iov[2];
+
+	if (G_UNLIKELY(obj->bo.size != obj->written_bytes)) {
+		applog(LOG_ERR, "BUG(%s): size/written_bytes mismatch: %llu/%llu",
+		       obj->out_fn,
+		       (unsigned long long) obj->bo.size,
+		       (unsigned long long) obj->written_bytes);
+		return false;
+	}
 
 	memset(&hdr, 0, sizeof(hdr));
 	memcpy(hdr.magic, BE_FS_OBJ_MAGIC, strlen(BE_FS_OBJ_MAGIC));
