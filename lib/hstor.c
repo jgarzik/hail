@@ -179,7 +179,8 @@ next:
 struct hstor_blist *hstor_list_buckets(struct hstor_client *hstor)
 {
 	struct http_req req;
-	char datestr[80], timestr[64], hmac[64], auth[128], host[80], url[80];
+	char datestr[80], timestr[64], hmac[64], auth[128];
+	char *host, *url;
 	struct curl_slist *headers = NULL;
 	struct hstor_blist *blist;
 	xmlDocPtr doc;
@@ -190,7 +191,7 @@ struct hstor_blist *hstor_list_buckets(struct hstor_client *hstor)
 
 	all_data = g_byte_array_new();
 	if (!all_data)
-		return NULL;
+		goto err_data;
 
 	memset(&req, 0, sizeof(req));
 	req.method = "GET";
@@ -204,13 +205,14 @@ struct hstor_blist *hstor_list_buckets(struct hstor_client *hstor)
 	hreq_sign(&req, NULL, hstor->key, hmac);
 
 	sprintf(auth, "Authorization: AWS %s:%s", hstor->user, hmac);
-	sprintf(host, "Host: %s", hstor->host);
+	if (asprintf(&host, "Host: %s", hstor->host) < 0)
+		goto err_host;
+	if (asprintf(&url, "http://%s/", hstor->acc) < 0)
+		goto err_url;
 
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
 	headers = curl_slist_append(headers, auth);
-
-	snprintf(url, sizeof(url), "http://%s/", hstor->acc);
 
 	curl_easy_reset(hstor->curl);
 	if (hstor->verbose)
@@ -289,15 +291,20 @@ struct hstor_blist *hstor_list_buckets(struct hstor_client *hstor)
 
 	xmlFreeDoc(doc);
 	g_byte_array_free(all_data, TRUE);
-	all_data = NULL;
+	free(url);
+	free(host);
 
 	return blist;
 
 err_out_doc:
 	xmlFreeDoc(doc);
 err_out:
+	free(url);
+err_url:
+	free(host);
+err_host:
 	g_byte_array_free(all_data, TRUE);
-	all_data = NULL;
+err_data:
 	return NULL;
 }
 
@@ -305,12 +312,13 @@ static bool __hstor_ad_bucket(struct hstor_client *hstor, const char *name,
 			    bool delete)
 {
 	struct http_req req;
-	char datestr[80], timestr[64], hmac[64], auth[128], host[80],
-		url[80], orig_path[80];
+	char datestr[80], timestr[64], hmac[64], auth[128];
+	char *host, *url, *orig_path;
 	struct curl_slist *headers = NULL;
 	int rc;
 
-	sprintf(orig_path, "/%s/", name);
+	if (asprintf(&orig_path, "/%s/", name) < 0)
+		goto err_spath;
 
 	memset(&req, 0, sizeof(req));
 	req.method = delete ? "DELETE" : "PUT";
@@ -324,8 +332,10 @@ static bool __hstor_ad_bucket(struct hstor_client *hstor, const char *name,
 	hreq_sign(&req, NULL, hstor->key, hmac);
 
 	sprintf(auth, "Authorization: AWS %s:%s", hstor->user, hmac);
-	sprintf(host, "Host: %s", hstor->host);
-	snprintf(url, sizeof(url), "http://%s/%s/", hstor->acc, name);
+	if (asprintf(&host, "Host: %s", hstor->host) < 0)
+		goto err_host;
+	if (asprintf(&url, "http://%s/%s/", hstor->acc, name) < 0)
+		goto err_url;
 
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
@@ -344,7 +354,17 @@ static bool __hstor_ad_bucket(struct hstor_client *hstor, const char *name,
 
 	curl_slist_free_all(headers);
 
+	free(url);
+	free(host);
+	free(orig_path);
 	return (rc == 0);
+
+err_url:
+	free(host);
+err_host:
+	free(orig_path);
+err_spath:
+	return false;
 }
 
 bool hstor_add_bucket(struct hstor_client *hstor, const char *name)
@@ -362,15 +382,15 @@ bool hstor_get(struct hstor_client *hstor, const char *bucket, const char *key,
 	     void *user_data, bool want_headers)
 {
 	struct http_req req;
-	char datestr[80], timestr[64], hmac[64], auth[128], host[80],
-		url[80], *orig_path, *stmp;
+	char datestr[80], timestr[64], hmac[64], auth[128];
+	char *host, *url, *orig_path;
 	struct curl_slist *headers = NULL;
 	int rc;
 
-	if (asprintf(&stmp, "/%s/%s", bucket, key) < 0)
-		return false;
+	if (asprintf(&orig_path, "/%s/%s", bucket, key) < 0)
+		goto err_spath;
 
-	orig_path = huri_field_escape(stmp, PATH_ESCAPE_MASK);
+	orig_path = huri_field_escape(orig_path, PATH_ESCAPE_MASK);
 
 	memset(&req, 0, sizeof(req));
 	req.method = "GET";
@@ -384,8 +404,10 @@ bool hstor_get(struct hstor_client *hstor, const char *bucket, const char *key,
 	hreq_sign(&req, NULL, hstor->key, hmac);
 
 	sprintf(auth, "Authorization: AWS %s:%s", hstor->user, hmac);
-	sprintf(host, "Host: %s", hstor->host);
-	snprintf(url, sizeof(url), "http://%s%s", hstor->acc, orig_path);
+	if (asprintf(&host, "Host: %s", hstor->host) < 0)
+		goto err_host;
+	if (asprintf(&url, "http://%s%s", hstor->acc, orig_path) < 0)
+		goto err_url;
 
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
@@ -406,9 +428,18 @@ bool hstor_get(struct hstor_client *hstor, const char *bucket, const char *key,
 	rc = curl_easy_perform(hstor->curl);
 
 	curl_slist_free_all(headers);
+	free(url);
+	free(host);
 	free(orig_path);
 
 	return (rc == 0);
+
+err_url:
+	free(host);
+err_host:
+	free(orig_path);
+err_spath:
+	return false;
 }
 
 void *hstor_get_inline(struct hstor_client *hstor, const char *bucket, const char *key,
@@ -442,15 +473,16 @@ bool hstor_put(struct hstor_client *hstor, const char *bucket, const char *key,
 	     uint64_t len, void *user_data, char **user_hdrs)
 {
 	struct http_req req;
-	char datestr[80], timestr[64], hmac[64], auth[128], host[80],
-		url[80], *orig_path, *stmp, *uhdr_buf = NULL;
+	char datestr[80], timestr[64], hmac[64], auth[128];
+	char *host, *url, *orig_path;
+	char *uhdr_buf = NULL;
 	struct curl_slist *headers = NULL;
 	int rc = -1;
 
-	if (asprintf(&stmp, "/%s/%s", bucket, key) < 0)
-		return false;
+	if (asprintf(&orig_path, "/%s/%s", bucket, key) < 0)
+		goto err_spath;
 
-	orig_path = huri_field_escape(stmp, PATH_ESCAPE_MASK);
+	orig_path = huri_field_escape(orig_path, PATH_ESCAPE_MASK);
 
 	memset(&req, 0, sizeof(req));
 	req.method = "PUT";
@@ -477,7 +509,7 @@ bool hstor_put(struct hstor_client *hstor, const char *bucket, const char *key,
 		/* alloc buf to hold all hdr strings */
 		uhdr_buf = calloc(1, uhdr_len);
 		if (!uhdr_buf)
-			goto out;
+			goto err_ubuf;
 
 		/* copy and nul-terminate hdr keys and values for signing */
 		idx = 0;
@@ -509,8 +541,10 @@ bool hstor_put(struct hstor_client *hstor, const char *bucket, const char *key,
 	hreq_sign(&req, NULL, hstor->key, hmac);
 
 	sprintf(auth, "Authorization: AWS %s:%s", hstor->user, hmac);
-	sprintf(host, "Host: %s", hstor->host);
-	snprintf(url, sizeof(url), "http://%s%s", hstor->acc, orig_path);
+	if (asprintf(&host, "Host: %s", hstor->host) < 0)
+		goto err_host;
+	if (asprintf(&url, "http://%s%s", hstor->acc, orig_path) < 0)
+		goto err_url;
 
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
@@ -533,11 +567,20 @@ bool hstor_put(struct hstor_client *hstor, const char *bucket, const char *key,
 	rc = curl_easy_perform(hstor->curl);
 
 	curl_slist_free_all(headers);
+	free(url);
+	free(host);
 	free(orig_path);
-
-out:
 	free(uhdr_buf);
 	return (rc == 0);
+
+err_url:
+	free(host);
+err_host:
+	free(uhdr_buf);
+err_ubuf:
+	free(orig_path);
+err_spath:
+	return false;
 }
 
 struct hstor_put_info {
@@ -572,15 +615,15 @@ bool hstor_put_inline(struct hstor_client *hstor, const char *bucket, const char
 bool hstor_del(struct hstor_client *hstor, const char *bucket, const char *key)
 {
 	struct http_req req;
-	char datestr[80], timestr[64], hmac[64], auth[128], host[80],
-		url[80], *orig_path, *stmp;
+	char datestr[80], timestr[64], hmac[64], auth[128];
+	char *host, *url, *orig_path;
 	struct curl_slist *headers = NULL;
 	int rc;
 
-	if (asprintf(&stmp, "/%s/%s", bucket, key) < 0)
-		return false;
+	if (asprintf(&orig_path, "/%s/%s", bucket, key) < 0)
+		goto err_spath;
 
-	orig_path = huri_field_escape(stmp, PATH_ESCAPE_MASK);
+	orig_path = huri_field_escape(orig_path, PATH_ESCAPE_MASK);
 
 	memset(&req, 0, sizeof(req));
 	req.method = "DELETE";
@@ -594,8 +637,10 @@ bool hstor_del(struct hstor_client *hstor, const char *bucket, const char *key)
 	hreq_sign(&req, NULL, hstor->key, hmac);
 
 	sprintf(auth, "Authorization: AWS %s:%s", hstor->user, hmac);
-	sprintf(host, "Host: %s", hstor->host);
-	snprintf(url, sizeof(url), "http://%s%s", hstor->acc, orig_path);
+	if (asprintf(&host, "Host: %s", hstor->host) < 0)
+		goto err_host;
+	if (asprintf(&url, "http://%s%s", hstor->acc, orig_path) < 0)
+		goto err_url;
 
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
@@ -613,9 +658,18 @@ bool hstor_del(struct hstor_client *hstor, const char *bucket, const char *key)
 	rc = curl_easy_perform(hstor->curl);
 
 	curl_slist_free_all(headers);
+	free(url);
+	free(host);
 	free(orig_path);
 
 	return (rc == 0);
+
+err_url:
+	free(host);
+err_host:
+	free(orig_path);
+err_spath:
+	return false;
 }
 
 static GString *append_qparam(GString *str, const char *key, const char *val,
@@ -761,8 +815,8 @@ struct hstor_keylist *hstor_keys(struct hstor_client *hstor, const char *bucket,
 			    const char *delim, unsigned int max_keys)
 {
 	struct http_req req;
-	char datestr[80], timestr[64], hmac[64], auth[128], host[80];
-	char orig_path[strlen(bucket) + 8];
+	char datestr[80], timestr[64], hmac[64], auth[128];
+	char *host, *orig_path;
 	struct curl_slist *headers = NULL;
 	struct hstor_keylist *keylist;
 	xmlDocPtr doc;
@@ -775,9 +829,10 @@ struct hstor_keylist *hstor_keys(struct hstor_client *hstor, const char *bucket,
 
 	all_data = g_byte_array_new();
 	if (!all_data)
-		return NULL;
+		goto err_data;
 
-	sprintf(orig_path, "/%s/", bucket);
+	if (asprintf(&orig_path, "/%s/", bucket) < 0)
+		goto err_spath;
 
 	memset(&req, 0, sizeof(req));
 	req.method = "GET";
@@ -791,7 +846,8 @@ struct hstor_keylist *hstor_keys(struct hstor_client *hstor, const char *bucket,
 	hreq_sign(&req, NULL, hstor->key, hmac);
 
 	sprintf(auth, "Authorization: AWS %s:%s", hstor->user, hmac);
-	sprintf(host, "Host: %s", hstor->host);
+	if (asprintf(&host, "Host: %s", hstor->host) < 0)
+		goto err_host;
 
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
@@ -928,16 +984,21 @@ struct hstor_keylist *hstor_keys(struct hstor_client *hstor, const char *bucket,
 	}
 
 	xmlFreeDoc(doc);
+	free(host);
+	free(orig_path);
 	g_byte_array_free(all_data, TRUE);
-	all_data = NULL;
 
 	return keylist;
 
 err_out_doc:
 	xmlFreeDoc(doc);
 err_out:
+	free(host);
+err_host:
+	free(orig_path);
+err_spath:
 	g_byte_array_free(all_data, TRUE);
-	all_data = NULL;
+err_data:
 	return NULL;
 }
 
