@@ -1408,7 +1408,8 @@ static bool tcp_srv_event(int fd, short events, void *userdata)
 
 	/* pretty-print incoming cxn info */
 	getnameinfo((struct sockaddr *) &cli->addr, addrlen,
-		    host, sizeof(host), port, sizeof(port), NI_NUMERICHOST);
+		    host, sizeof(host), port, sizeof(port),
+		    NI_NUMERICHOST | NI_NUMERICSERV);
 	host[sizeof(host) - 1] = 0;
 	port[sizeof(port) - 1] = 0;
 	applog(LOG_INFO, "client host %s port %s connected%s", host, port,
