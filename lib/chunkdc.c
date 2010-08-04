@@ -139,9 +139,9 @@ static bool net_write(struct st_client *stc, const void *data, size_t datalen)
 
 static bool resp_valid(const struct chunksrv_resp *resp)
 {
-	if (memcmp(resp->magic, CHUNKD_MAGIC, strlen(CHUNKD_MAGIC)))
+	if (memcmp(resp->magic, CHUNKD_MAGIC, CHD_MAGIC_SZ))
 		return false;
-	
+
 	return true;
 }
 
