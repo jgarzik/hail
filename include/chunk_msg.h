@@ -91,6 +91,7 @@ struct chunksrv_resp {
 	uint32_t		nonce;	/* txn id, copied from request */
 	uint64_t		data_len;		/* len of addn'l data */
 	unsigned char		hash[CHD_CSUM_SZ];	/* SHA1 checksum */
+	unsigned char		rsv2[4];		/* pad for 64 bits */
 };
 
 struct chunksrv_resp_get {
