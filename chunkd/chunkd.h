@@ -36,7 +36,10 @@
 #endif
 
 enum {
-	CLI_DATA_BUF_SZ		= 16 * 1024,
+	CHUNK_BLK_ORDER		= 16,			/* 64k blocks */
+	CHUNK_BLK_SZ		= 1 << CHUNK_BLK_ORDER,
+
+	CLI_DATA_BUF_SZ		= CHUNK_BLK_SZ,
 
 	CHD_TRASH_MAX		= 1000,
 
