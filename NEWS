@@ -1,4 +1,24 @@
 
+Version 0.7.1 - August 11, 2010
+
+- cldbadm: disable, it does nothing at present
+- cld, cldcli: add man pages
+- chunkd: update on-disk format to include magic number, object size
+- chunkd: bug fixes
+- chunkd: poll(2) micro-optimizations and cleanups
+- chunkd, libhail: add new "CP" operation for local object copies
+- chunkd, libhail: update chunk protocol to use binary, not ASCII, checksums
+- chunkd: optimize PUT backend object storage
+- chunkd: increase network buffer sizes to 64k
+- chunkd: fix 32/64-bit wire interoperability
+- libhail: improve chunk sanity checking
+- libhail: import httpstor from tabled
+- libhail: bug fixes
+- libhail: s/__// for __cld_* functions
+- FreeBSD, OpenSolaris build improvements
+
+This release includes incompatible API, network, and on-disk format changes.
+
 Version 0.7 - July 3, 2010
 
 - cld and chunkd merged into single 'hail' package, providing

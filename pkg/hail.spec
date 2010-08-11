@@ -1,6 +1,6 @@
 Name:		hail
-Version:	0.8
-Release:	0.2.gf9c5b967%{?dist}
+Version:	0.7.1
+Release:	1%{?dist}
 Summary:	Project Hail core cloud services
 
 Group:		System Environment/Libraries
@@ -173,6 +173,9 @@ fi
 %{_includedir}/*
 
 %changelog
+* Wed Aug 11 2010 Jeff Garzik <jgarzik@redhat.com> - 0.7.1-1
+- Update to v0.7.1 release
+
 * Wed Jul 14 2010 Jeff Garzik <jgarzik@redhat.com> - 0.8-0.2.gf9c5b967
 - Update to upstream commit f9c5b967cb409cb3e38870b21292374ccea3ee6e
 
