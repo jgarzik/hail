@@ -448,7 +448,8 @@ void msg_get(struct session *sess, const void *v)
 
 	name_len = le32_to_cpu(inode->ino_len);
 	inode_name = alloca(name_len + 1);
-	snprintf(inode_name, name_len + 1, "%s", (char *)(inode + 1));
+	memcpy (inode_name, inode + 1, name_len);
+	inode_name[name_len] = 0;
 	resp.inode_name = inode_name;
 
 	resp.data.data_len = 0;
@@ -1172,4 +1173,3 @@ err_out_noabort:
 	sess_sendresp_generic(sess, resp_rc);
 	free(h);
 }
-
