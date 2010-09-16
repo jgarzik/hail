@@ -52,7 +52,11 @@ struct fs_obj {
 
 	int			in_fd;
 	char			*in_fn;
+	off_t			in_pos;
 	off_t			sendfile_ofs;
+
+	off_t			tail_pos;
+	size_t			tail_len;
 
 	size_t			checked_bytes;
 	SHA_CTX			checksum;
@@ -368,6 +372,8 @@ struct backend_obj *fs_obj_new(uint32_t table_id,
 	if (!obj->csum_tbl)
 		goto err_out;
 	obj->csum_tbl_sz = csum_bytes;
+	obj->tail_pos = data_len & ~(CHUNK_BLK_SZ - 1);
+	obj->tail_len = data_len & (CHUNK_BLK_SZ - 1);
 
 	/* build local fs pathname */
 	fn = fs_obj_pathname(table_id, key, key_len);
@@ -492,6 +498,8 @@ struct backend_obj *fs_obj_open(uint32_t table_id, const char *user,
 	value_len = GUINT64_FROM_LE(hdr.value_len);
 	obj->n_blk = GUINT32_FROM_LE(hdr.n_blk);
 	csum_bytes = obj->n_blk * CHD_CSUM_SZ;
+	obj->tail_pos = value_len & ~(CHUNK_BLK_SZ - 1);
+	obj->tail_len = value_len & (CHUNK_BLK_SZ - 1);
 
 	/* verify file size large enough to contain value */
 	tmp64 = value_len + sizeof(hdr) + key_len + csum_bytes;
@@ -575,15 +583,56 @@ void fs_obj_free(struct backend_obj *bo)
 	free(obj);
 }
 
+static bool can_csum_blk(struct fs_obj *obj, size_t len)
+{
+	if (obj->in_pos & (CHUNK_BLK_SZ - 1))
+		return false;
+
+	if (obj->in_pos == obj->tail_pos && len == obj->tail_len)
+		return true;
+	if (len == CHUNK_BLK_SZ)
+		return true;
+
+	return false;
+}
+
 ssize_t fs_obj_read(struct backend_obj *bo, void *ptr, size_t len)
 {
 	struct fs_obj *obj = bo->private;
 	ssize_t rc;
 
 	rc = read(obj->in_fd, ptr, len);
-	if (rc < 0)
+	if (rc < 0) {
 		applog(LOG_ERR, "obj read(%s) failed: %s",
 		       obj->in_fn, strerror(errno));
+		return -errno;
+	}
+
+	if (can_csum_blk(obj, rc)) {
+		unsigned char md[CHD_CSUM_SZ];
+		unsigned int blk_pos;
+		int cmprc;
+
+		SHA1(ptr, rc, md);
+
+		blk_pos = (unsigned int) (obj->in_pos >> CHUNK_BLK_ORDER);
+		cmprc = memcmp(md, obj->csum_tbl + (blk_pos * CHD_CSUM_SZ),
+			       CHD_CSUM_SZ);
+
+		if (cmprc) {
+			applog(LOG_WARNING, "obj(%s) csum failed @ 0x%llx",
+			       obj->in_fn,
+			       (unsigned long long) obj->in_pos);
+			return -EIO;
+		}
+	} else {
+		applog(LOG_INFO, "obj(%s) unaligned read, 0x%x @ 0x%llx",
+		       obj->in_fn, len,
+		       (unsigned long long) obj->in_pos);
+		
+	}
+
+	obj->in_pos += rc;
 
 	return rc;
 }
