@@ -25,6 +25,7 @@ TESTS =				\
 	nop			\
 	basic-object		\
 	auth			\
+	get-part		\
 	cp			\
 	large-object		\
 	lotsa-objects		\
@@ -32,7 +33,7 @@ TESTS =				\
 	stop-daemon		\
 	clean-db
 
-check_PROGRAMS		= auth basic-object cp it-works large-object \
+check_PROGRAMS		= auth basic-object get-part cp it-works large-object \
 			  lotsa-objects nop objcache-unit selfcheck-unit
 
 TESTLDADD		= ../../lib/libhail.la	\
@@ -40,6 +41,7 @@ TESTLDADD		= ../../lib/libhail.la	\
 			  @GLIB_LIBS@ @CRYPTO_LIBS@ \
 			  @XML_LIBS@ @SSL_LIBS@ @LIBCURL@
 basic_object_LDADD	= $(TESTLDADD)
+get_part_LDADD		= $(TESTLDADD)
 cp_LDADD		= $(TESTLDADD)
 auth_LDADD		= $(TESTLDADD)
 it_works_LDADD		= $(TESTLDADD)

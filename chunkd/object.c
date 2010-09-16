@@ -354,6 +354,119 @@ start_write:
 	return cli_write_start(cli);
 }
 
+bool object_get_part(struct client *cli)
+{
+	static const uint64_t max_getpart = CHUNK_MAX_GETPART * CHUNK_BLK_SZ;
+	int rc;
+	enum chunk_errcode err = che_InternalError;
+	struct backend_obj *obj;
+	struct chunksrv_resp_get *get_resp = NULL;
+	uint64_t offset, length, remain;
+	uint64_t aligned_ofs, aligned_len, aligned_rem;
+	ssize_t rrc;
+	void *mem = NULL;
+
+	get_resp = calloc(1, sizeof(*get_resp));
+	if (!get_resp) {
+		cli->state = evt_dispose;
+		return true;
+	}
+
+	resp_init_req(&get_resp->resp, &cli->creq);
+
+	cli->in_obj = obj = fs_obj_open(cli->table_id, cli->user, cli->key,
+					cli->key_len, &err);
+	if (!obj) {
+		free(get_resp);
+		return cli_err(cli, err, true);
+	}
+
+	cli->in_len = obj->size;
+
+	/* obtain requested offset */
+	offset = le64_to_cpu(cli->creq_getpart.offset);
+	if (offset > obj->size) {
+		err = che_InvalidSeek;
+		free(get_resp);
+		return cli_err(cli, err, true);
+	}
+
+	/* align to block boundary */
+	aligned_ofs = offset & ~CHUNK_BLK_MASK;
+	remain = obj->size - offset;
+	aligned_rem = obj->size - aligned_ofs;
+
+	/* obtain requested length; 0 == "until end of object" */
+	length = le64_to_cpu(cli->creq.data_len);
+	if (length == 0 || length > remain)
+		length = remain;
+	if (length > max_getpart)
+		length = max_getpart;
+
+	/* calculate length based on block size */
+	aligned_len = length + (offset - aligned_ofs);
+	if (aligned_len & CHUNK_BLK_MASK)
+		aligned_len += (CHUNK_BLK_SZ - (aligned_len & CHUNK_BLK_MASK));
+	if (aligned_len > aligned_rem)
+		aligned_len = aligned_rem;
+
+	if (length) {
+		/* seek to offset */
+		rc = fs_obj_seek(obj, aligned_ofs);
+		if (rc) {
+			err = che_InvalidSeek;
+			free(get_resp);
+			return cli_err(cli, err, true);
+		}
+
+		/* allocate buffer to hold all get_part request data */
+		mem = malloc(aligned_len);
+		if (!mem) {
+			free(get_resp);
+			return cli_err(cli, err, true);
+		}
+
+		/* read requested data in its entirety */
+		rrc = fs_obj_read(obj, mem, aligned_len);
+		if (rrc != aligned_len) {
+			free(mem);
+			free(get_resp);
+			return cli_err(cli, err, true);
+		}
+	}
+
+	/* fill in response */
+	if (length == remain)
+		get_resp->resp.flags |= CHF_GET_PART_LAST;
+	get_resp->resp.data_len = cpu_to_le64(length);
+	SHA1(mem, aligned_len, get_resp->resp.hash);
+	get_resp->mtime = cpu_to_le64(obj->mtime);
+
+	/* write response header */
+	rc = cli_writeq(cli, get_resp, sizeof(*get_resp), cli_cb_free, get_resp);
+	if (rc) {
+		free(mem);
+		free(get_resp);
+		return true;
+	}
+
+	if (length) {
+		/* write response data */
+		rc = cli_writeq(cli, mem + (offset - aligned_ofs),
+				length, cli_cb_free, mem);
+		if (rc) {
+			free(mem);
+			free(get_resp);	/* FIXME: double-free due to
+					   cli_wq success? */
+			return true;
+		}
+	}
+
+	cli_in_end(cli);
+
+	return cli_write_start(cli);
+}
+
 static void worker_cp_thr(struct worker_info *wi)
 {
 	void *buf = NULL;

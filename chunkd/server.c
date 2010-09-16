@@ -149,6 +149,10 @@ static struct {
 	[che_KeyExists] =
 	{ "che_KeyExists", 403,
 	  "Key already exists" },
+
+	[che_InvalidSeek] =
+	{ "che_InvalidSeek", 404,
+	  "Invalid seek" },
 };
 
 void applog(int prio, const char *fmt, ...)
@@ -910,15 +914,19 @@ out:
 	return cli_err(cli, err, true);
 }
 
-static bool authcheck(const struct chunksrv_req *req, const void *key,
-		      size_t key_len, const char *secret_key)
+static bool authcheck(const struct chunksrv_req *req,
+		      const struct chunksrv_req_getpart *gpr,
+		      const void *key, size_t key_len, const char *secret_key)
 {
-	char req_buf[sizeof(struct chunksrv_req) + CHD_KEY_SZ];
+	char req_buf[sizeof(struct chunksrv_req) + CHD_KEY_SZ +
+		     sizeof(struct chunksrv_req_getpart)];
 	struct chunksrv_req *tmpreq = (struct chunksrv_req *) req_buf;
 	char hmac[64];
+	void *p = (tmpreq + 1);
 
 	memcpy(tmpreq, req, sizeof(*req));
-	memcpy((tmpreq + 1), key, key_len);
+	memcpy(p, key, key_len);
+	memcpy(p + key_len, gpr, sizeof(*gpr));
 	memset(tmpreq->sig, 0, sizeof(tmpreq->sig));
 
 	chreq_sign(tmpreq, secret_key, hmac);
@@ -944,7 +952,8 @@ static bool login_user(struct client *cli)
 	/* for lack of a better authentication scheme, we
 	 * supply the username as the secret key
 	 */
-	if (!authcheck(req, cli->key, cli->key_len, cli->user)) {
+	if (!authcheck(req, &cli->creq_getpart,
+		       cli->key, cli->key_len, cli->user)) {
 		err = che_SignatureDoesNotMatch;
 		cli->state = evt_dispose;
 		goto err_out;
@@ -1063,6 +1072,7 @@ static const char *op2str(enum chunksrv_ops op)
 	case CHO_CHECK_STATUS:	return "CHO_CHECK_STATUS";
 	case CHO_START_TLS:	return "CHO_START_TLS";
 	case CHO_CP:		return "CHO_CP";
+	case CHO_GET_PART:	return "CHO_GET_PART";
 
 	default:
 		return "BUG/UNKNOWN!";
@@ -1101,7 +1111,8 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 	 * supply the username as the secret key
 	 */
 	if (logged_in &&
-	    !authcheck(req, cli->key, cli->key_len, cli->user)) {
+	    !authcheck(req, &cli->creq_getpart,
+	    	       cli->key, cli->key_len, cli->user)) {
 		err = che_SignatureDoesNotMatch;
 		goto err_out;
 	}
@@ -1150,6 +1161,9 @@ static bool cli_evt_exec_req(struct client *cli, unsigned int events)
 		break;
 	case CHO_GET_META:
 		rcb = object_get(cli, false);
+		break;
+	case CHO_GET_PART:
+		rcb = object_get_part(cli);
 		break;
 	case CHO_PUT:
 		rcb = object_put(cli);
@@ -1270,6 +1284,12 @@ static bool cli_evt_read_var(struct client *cli, unsigned int events)
 	if (cli->creq.op == CHO_CP && !cli->second_var) {
 		cli->req_ptr = &cli->key2;
 		cli->var_len = le64_to_cpu(cli->creq.data_len);
+		cli->req_used = 0;
+		cli->state = evt_read_var;
+		cli->second_var = true;
+	} else if (cli->creq.op == CHO_GET_PART && !cli->second_var) {
+		cli->req_ptr = &cli->creq_getpart;
+		cli->var_len = sizeof(cli->creq_getpart);
 		cli->req_used = 0;
 		cli->state = evt_read_var;
 		cli->second_var = true;

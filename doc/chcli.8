@@ -123,6 +123,10 @@ The following commands are available:
 .B GET key
 Retrieve the data object associated with the specified key.
 .TP
+.B GETPART key offset length
+Retrieve a subset of the data object associated with the specified key,
+starting at given offset, for the given length.
+.TP
 .B PUT key val
 Store data object associated with the specified key.
 .TP

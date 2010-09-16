@@ -51,7 +51,8 @@ struct st_client {
 	SSL_CTX		*ssl_ctx;
 	SSL		*ssl;
 
-	char		req_buf[sizeof(struct chunksrv_req) + CHD_KEY_SZ];
+	char		req_buf[sizeof(struct chunksrv_req) + CHD_KEY_SZ +
+				sizeof(struct chunksrv_req_getpart)];
 };
 
 extern void stc_free(struct st_client *stc);
@@ -73,6 +74,19 @@ extern void *stc_get_inline(struct st_client *stc,
 extern bool stc_get_start(struct st_client *stc, const void *key,
 			size_t key_len,int *pfd, uint64_t *len);
 extern size_t stc_get_recv(struct st_client *stc, void *data, size_t len);
+
+extern bool stc_get_part(struct st_client *stc, const void *key, size_t key_len,
+			 uint64_t offset, uint64_t max_len,
+	     size_t (*write_cb)(void *, size_t, size_t, void *),
+	     void *user_data);
+extern void *stc_get_part_inline(struct st_client *stc,
+			    const void *key, size_t key_len,
+			    uint64_t offset, uint64_t max_len,
+			    size_t *len);
+extern bool stc_get_part_start(struct st_client *stc, const void *key,
+			size_t key_len,
+			uint64_t offset, uint64_t max_len,
+			int *pfd, uint64_t *len);
 
 extern bool stc_put(struct st_client *stc, const void *key, size_t key_len,
 	     size_t (*read_cb)(void *, size_t, size_t, void *),
@@ -111,6 +125,23 @@ static inline bool stc_get_startz(struct st_client *stc, const char *key,
 				  int *pfd, uint64_t *len)
 {
 	return stc_get_start(stc, key, strlen(key) + 1, pfd, len);
+}
+
+static inline void *stc_get_part_inlinez(struct st_client *stc,
+				    const char *key,
+			    	    uint64_t offset, uint64_t max_len,
+				    size_t *len)
+{
+	return stc_get_part_inline(stc, key, strlen(key) + 1, offset, max_len,
+				   len);
+}
+
+static inline bool stc_get_part_startz(struct st_client *stc, const char *key,
+				  uint64_t offset, uint64_t max_len,
+				  int *pfd, uint64_t *len)
+{
+	return stc_get_part_start(stc, key, strlen(key) + 1,
+				  offset, max_len, pfd, len);
 }
 
 static inline bool stc_put_inlinez(struct st_client *stc, const char *key,

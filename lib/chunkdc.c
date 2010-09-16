@@ -521,6 +521,134 @@ size_t stc_get_recv(struct st_client *stc, void *data, size_t data_len)
 	return done_cnt;
 }
 
+/*
+ * Request the transfer in the chunk server.
+ */
+static bool stc_get_part_req(struct st_client *stc, const void *key,
+			size_t key_len, uint64_t offset, uint64_t max_len,
+			uint64_t *plen)
+{
+	struct chunksrv_resp_get get_resp;
+	struct chunksrv_req *req = (struct chunksrv_req *) stc->req_buf;
+	struct chunksrv_req_getpart gpr;
+
+	if (stc->verbose)
+		fprintf(stderr, "libstc: GET_PART(%u, %llu, %llu)\n",
+			(unsigned int) key_len,
+			(unsigned long long) offset,
+			(unsigned long long) max_len);
+
+	if (!key_valid(key, key_len))
+		return false;
+
+	/* initialize request */
+	req_init(stc, req);
+	req->op = CHO_GET_PART;
+	req->data_len = cpu_to_le64(max_len);
+	req_set_key(req, key, key_len);
+
+	gpr.offset = cpu_to_le64(offset);
+	memcpy(stc->req_buf + sizeof(struct chunksrv_req) + key_len,
+	       &gpr, sizeof(struct chunksrv_req_getpart));
+
+	/* sign request */
+	chreq_sign(req, stc->key, req->sig);
+
+	/* write request */
+	if (!net_write(stc, req, req_len(req)))
+		return false;
+
+	/* read response header */
+	if (!resp_read(stc, &get_resp.resp))
+		return false;
+
+	/* check response code */
+	if (get_resp.resp.resp_code != che_Success) {
+		if (stc->verbose)
+			fprintf(stderr, "GET resp code: %d\n", get_resp.resp.resp_code);
+		return false;
+	}
+
+	/* read rest of response header */
+	if (!net_read(stc, &get_resp.mtime,
+		      sizeof(get_resp) - sizeof(get_resp.resp)))
+		return false;
+
+	*plen = le64_to_cpu(get_resp.resp.data_len);
+	return true;
+}
+
+bool stc_get_part(struct st_client *stc, const void *key, size_t key_len,
+	     uint64_t offset, uint64_t max_len,
+	     size_t (*write_cb)(void *, size_t, size_t, void *),
+	     void *user_data)
+{
+	char netbuf[4096];
+	uint64_t content_len;
+
+	if (!stc_get_part_req(stc, key, key_len, offset, max_len, &content_len))
+		return false;
+
+	/* read response data */
+	while (content_len) {
+		size_t xfer_len;
+
+		xfer_len = MIN(content_len, sizeof(netbuf));
+		if (!net_read(stc, netbuf, xfer_len))
+			return false;
+
+		write_cb(netbuf, xfer_len, 1, user_data);
+		content_len -= xfer_len;
+	}
+
+	return true;
+}
+
+/*
+ * Set stc to be used for streaming transfers.
+ * In chunkd protocol, this delivers the size of the presumed object,
+ * and clients are expected to fetch exactly psize amount.
+ */
+bool stc_get_part_start(struct st_client *stc, const void *key, size_t key_len,
+		   uint64_t offset, uint64_t max_len,
+		   int *pfd, uint64_t *psize)
+{
+
+	if (!stc_get_part_req(stc, key, key_len, offset, max_len, psize))
+		return false;
+
+	*pfd = stc->fd;
+	return true;
+}
+
+void *stc_get_part_inline(struct st_client *stc, const void *key,
+		     size_t key_len, uint64_t offset, uint64_t max_len,
+		     size_t *len)
+{
+	bool rcb;
+	void *mem;
+	GByteArray *all_data;
+
+	all_data = g_byte_array_new();
+	if (!all_data)
+		return NULL;
+
+	rcb = stc_get_part(stc, key, key_len, offset, max_len,
+			   all_data_cb, all_data);
+	if (!rcb) {
+		g_byte_array_free(all_data, TRUE);
+		return NULL;
+	}
+
+	if (len)
+		*len = all_data->len;
+
+	mem = all_data->data;
+
+	g_byte_array_free(all_data, FALSE);
+	return mem;
+}
+
 bool stc_table_open(struct st_client *stc, const void *key, size_t key_len,
 		    uint32_t flags)
 {

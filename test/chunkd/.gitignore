@@ -3,6 +3,7 @@ basic-object
 it-works
 large-object
 lotsa-objects
+get-part
 cp
 nop
 objcache-unit

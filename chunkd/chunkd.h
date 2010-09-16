@@ -36,9 +36,6 @@
 #endif
 
 enum {
-	CHUNK_BLK_ORDER		= 16,			/* 64k blocks */
-	CHUNK_BLK_SZ		= 1 << CHUNK_BLK_ORDER,
-
 	CLI_DATA_BUF_SZ		= CHUNK_BLK_SZ,
 
 	CHD_TRASH_MAX		= 1000,
@@ -95,6 +92,7 @@ struct client {
 	bool			writing;
 
 	struct chunksrv_req	creq;
+	struct chunksrv_req_getpart creq_getpart;
 	unsigned int		req_used;	/* amount of req_buf in use */
 	void			*req_ptr;	/* start of unexamined data */
 	uint16_t		key_len;
@@ -264,6 +262,7 @@ extern struct backend_obj *fs_obj_open(uint32_t table_id, const char *user,
 				       enum chunk_errcode *err_code);
 extern ssize_t fs_obj_write(struct backend_obj *bo, const void *ptr, size_t len);
 extern ssize_t fs_obj_read(struct backend_obj *bo, void *ptr, size_t len);
+extern int fs_obj_seek(struct backend_obj *bo, off_t ofs);
 extern void fs_obj_free(struct backend_obj *bo);
 extern bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 				unsigned char *md, bool sync_data);
@@ -291,6 +290,7 @@ extern int fs_obj_do_sum(const char *fn, unsigned int klen,
 extern bool object_del(struct client *cli);
 extern bool object_put(struct client *cli);
 extern bool object_get(struct client *cli, bool want_body);
+extern bool object_get_part(struct client *cli);
 extern bool object_cp(struct client *cli);
 extern bool cli_evt_data_in(struct client *cli, unsigned int events);
 extern void cli_out_end(struct client *cli);

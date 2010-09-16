@@ -55,6 +55,8 @@ struct fs_obj {
 	off_t			in_pos;
 	off_t			sendfile_ofs;
 
+	off_t			value_ofs;
+
 	off_t			tail_pos;
 	size_t			tail_len;
 
@@ -396,12 +398,13 @@ struct backend_obj *fs_obj_new(uint32_t table_id,
 
 	/* calculate size of front-of-file metadata area */
 	skip_len = sizeof(struct be_fs_obj_hdr) + key_len + csum_bytes;
+	obj->value_ofs = skip_len;
 
 	/* position file pointer where object data (as in, not metadata)
 	 * will begin
 	 */
 	errno = 0;
-	if (lseek(obj->out_fd, skip_len, SEEK_SET) != skip_len) {
+	if (lseek(obj->out_fd, obj->value_ofs, SEEK_SET) != obj->value_ofs) {
 		applog(LOG_ERR, "obj hdr seek(%s) failed: %s",
 		       fn, strerror(errno));
 		goto err_out;
@@ -500,9 +503,10 @@ struct backend_obj *fs_obj_open(uint32_t table_id, const char *user,
 	csum_bytes = obj->n_blk * CHD_CSUM_SZ;
 	obj->tail_pos = value_len & ~(CHUNK_BLK_SZ - 1);
 	obj->tail_len = value_len & (CHUNK_BLK_SZ - 1);
+	obj->value_ofs = sizeof(hdr) + key_len + csum_bytes;
 
 	/* verify file size large enough to contain value */
-	tmp64 = value_len + sizeof(hdr) + key_len + csum_bytes;
+	tmp64 = obj->value_ofs + value_len;
 	if (G_UNLIKELY(st.st_size < tmp64)) {
 		applog(LOG_ERR, "obj(%s) size error, too small", obj->in_fn);
 		goto err_out;
@@ -594,6 +598,23 @@ static bool can_csum_blk(struct fs_obj *obj, size_t len)
 		return true;
 
 	return false;
+}
+
+int fs_obj_seek(struct backend_obj *bo, off_t ofs)
+{
+	struct fs_obj *obj = bo->private;
+	off_t rc;
+
+	rc = lseek(obj->in_fd, obj->value_ofs + ofs, SEEK_SET);
+	if (rc == (off_t)-1) {
+		applog(LOG_ERR, "obj seek(%s) failed: %s",
+		       obj->in_fn, strerror(errno));
+		return -errno;
+	}
+
+	obj->in_pos = ofs;
+
+	return 0;
 }
 
 ssize_t fs_obj_read(struct backend_obj *bo, void *ptr, size_t len)

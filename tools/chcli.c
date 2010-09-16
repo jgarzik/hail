@@ -94,6 +94,7 @@ enum chcli_cmd {
 	CHC_CHECKSTATUS,
 	CHC_CHECKSTART,
 	CHC_CP,
+	CHC_GET_PART,
 };
 
 struct chcli_host {
@@ -187,6 +188,7 @@ static void show_cmds(void)
 "Supported chcli commands:\n"
 "\n"
 "GET key       Retrieve key, send to output (def: stdout)\n"
+"GETPART key offset length  Retrieve key subset, send to output (def: stdout)\n"
 "PUT key val   Store key\n"
 "DEL key       Delete key\n"
 "PING          Ping server\n"
@@ -341,6 +343,8 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 			cmd_mode = CHC_CHECKSTART;
 		else if (!strcasecmp(arg, "cp"))
 			cmd_mode = CHC_CP;
+		else if (!strcasecmp(arg, "getpart"))
+			cmd_mode = CHC_GET_PART;
 		else
 			argp_usage(state);	/* invalid cmd */
 		break;
@@ -714,6 +718,102 @@ static int cmd_get(void)
 	return 0;
 }
 
+static int cmd_get_part(void)
+{
+	struct st_client *stc;
+	int rfd = -1, wfd;
+	unsigned long long pofs = 0, plen = 0;
+	uint64_t ofs, len;
+
+	/* if key data not supplied via file, absorb first cmd arg */
+	if (!key_data) {
+		if (!n_cmd_args) {
+			fprintf(stderr, "GETPART requires key arg\n");
+			return 1;
+		}
+
+		key_data = cmd_args[0];
+		key_data_len = strlen(cmd_args[0]) + 1;
+
+		cmd_args++;
+		n_cmd_args--;
+	}
+
+	/* parse offset, length required args */
+	if (n_cmd_args != 2) {
+		fprintf(stderr, "GETPART requires offset, length args\n");
+		return 1;
+	}
+	if ((sscanf(cmd_args[0], "%llu", &pofs) != 1) ||
+	    (sscanf(cmd_args[1], "%llu", &plen) != 1)) {
+		fprintf(stderr, "invalid GETPART offset and/or length arg\n");
+		return 1;
+	}
+	ofs = pofs;
+	len = plen;
+
+	if (key_data_len < 1 || key_data_len > CHD_KEY_SZ) {
+		fprintf(stderr, "GET: invalid key size %u\n",
+			(unsigned int) key_data_len);
+		return 1;
+	}
+
+	stc = chcli_stc_new();
+	if (!stc)
+		return 1;
+
+	if (!stc_get_part_start(stc, key_data, key_data_len,
+				ofs, len, &rfd, &get_len)) {
+		fprintf(stderr, "GET initiation failed\n");
+		stc_free(stc);
+		return 1;
+	}
+
+	if (!output_fn || !strcmp(output_fn, "-"))
+		wfd = STDOUT_FILENO;
+	else {
+		wfd = open(output_fn, O_CREAT | O_TRUNC | O_WRONLY, 0666);
+		if (wfd < 0) {
+			fprintf(stderr, "GET output file %s open failed: %s\n",
+				output_fn,
+				strerror(errno));
+			stc_free(stc);
+			return 1;
+		}
+	}
+
+	while (get_len > 0) {
+		size_t need_len;
+		ssize_t rc;
+
+		need_len = MIN(GET_BUFSZ, get_len);
+
+		if (!recv_buf(stc, rfd, get_buf, need_len)) {
+			fprintf(stderr, "GET buffer failed\n");
+			stc_free(stc);
+			return 1;
+		}
+
+		rc = write(wfd, get_buf, need_len);
+		if (rc < 0) {
+			fprintf(stderr, "GET write to output failed: %s\n",
+				strerror(errno));
+			unlink(output_fn);
+			stc_free(stc);
+			return 1;
+		}
+
+		get_len -= rc;
+	}
+
+	if (wfd != STDOUT_FILENO)
+		close(wfd);
+
+	stc_free(stc);
+
+	return 0;
+}
+
 static int cmd_check_start(void)
 {
 	struct st_client *stc;
@@ -830,6 +930,8 @@ int main (int argc, char *argv[])
 		return 1;
 	case CHC_GET:
 		return cmd_get();
+	case CHC_GET_PART:
+		return cmd_get_part();
 	case CHC_PUT:
 		return cmd_put();
 	case CHC_DEL:

@@ -31,6 +31,13 @@ enum {
 	CHD_SIG_SZ		= 64,
 };
 
+enum {
+	CHUNK_BLK_ORDER		= 16,			/* 64k blocks */
+	CHUNK_BLK_SZ		= 1ULL << CHUNK_BLK_ORDER,
+	CHUNK_BLK_MASK		= CHUNK_BLK_SZ - 1ULL,
+	CHUNK_MAX_GETPART	= 4,		/* max GET_PART req: 256k */
+};
+
 enum chunksrv_ops {
 	CHO_NOP			= 0,	/* No-op (ping server) */
 	CHO_GET			= 1,	/* GET object */
@@ -50,6 +57,7 @@ enum chunksrv_ops {
 	CHO_START_TLS		= 10,	/* Encrypt all subsequent msgs */
 
 	CHO_CP			= 11,	/* local object copy (intra-table) */
+	CHO_GET_PART		= 12,	/* GET subset of object */
 };
 
 enum chunk_errcode {
@@ -64,12 +72,14 @@ enum chunk_errcode {
 	che_InvalidTable		= 8,
 	che_Busy			= 9,
 	che_KeyExists			= 10,
+	che_InvalidSeek			= 11,
 };
 
 enum chunk_flags {
 	CHF_SYNC		= (1 << 0),	/* force write to media */
 	CHF_TBL_CREAT		= (1 << 1),	/* create tbl, if needed */
 	CHF_TBL_EXCL		= (1 << 2),	/* fail, if tbl exists */
+	CHF_GET_PART_LAST	= (1 << 3),	/* true, if end-of-obj*/
 };
 
 struct chunksrv_req {
@@ -84,10 +94,15 @@ struct chunksrv_req {
 	/* variable-length key */
 };
 
+struct chunksrv_req_getpart {
+	uint64_t		offset;		/* GET_PART offset */
+};
+
 struct chunksrv_resp {
 	uint8_t			magic[CHD_MAGIC_SZ];	/* CHUNKD_MAGIC */
 	uint8_t			resp_code;		/* chunk_errcode's */
-	uint8_t			rsv1[3];
+	uint8_t			flags;			/* CHF_xxx */
+	uint8_t			rsv1[2];
 	uint32_t		nonce;	/* txn id, copied from request */
 	uint64_t		data_len;		/* len of addn'l data */
 	unsigned char		hash[CHD_CSUM_SZ];	/* SHA1 checksum */
