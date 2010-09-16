@@ -53,14 +53,23 @@ struct fs_obj {
 	int			in_fd;
 	char			*in_fn;
 	off_t			sendfile_ofs;
+
+	size_t			checked_bytes;
+	SHA_CTX			checksum;
+	unsigned int		csum_idx;
+	void			*csum_tbl;
+	size_t			csum_tbl_sz;
+
+	unsigned int		n_blk;
 };
 
 struct be_fs_obj_hdr {
 	char			magic[4];
 	uint32_t		key_len;
 	uint64_t		value_len;
+	uint32_t		n_blk;
 
-	char			reserved[16];
+	char			reserved[12];
 
 	unsigned char		hash[CHD_CSUM_SZ];
 	char			owner[128];
@@ -208,6 +217,8 @@ static struct fs_obj *fs_obj_alloc(void)
 	obj->out_fd = -1;
 	obj->in_fd = -1;
 
+	SHA1_Init(&obj->checksum);
+
 	return obj;
 }
 
@@ -318,6 +329,17 @@ static bool key_valid(const void *key, size_t key_len)
 	return true;
 }
 
+static unsigned int fs_blk_count(uint64_t data_len)
+{
+	uint64_t n_blk;
+
+	n_blk = data_len >> CHUNK_BLK_ORDER;
+	if (data_len & (CHUNK_BLK_SZ - 1))
+		n_blk++;
+
+	return (unsigned int) n_blk;
+}
+
 struct backend_obj *fs_obj_new(uint32_t table_id,
 			       const void *key, size_t key_len,
 			       uint64_t data_len,
@@ -325,6 +347,7 @@ struct backend_obj *fs_obj_new(uint32_t table_id,
 {
 	struct fs_obj *obj;
 	char *fn = NULL;
+	size_t csum_bytes;
 	enum chunk_errcode erc = che_InternalError;
 	off_t skip_len;
 
@@ -338,6 +361,13 @@ struct backend_obj *fs_obj_new(uint32_t table_id,
 		*err_code = che_InternalError;
 		return NULL;
 	}
+
+	obj->n_blk = fs_blk_count(data_len);
+	csum_bytes = obj->n_blk * CHD_CSUM_SZ;
+	obj->csum_tbl = malloc(csum_bytes);
+	if (!obj->csum_tbl)
+		goto err_out;
+	obj->csum_tbl_sz = csum_bytes;
 
 	/* build local fs pathname */
 	fn = fs_obj_pathname(table_id, key, key_len);
@@ -359,7 +389,7 @@ struct backend_obj *fs_obj_new(uint32_t table_id,
 	obj->out_fn = fn;
 
 	/* calculate size of front-of-file metadata area */
-	skip_len = sizeof(struct be_fs_obj_hdr) + key_len;
+	skip_len = sizeof(struct be_fs_obj_hdr) + key_len + csum_bytes;
 
 	/* position file pointer where object data (as in, not metadata)
 	 * will begin
@@ -397,7 +427,10 @@ struct backend_obj *fs_obj_open(uint32_t table_id, const char *user,
 	struct be_fs_obj_hdr hdr;
 	ssize_t rrc;
 	uint64_t value_len, tmp64;
+	size_t csum_bytes;
 	enum chunk_errcode erc = che_InternalError;
+	struct iovec iov[2];
+	size_t total_rd_len;
 
 	if (!key_valid(key, key_len)) {
 		*err_code = che_InvalidKey;
@@ -457,23 +490,45 @@ struct backend_obj *fs_obj_open(uint32_t table_id, const char *user,
 		goto err_out;
 
 	value_len = GUINT64_FROM_LE(hdr.value_len);
+	obj->n_blk = GUINT32_FROM_LE(hdr.n_blk);
+	csum_bytes = obj->n_blk * CHD_CSUM_SZ;
 
 	/* verify file size large enough to contain value */
-	tmp64 = value_len + sizeof(hdr) + key_len;
+	tmp64 = value_len + sizeof(hdr) + key_len + csum_bytes;
 	if (G_UNLIKELY(st.st_size < tmp64)) {
 		applog(LOG_ERR, "obj(%s) size error, too small", obj->in_fn);
 		goto err_out;
 	}
+
+	/* verify expected size of checksum table */
+	if (G_UNLIKELY(fs_blk_count(value_len) != obj->n_blk)) {
+		applog(LOG_ERR, "obj(%s) unexpected blk count "
+		       "(%u from val sz, %u from hdr)",
+		       obj->in_fn, fs_blk_count(value_len), obj->n_blk);
+		goto err_out;
+	}
+
+	obj->csum_tbl = malloc(csum_bytes);
+	if (!obj->csum_tbl)
+		goto err_out;
+	obj->csum_tbl_sz = csum_bytes;
 
 	obj->bo.key = malloc(key_len);
 	obj->bo.key_len = key_len;
 	if (!obj->bo.key)
 		goto err_out;
 
-	/* read object variable-length header */
-	rrc = read(obj->in_fd, obj->bo.key, key_len);
-	if ((rrc != key_len) || (memcmp(key, obj->bo.key, key_len))) {
-		applog(LOG_ERR, "read hdr key obj(%s) failed: %s",
+	/* init additional header segment list */
+	iov[0].iov_base = obj->bo.key;
+	iov[0].iov_len = key_len;
+	iov[1].iov_base = obj->csum_tbl;
+	iov[1].iov_len = csum_bytes;
+	total_rd_len = iov[0].iov_len + iov[1].iov_len;
+
+	/* read additional header segments (key, checksum table) */
+	rrc = readv(obj->in_fd, iov, ARRAY_SIZE(iov));
+	if ((rrc != total_rd_len) || (memcmp(key, obj->bo.key, key_len))) {
+		applog(LOG_ERR, "read addnl hdrs(%s) failed: %s",
 			obj->in_fn,
 			(rrc < 0) ? strerror(errno) : "<unknown reasons>");
 		goto err_out;
@@ -516,6 +571,7 @@ void fs_obj_free(struct backend_obj *bo)
 	if (obj->in_fd >= 0)
 		close(obj->in_fd);
 
+	free(obj->csum_tbl);
 	free(obj);
 }
 
@@ -532,19 +588,58 @@ ssize_t fs_obj_read(struct backend_obj *bo, void *ptr, size_t len)
 	return rc;
 }
 
+static void obj_flush_csum(struct backend_obj *bo)
+{
+	struct fs_obj *obj = bo->private;
+	unsigned char md[CHD_CSUM_SZ];
+
+	if (G_UNLIKELY(obj->csum_idx >= obj->n_blk)) {
+		applog(LOG_ERR, "BUG %s: cidx %u, n_blk %u",
+		       __func__, obj->csum_idx, obj->n_blk);
+		return;
+	}
+
+	SHA1_Final(md, &obj->checksum);
+
+	memcpy(obj->csum_tbl + ((obj->csum_idx++) * CHD_CSUM_SZ),
+	       md, CHD_CSUM_SZ);
+
+	obj->checked_bytes = 0;
+	SHA1_Init(&obj->checksum);
+}
+
 ssize_t fs_obj_write(struct backend_obj *bo, const void *ptr, size_t len)
 {
 	struct fs_obj *obj = bo->private;
-	ssize_t rc;
+	ssize_t total_written = 0;
 
-	rc = write(obj->out_fd, ptr, len);
-	if (rc < 0)
-		applog(LOG_ERR, "obj write(%s) failed: %s",
-		       obj->out_fn, strerror(errno));
-	else
-		obj->written_bytes += rc;
+	while (len > 0) {
+		size_t unchecked;
+		ssize_t wrc;
 
-	return rc;
+		unchecked = CHUNK_BLK_SZ - obj->checked_bytes;
+
+		wrc = write(obj->out_fd, ptr, MIN(unchecked, len));
+		if (wrc < 0) {
+			applog(LOG_ERR, "obj write(%s) failed: %s",
+			       obj->out_fn, strerror(errno));
+			return wrc;
+		}
+
+		SHA1_Update(&obj->checksum, ptr, wrc);
+
+		total_written += wrc;
+		obj->written_bytes += wrc;
+		obj->checked_bytes += wrc;
+		ptr += wrc;
+		len -= wrc;
+
+		/* if at end of 64k block, update csum table with new csum */
+		if (obj->checked_bytes == CHUNK_BLK_SZ)
+			obj_flush_csum(bo);
+	}
+
+	return total_written;
 }
 
 #if defined(HAVE_SENDFILE) && defined(__linux__)
@@ -554,10 +649,11 @@ ssize_t fs_obj_sendfile(struct backend_obj *bo, int out_fd, size_t len)
 	struct fs_obj *obj = bo->private;
 	ssize_t rc;
 
-	if (obj->sendfile_ofs == 0) {
-		obj->sendfile_ofs += sizeof(struct be_fs_obj_hdr);
-		obj->sendfile_ofs += bo->key_len;
-	}
+	if (obj->sendfile_ofs == 0)
+		obj->sendfile_ofs =
+			sizeof(struct be_fs_obj_hdr) +
+			bo->key_len +
+			obj->csum_tbl_sz;
 
 	rc = sendfile(out_fd, obj->in_fd, &obj->sendfile_ofs, len);
 	if (rc < 0)
@@ -575,10 +671,11 @@ ssize_t fs_obj_sendfile(struct backend_obj *bo, int out_fd, size_t len)
 	ssize_t rc;
 	off_t sbytes = 0;
 
-	if (obj->sendfile_ofs == 0) {
-		obj->sendfile_ofs += sizeof(struct be_fs_obj_hdr);
-		obj->sendfile_ofs += bo->key_len;
-	}
+	if (obj->sendfile_ofs == 0)
+		obj->sendfile_ofs =
+			sizeof(struct be_fs_obj_hdr) +
+			bo->key_len +
+			obj->csum_tbl_sz;
 
 	rc = sendfile(obj->in_fd, out_fd, obj->sendfile_ofs, len,
 		      NULL, &sbytes, 0);
@@ -610,7 +707,7 @@ bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 	struct be_fs_obj_hdr hdr;
 	ssize_t wrc;
 	size_t total_wr_len;
-	struct iovec iov[2];
+	struct iovec iov[3];
 
 	if (G_UNLIKELY(obj->bo.size != obj->written_bytes)) {
 		applog(LOG_ERR, "BUG(%s): size/written_bytes mismatch: %llu/%llu",
@@ -626,6 +723,19 @@ bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 	strncpy(hdr.owner, user, sizeof(hdr.owner));
 	hdr.key_len = GUINT32_TO_LE(bo->key_len);
 	hdr.value_len = GUINT64_TO_LE(obj->written_bytes);
+	hdr.n_blk = GUINT32_TO_LE(obj->n_blk);
+
+	/* update checksum table with final csum, if necessary */
+	if (obj->checked_bytes > 0)
+		obj_flush_csum(bo);
+
+	if (G_UNLIKELY(obj->csum_idx != obj->n_blk)) {
+		applog(LOG_ERR, "BUG(%s): csum_idx/n_blk mismatch: %u/%u",
+		       obj->out_fn, obj->csum_idx, obj->n_blk);
+		return false;
+	}
+
+	obj->csum_idx = 0;
 
 	/* go back to beginning of file */
 	if (lseek(obj->out_fd, 0, SEEK_SET) < 0) {
@@ -639,7 +749,9 @@ bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 	iov[0].iov_len = sizeof(hdr);
 	iov[1].iov_base = bo->key;
 	iov[1].iov_len = bo->key_len;
-	total_wr_len = iov[0].iov_len + iov[1].iov_len;
+	iov[2].iov_base = obj->csum_tbl;
+	iov[2].iov_len = obj->csum_tbl_sz;
+	total_wr_len = iov[0].iov_len + iov[1].iov_len + iov[2].iov_len;
 
 	/* write object header segments */
 	wrc = writev(obj->out_fd, iov, ARRAY_SIZE(iov));
@@ -856,7 +968,7 @@ void fs_list_objs_close(struct fs_obj_lister *t)
  * TODO - possibly factor out some code from fs_obj_open and fs_obj_delete.
  */
 int fs_obj_hdr_read(const char *fn, char **owner, unsigned char *hash,
-		    void **keyp, size_t *klenp,
+		    void **keyp, size_t *klenp, size_t *csumlenp,
 		    unsigned long long *size, time_t *mtime)
 {
 	struct be_fs_obj_hdr hdr;
@@ -922,6 +1034,8 @@ int fs_obj_hdr_read(const char *fn, char **owner, unsigned char *hash,
 		goto err_var;
 	}
 
+	*csumlenp = GUINT32_FROM_LE(hdr.n_blk) * CHD_CSUM_SZ;
+
 	*owner = strndup(hdr.owner, sizeof(hdr.owner));
 	if (!*owner) {
 		applog(LOG_WARNING, "NO CORE");
@@ -972,11 +1086,11 @@ GList *fs_list_objs(uint32_t table_id, const char *user)
 		unsigned char md[CHD_CSUM_SZ];
 		size_t alloc_len;
 		void *key_in;
-		size_t klen_in;
+		size_t klen_in, csumlen_in;
 		char hashstr[(CHD_CSUM_SZ * 2) + 1];
 
 		rc = fs_obj_hdr_read(fn, &owner, md, &key_in, &klen_in,
-				     &size, &mtime);
+				     &csumlen_in, &size, &mtime);
 		if (rc < 0) {
 			free(fn);
 			break;
@@ -1034,7 +1148,8 @@ GList *fs_list_objs(uint32_t table_id, const char *user)
 	return res;
 }
 
-int fs_obj_do_sum(const char *fn, unsigned int klen, unsigned char *md)
+int fs_obj_do_sum(const char *fn, unsigned int klen, unsigned int csumlen,
+		  unsigned char *md)
 {
 	enum { BUFLEN = 128 * 1024 };
 	void *buf;
@@ -1053,7 +1168,8 @@ int fs_obj_do_sum(const char *fn, unsigned int klen, unsigned char *md)
 		rc = errno;
 		goto err_open;
 	}
-	if (lseek(fd, sizeof(struct be_fs_obj_hdr) + klen, SEEK_SET) == (off_t)-1) {
+	if (lseek(fd, sizeof(struct be_fs_obj_hdr) + klen + csumlen,
+		  SEEK_SET) == (off_t)-1) {
 		rc = errno;
 		goto err_seek;
 	}

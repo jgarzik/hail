@@ -33,7 +33,7 @@ static void chk_list_objs(struct chk_tls *tls, uint32_t table_id)
 	unsigned char md[CHD_CSUM_SZ], md_act[CHD_CSUM_SZ];
 	time_t mtime;
 	void *key_in;
-	size_t klen_in;
+	size_t klen_in, csumlen_in;
 	struct objcache_entry *cep;
 	int rc;
 
@@ -48,7 +48,7 @@ static void chk_list_objs(struct chk_tls *tls, uint32_t table_id)
 	while (fs_list_objs_next(&lister, &fn) > 0) {
 
 		rc = fs_obj_hdr_read(fn, &owner, md, &key_in, &klen_in,
-				     &size, &mtime);
+				     &csumlen_in, &size, &mtime);
 		if (rc < 0) {
 			free(fn);
 			break;
@@ -64,7 +64,7 @@ static void chk_list_objs(struct chk_tls *tls, uint32_t table_id)
 			break;
 		}
 
-		rc = fs_obj_do_sum(fn, klen_in, md_act);
+		rc = fs_obj_do_sum(fn, klen_in, csumlen_in, md_act);
 		if (rc) {
 			applog(LOG_INFO, "Cannot compute checksum for %s", fn);
 		} else {

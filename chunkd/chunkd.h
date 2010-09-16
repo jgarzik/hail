@@ -278,13 +278,14 @@ extern int fs_list_objs_next(struct fs_obj_lister *t, char **fnp);
 extern void fs_list_objs_close(struct fs_obj_lister *t);
 extern int fs_obj_hdr_read(const char *fn, char **owner,
 			   unsigned char *hash,
-			   void **keyp, size_t *klenp,
+			   void **keyp, size_t *klenp, size_t *csumlenp,
 			   unsigned long long *size, time_t *mtime);
 extern GList *fs_list_objs(uint32_t table_id, const char *user);
 extern bool fs_table_open(const char *user, const void *kbuf, size_t klen,
 		   bool tbl_creat, bool excl_creat, uint32_t *table_id,
 		   enum chunk_errcode *err_code);
-extern int fs_obj_do_sum(const char *fn, unsigned int klen, unsigned char *md);
+extern int fs_obj_do_sum(const char *fn, unsigned int klen,
+			 unsigned int csumlen, unsigned char *md);
 
 /* object.c */
 extern bool object_del(struct client *cli);
