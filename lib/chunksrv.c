@@ -32,6 +32,7 @@ size_t req_len(const struct chunksrv_req *req)
 
 	len = sizeof(struct chunksrv_req) + GUINT16_FROM_LE(req->key_len);
 
+	/* FIXME: handle CHO_CP here, too */
 	if (req->op == CHO_GET_PART)
 		len += sizeof(struct chunksrv_req_getpart);
 
