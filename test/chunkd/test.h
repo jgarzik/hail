@@ -51,4 +51,6 @@
 extern void printdiff(const struct timeval *t_start, const struct timeval *t_end,
 	       int64_t val_i, const char *pfx, const char *units);
 
+extern void *randmem(size_t n);
+
 #endif /* __TABLED_TEST_H__ */

@@ -29,6 +29,13 @@
 #include <chunkc.h>
 #include "test.h"
 
+enum {
+	RBUF_SZ		= 1 * 1024 * 1024,
+};
+
+static void *rbuf;
+
+
 static void test(bool do_encrypt)
 {
 	struct st_object *obj;
@@ -36,7 +43,6 @@ static void test(bool do_encrypt)
 	struct st_client *stc;
 	int port;
 	bool rcb;
-	char val[] = "my first value";
 	char key[64] = "deadbeef getpart";
 	size_t len = 0;
 	void *mem;
@@ -51,7 +57,7 @@ static void test(bool do_encrypt)
 	OK(rcb);
 
 	/* store object */
-	rcb = stc_put_inlinez(stc, key, val, strlen(val), 0);
+	rcb = stc_put_inlinez(stc, key, rbuf, RBUF_SZ, 0);
 	OK(rcb);
 
 	/* make sure object appears in list of volume keys */
@@ -66,7 +72,7 @@ static void test(bool do_encrypt)
 	OK(!strcmp(obj->name, key));
 	OK(obj->time_mod);
 	OK(obj->etag);
-	OK(obj->size == strlen(val));
+	OK(obj->size == RBUF_SZ);
 	OK(obj->owner);
 
 	stc_free_keylist(klist);
@@ -74,8 +80,8 @@ static void test(bool do_encrypt)
 	/* get object */
 	mem = stc_get_part_inlinez(stc, key, 0, 0, &len);
 	OK(mem);
-	OK(len == strlen(val));
-	OK(!memcmp(val, mem, strlen(val)));
+	OK(len == CHUNK_MAX_GETPART_SZ);
+	OK(!memcmp(rbuf, mem, CHUNK_MAX_GETPART_SZ));
 
 	free(mem);
 
@@ -93,6 +99,10 @@ int main(int argc, char *argv[])
 	stc_init();
 	SSL_library_init();
 	SSL_load_error_strings();
+
+	rbuf = randmem(RBUF_SZ);
+	if (!rbuf)
+		return 1;
 
 	test(false);
 	test(true);

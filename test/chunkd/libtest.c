@@ -20,8 +20,16 @@
 #define _GNU_SOURCE
 #include "hail-config.h"
 
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <errno.h>
+#include <fcntl.h>
 #include "test.h"
+
+#define RNGFN "/dev/urandom"
 
 static long double tv2ld(const struct timeval *tv)
 {
@@ -46,5 +54,45 @@ void printdiff(const struct timeval *t_start, const struct timeval *t_end,
 	long double quo = val / elapsed;
 
 	fprintf(stderr, "      %s: %.2Lf %s/sec\n", pfx, quo, units);
+}
+
+void *randmem(size_t n)
+{
+	void *mem;
+	int fd;
+	ssize_t rrc;
+
+	mem = malloc(n);
+	if (!mem)
+		return NULL;
+	
+	fd = open(RNGFN, O_RDONLY);
+	if (fd < 0) {
+		fprintf(stderr, RNGFN ": %s\n", strerror(errno));
+		goto err_out;
+	}
+
+	rrc = read(fd, mem, n);
+	if (rrc < 0) {
+		fprintf(stderr, "read " RNGFN ": %s\n", strerror(errno));
+		goto err_out;
+	}
+	if (rrc != n) {
+		fprintf(stderr, "short read " RNGFN ": %ld < %lu\n",
+			(long) rrc,
+			(unsigned long) n);
+		goto err_out;
+	}
+
+	if (close(fd) < 0) {
+		fprintf(stderr, "close " RNGFN ": %s\n", strerror(errno));
+		goto err_out;
+	}
+
+	return mem;
+
+err_out:
+	free(mem);
+	return NULL;
 }
 
