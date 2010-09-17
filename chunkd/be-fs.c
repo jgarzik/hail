@@ -600,19 +600,24 @@ static bool can_csum_blk(struct fs_obj *obj, size_t len)
 	return false;
 }
 
-int fs_obj_seek(struct backend_obj *bo, off_t ofs)
+int fs_obj_seek(struct backend_obj *bo, uint64_t rel_ofs)
 {
 	struct fs_obj *obj = bo->private;
+	uint64_t abs_ofs64 = obj->value_ofs + rel_ofs;
+	off_t abs_ofs = abs_ofs64;
 	off_t rc;
 
-	rc = lseek(obj->in_fd, obj->value_ofs + ofs, SEEK_SET);
+	rc = lseek(obj->in_fd, abs_ofs, SEEK_SET);
 	if (rc == (off_t)-1) {
-		applog(LOG_ERR, "obj seek(%s) failed: %s",
-		       obj->in_fn, strerror(errno));
+		applog(LOG_ERR, "obj seek(%s, %llu + %llu, SEEK_SET) failed: %s",
+		       obj->in_fn,
+		       (unsigned long long) obj->value_ofs,
+		       (unsigned long long) rel_ofs,
+		       strerror(errno));
 		return -errno;
 	}
 
-	obj->in_pos = ofs;
+	obj->in_pos = rc - obj->value_ofs;
 
 	return 0;
 }
@@ -623,7 +628,11 @@ ssize_t fs_obj_read(struct backend_obj *bo, void *ptr, size_t len)
 	ssize_t rc;
 
 	rc = read(obj->in_fd, ptr, len);
-	if (rc < 0) {
+	if (rc == 0) {
+		applog(LOG_WARNING, "obj read(%s) reached end of file: %s",
+		       obj->in_fn);
+		return 0;
+	} else if (rc < 0) {
 		applog(LOG_ERR, "obj read(%s) failed: %s",
 		       obj->in_fn, strerror(errno));
 		return -errno;

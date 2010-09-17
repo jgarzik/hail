@@ -262,7 +262,7 @@ extern struct backend_obj *fs_obj_open(uint32_t table_id, const char *user,
 				       enum chunk_errcode *err_code);
 extern ssize_t fs_obj_write(struct backend_obj *bo, const void *ptr, size_t len);
 extern ssize_t fs_obj_read(struct backend_obj *bo, void *ptr, size_t len);
-extern int fs_obj_seek(struct backend_obj *bo, off_t ofs);
+extern int fs_obj_seek(struct backend_obj *bo, uint64_t ofs);
 extern void fs_obj_free(struct backend_obj *bo);
 extern bool fs_obj_write_commit(struct backend_obj *bo, const char *user,
 				unsigned char *md, bool sync_data);
