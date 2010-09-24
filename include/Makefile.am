@@ -5,5 +5,5 @@ EXTRA_DIST =		\
 
 include_HEADERS =	\
 	cldc.h cld_common.h ncld.h chunkc.h chunk_msg.h		\
-	hail_log.h hstor.h
+	hail_log.h hstor.h anet.h
 

@@ -21,6 +21,7 @@ LINK = $(LIBTOOL) --mode=link $(CC) $(CFLAGS) $(LDFLAGS) -o $@
 lib_LTLIBRARIES		= libhail.la
 
 libhail_la_SOURCES	=	\
+	atcp.c			\
 	cldc.c			\
 	cldc-udp.c		\
 	cldc-dns.c		\
