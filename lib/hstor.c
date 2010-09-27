@@ -676,6 +676,7 @@ static GString *append_qparam(GString *str, const char *key, const char *val,
 		       char *arg_char)
 {
 	char *stmp;
+	char *v;
 
 	str = g_string_append(str, arg_char);
 	arg_char[0] = '&';
@@ -683,9 +684,11 @@ static GString *append_qparam(GString *str, const char *key, const char *val,
 	str = g_string_append(str, key);
 	str = g_string_append(str, "=");
 
-	stmp = huri_field_escape(strdup(val), QUERY_ESCAPE_MASK);
+	v = strdup(val);
+	stmp = huri_field_escape(v, QUERY_ESCAPE_MASK);
 	str = g_string_append(str, stmp);
 	free(stmp);
+	free(v);
 
 	return str;
 }
