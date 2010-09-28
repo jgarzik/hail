@@ -144,7 +144,7 @@ extern int hreq_acl_canned(struct http_req *req);
 /* uri.c */
 extern struct http_uri *huri_parse(struct http_uri *uri_dest, char *uri_src_text);
 extern int huri_field_unescape(char *s, int s_len);
-extern char* huri_field_escape (char *signed_str, unsigned char mask);
+extern char* huri_field_escape(const char *signed_str, unsigned char mask);
 
 static inline bool hreq_http11(struct http_req *req)
 {

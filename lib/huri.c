@@ -25,7 +25,6 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdbool.h>
-#include <glib.h>
 #include <hstor.h>
 
 /* our own ISSPACE.  ANSI isspace is locale dependent */
@@ -221,7 +220,7 @@ static const guchar neednt_escape_table[] =
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
-char* huri_field_escape (char *signed_str, unsigned char mask)
+char* huri_field_escape(const char *signed_str, unsigned char mask)
 {
   int len;
   int i;
@@ -250,10 +249,12 @@ char* huri_field_escape (char *signed_str, unsigned char mask)
 
   /* Don't escape if unnecessary */
   if (must_escape == FALSE)
-    return signed_str;
+    return strdup(signed_str);
 
   /* Allocate buffer */
-  dst = (gchar*) g_malloc(len + 1);
+  dst = malloc(len + 1);
+  if (!dst)
+    return NULL;
 
   /* Copy */
   for (i = j = 0; str[i]; i++, j++)
@@ -284,7 +285,6 @@ char* huri_field_escape (char *signed_str, unsigned char mask)
     }
   dst[j] = '\0';
 
-  g_free (signed_str);
   return dst;
 }
 

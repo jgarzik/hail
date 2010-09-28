@@ -383,14 +383,16 @@ bool hstor_get(struct hstor_client *hstor, const char *bucket, const char *key,
 {
 	struct http_req req;
 	char datestr[80], timestr[64], hmac[64], auth[128];
-	char *host, *url, *orig_path;
+	char *host, *url, *unesc_path, *orig_path;
 	struct curl_slist *headers = NULL;
 	int rc;
 
-	if (asprintf(&orig_path, "/%s/%s", bucket, key) < 0)
+	if (asprintf(&unesc_path, "/%s/%s", bucket, key) < 0)
 		goto err_spath;
 
-	orig_path = huri_field_escape(orig_path, PATH_ESCAPE_MASK);
+	orig_path = huri_field_escape(unesc_path, PATH_ESCAPE_MASK);
+	if (!orig_path)
+		goto err_epath;
 
 	memset(&req, 0, sizeof(req));
 	req.method = "GET";
@@ -431,6 +433,7 @@ bool hstor_get(struct hstor_client *hstor, const char *bucket, const char *key,
 	free(url);
 	free(host);
 	free(orig_path);
+	free(unesc_path);
 
 	return (rc == 0);
 
@@ -438,6 +441,8 @@ err_url:
 	free(host);
 err_host:
 	free(orig_path);
+err_epath:
+	free(unesc_path);
 err_spath:
 	return false;
 }
@@ -474,15 +479,17 @@ bool hstor_put(struct hstor_client *hstor, const char *bucket, const char *key,
 {
 	struct http_req req;
 	char datestr[80], timestr[64], hmac[64], auth[128];
-	char *host, *url, *orig_path;
+	char *host, *url, *unesc_path, *orig_path;
 	char *uhdr_buf = NULL;
 	struct curl_slist *headers = NULL;
 	int rc = -1;
 
-	if (asprintf(&orig_path, "/%s/%s", bucket, key) < 0)
+	if (asprintf(&unesc_path, "/%s/%s", bucket, key) < 0)
 		goto err_spath;
 
-	orig_path = huri_field_escape(orig_path, PATH_ESCAPE_MASK);
+	orig_path = huri_field_escape(unesc_path, PATH_ESCAPE_MASK);
+	if (!orig_path)
+		goto err_epath;
 
 	memset(&req, 0, sizeof(req));
 	req.method = "PUT";
@@ -570,6 +577,7 @@ bool hstor_put(struct hstor_client *hstor, const char *bucket, const char *key,
 	free(url);
 	free(host);
 	free(orig_path);
+	free(unesc_path);
 	free(uhdr_buf);
 	return (rc == 0);
 
@@ -579,6 +587,8 @@ err_host:
 	free(uhdr_buf);
 err_ubuf:
 	free(orig_path);
+err_epath:
+	free(unesc_path);
 err_spath:
 	return false;
 }
@@ -616,14 +626,16 @@ bool hstor_del(struct hstor_client *hstor, const char *bucket, const char *key)
 {
 	struct http_req req;
 	char datestr[80], timestr[64], hmac[64], auth[128];
-	char *host, *url, *orig_path;
+	char *host, *url, *unesc_path, *orig_path;
 	struct curl_slist *headers = NULL;
 	int rc;
 
-	if (asprintf(&orig_path, "/%s/%s", bucket, key) < 0)
+	if (asprintf(&unesc_path, "/%s/%s", bucket, key) < 0)
 		goto err_spath;
 
-	orig_path = huri_field_escape(orig_path, PATH_ESCAPE_MASK);
+	orig_path = huri_field_escape(unesc_path, PATH_ESCAPE_MASK);
+	if (!orig_path)
+		goto err_epath;
 
 	memset(&req, 0, sizeof(req));
 	req.method = "DELETE";
@@ -661,6 +673,7 @@ bool hstor_del(struct hstor_client *hstor, const char *bucket, const char *key)
 	free(url);
 	free(host);
 	free(orig_path);
+	free(unesc_path);
 
 	return (rc == 0);
 
@@ -668,6 +681,8 @@ err_url:
 	free(host);
 err_host:
 	free(orig_path);
+err_epath:
+	free(unesc_path);
 err_spath:
 	return false;
 }
@@ -676,7 +691,6 @@ static GString *append_qparam(GString *str, const char *key, const char *val,
 		       char *arg_char)
 {
 	char *stmp;
-	char *v;
 
 	str = g_string_append(str, arg_char);
 	arg_char[0] = '&';
@@ -684,11 +698,11 @@ static GString *append_qparam(GString *str, const char *key, const char *val,
 	str = g_string_append(str, key);
 	str = g_string_append(str, "=");
 
-	v = strdup(val);
-	stmp = huri_field_escape(v, QUERY_ESCAPE_MASK);
-	str = g_string_append(str, stmp);
-	free(stmp);
-	free(v);
+	stmp = huri_field_escape(val, QUERY_ESCAPE_MASK);
+	if (stmp) {
+		str = g_string_append(str, stmp);
+		free(stmp);
+	}
 
 	return str;
 }
