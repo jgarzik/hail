@@ -21,6 +21,7 @@
 #include "hail-config.h"
 
 #include <sys/types.h>
+#include <sys/time.h>
 #include <sys/socket.h>
 #include <glib.h>
 #include <syslog.h>
@@ -39,21 +40,23 @@ struct cld_host {
 };
 
 struct cld_session {
-	bool forced_hosts;		/* Administrator overrode default CLD */
-	bool is_dead;
-	struct ncld_sess *nsess;	/* library state */
+	bool			forced_hosts;	/* Administrator overrode default CLD */
+	bool			is_dead;
+	struct ncld_sess	*nsess;	/* library state */
 
-	int actx;		/* Active host cldv[actx] */
-	struct cld_host cldv[N_CLD];
+	int			actx;		/* Active host cldv[actx] */
+	struct cld_host		cldv[N_CLD];
 
-	struct cld_timer timer;
-	int event_pipe[2];
+	int			event_pipe[2];
+	struct event		ev;
+	struct event		ev_timer;
+	bool			have_timer;
 
-	char *ffname;
-	struct ncld_fh *ffh;	/* keep open for lock */
-	uint32_t nid;
-	const char *ourhost;	/* N.B. points to some global data. */
-	struct geo *ploc;	/* N.B. points to some global data. */
+	char		*ffname;
+	struct ncld_fh	*ffh;	/* keep open for lock */
+	uint32_t	nid;
+	const char	*ourhost;	/* N.B. points to some global data. */
+	struct geo	*ploc;	/* N.B. points to some global data. */
 
 	void (*state_cb)(enum st_cld);
 };
@@ -114,7 +117,9 @@ static void cldu_sess_proc(struct cld_session *cs)
 		newactive = cldu_nextactive(cs);
 		if (cldu_set_cldc(cs, newactive)) {
 			/* Oops, should not happen. Just loop, then... */
-			timer_add(&cs->timer, time(NULL) + 30);
+			struct timeval tv = { 30, 0 };
+			evtimer_add(&cs->ev_timer, &tv);
+			cs->have_timer = true;
 			return;
 		}
 		cs->is_dead = false;
@@ -127,14 +132,14 @@ static void cldu_sess_proc(struct cld_session *cs)
 	}
 }
 
-static void cldu_timer_event(struct cld_timer *timer)
+static void cldu_timer_event(int fd, short events, void *userdata)
 {
-	struct cld_session *cs = timer->userdata;
+	struct cld_session *cs = userdata;
 
 	cldu_sess_proc(cs);
 }
 
-static bool cldu_pipe_event(int fd, short events, void *userdata)
+static void cldu_pipe_event(int fd, short events, void *userdata)
 {
 	struct cld_session *cs = userdata;
 	unsigned char cmd;
@@ -145,7 +150,6 @@ static bool cldu_pipe_event(int fd, short events, void *userdata)
 		cldu_sess_proc(cs);
 	else
 		applog(LOG_WARNING, "Stray CLD event pipe poll");
-	return true;
 }
 
 static void cldu_sess_event(void *priv, uint32_t what)
@@ -473,7 +477,6 @@ int cld_begin(const char *thishost, uint32_t nid, char *infopath,
 	      struct geo *locp, void (*cb)(enum st_cld))
 {
 	static struct cld_session *cs = &ses;
-	struct server_poll *sp;
 	int rfd;
 	int retry_cnt;
 	int newactive;
@@ -489,7 +492,7 @@ int cld_begin(const char *thishost, uint32_t nid, char *infopath,
 	// memset(&ses, 0, sizeof(struct cld_session));
 	cs->state_cb = cb;
 
-	timer_init(&cs->timer, "chunkd_cldu_timer", cldu_timer_event, cs);
+	evtimer_set(&cs->ev_timer, cldu_timer_event, cs);
 
 	cldu_saveargs(cs, infopath, nid, thishost, locp);
 
@@ -528,17 +531,12 @@ int cld_begin(const char *thishost, uint32_t nid, char *infopath,
 	}
 	rfd = cs->event_pipe[0];
 
-	sp = calloc(1, sizeof(*sp));
-	if (!sp) {
-		applog(LOG_ERR, "No core");
+	event_set(&cs->ev, rfd, EV_READ | EV_PERSIST, cldu_pipe_event, cs);
+
+	if (event_add(&cs->ev, NULL) < 0) {
+		applog(LOG_ERR, "event_add cldu fail");
 		goto err_sp;
 	}
-
-	sp->events = POLLIN;
-	sp->cb = cldu_pipe_event;
-	sp->userdata = cs;
-
-	g_hash_table_insert(chunkd_srv.fd_info, GINT_TO_POINTER(rfd), sp);
 
 	/*
 	 * FIXME: We should find next suitable host according to
@@ -560,7 +558,7 @@ int cld_begin(const char *thishost, uint32_t nid, char *infopath,
 	return 0;
 
 err_net:
-	g_hash_table_remove(chunkd_srv.fd_info, GINT_TO_POINTER(rfd));
+	event_del(&cs->ev);
 err_sp:
 	close(cs->event_pipe[0]);
 	close(cs->event_pipe[1]);
@@ -599,7 +597,10 @@ void cld_end(void)
 	if (!cs->nid)
 		return;
 
-	timer_del(&cs->timer);
+	if (cs->have_timer) {
+		evtimer_del(&cs->ev_timer);
+		cs->have_timer = false;
+	}
 
 	if (cs->nsess) {
 		ncld_sess_close(cs->nsess);
@@ -615,8 +616,7 @@ void cld_end(void)
 		}
 	}
 
-	g_hash_table_remove(chunkd_srv.fd_info,
-			    GINT_TO_POINTER(cs->event_pipe[0]));
+	event_del(&cs->ev);
 	close(cs->event_pipe[0]);
 	close(cs->event_pipe[1]);
 
