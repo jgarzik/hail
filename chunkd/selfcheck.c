@@ -100,6 +100,7 @@ static void chk_list_objs(struct chk_tls *tls, uint32_t table_id)
 
 		free(fn);
 	}
+	fs_list_objs_close(&lister);
 }
 
 static void chk_dbscan(struct chk_tls *tls)
