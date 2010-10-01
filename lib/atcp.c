@@ -25,6 +25,10 @@
 #include <sys/uio.h>
 #include <anet.h>
 
+#ifndef ARRAY_SIZE
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
+#endif
+
 bool atcp_cb_free(struct atcp_wr_state *wst, void *cb_data, bool done)
 {
 	free(cb_data);
@@ -77,17 +81,14 @@ void atcp_write_free_all(struct atcp_wr_state *wst)
 	}
 }
 
-static bool atcp_writable(struct atcp_wr_state *wst)
+static int atcp_wr_iov(struct atcp_wr_state *wst,
+		       struct iovec *iov, int max_iov)
 {
-	int n_iov;
 	struct atcp_write *tmp;
-	ssize_t rc;
-	struct iovec iov[ATCP_MAX_WR_IOV];
+	int n_iov = 0;
 
-	/* accumulate pending writes into iovec */
-	n_iov = 0;
 	list_for_each_entry(tmp, &wst->write_q, node) {
-		if (n_iov == ATCP_MAX_WR_IOV)
+		if (n_iov == max_iov)
 			break;
 		/* bleh, struct iovec should declare iov_base const */
 		iov[n_iov].iov_base = (void *) tmp->buf;
@@ -95,21 +96,16 @@ static bool atcp_writable(struct atcp_wr_state *wst)
 		n_iov++;
 	}
 
-	/* execute non-blocking write */
-do_write:
-	rc = writev(wst->fd, iov, n_iov);
-	if (rc < 0) {
-		if (errno == EINTR)
-			goto do_write;
-		if (errno != EAGAIN)
-			goto err_out;
-		return true;
-	}
+	return n_iov;
+}
 
+static void atcp_wr_completed(struct atcp_wr_state *wst, ssize_t rc)
+{
 	/* iterate through write queue, issuing completions based on
 	 * amount of data written
 	 */
 	while (rc > 0) {
+		struct atcp_write *tmp;
 		int sz;
 
 		/* get pointer to first record on list */
@@ -128,6 +124,29 @@ do_write:
 		if (tmp->togo == 0)
 			atcp_write_complete(tmp);
 	}
+}
+
+static bool atcp_writable(struct atcp_wr_state *wst)
+{
+	int n_iov;
+	ssize_t rc;
+	struct iovec iov[ATCP_MAX_WR_IOV];
+
+	/* accumulate pending writes into iovec */
+	n_iov = atcp_wr_iov(wst, iov, ARRAY_SIZE(iov));
+
+	/* execute non-blocking write */
+do_write:
+	rc = writev(wst->fd, iov, n_iov);
+	if (rc < 0) {
+		if (errno == EINTR)
+			goto do_write;
+		if (errno != EAGAIN)
+			goto err_out;
+		return true;
+	}
+
+	atcp_wr_completed(wst, rc);
 
 	/* if we emptied the queue, clear write notification */
 	if (atcp_wq_empty(wst)) {
