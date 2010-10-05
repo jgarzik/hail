@@ -1,8 +1,10 @@
-
+<!--
 chunkd's configuration file is "XML-like", but not strictly XML.
+In particular, clause tags are case-sensitive.
+Anyhow, just copy this file into /etc/chunkd.conf and supply it to -C option.
+-->
 
-listen addresses
-================
+<!--
 You may specify multiple port, and/or multiple (address,port) combinations
 using <Listen>, <Node>, <Port>, and <Encrypt>:
 
@@ -28,47 +30,26 @@ using <Listen>, <Node>, <Port>, and <Encrypt>:
 		<Port>18080</Port>
 		<Encrypt>true</Encrypt>
 	</Listen>
+-->
+<Listen> <Port>8082</Port> </Listen>
 
+<!-- The default is usually acceptable -->
+<!-- <PID>/var/run/chunkd.pid</PID> -->
 
-<Listen>	Record delimiter
-<Node>		Node address to which the TCP server will bind
-		(exclude <Node> for wildcard address)
-<Port>		Numeric port or service, to which TCP server will bind
-<Encrypt>	TLS is enabled on this port
+<Path>/q/chunk-vega</Path>	<!-- any /home directory will do -->
 
+<!-- Anything unique works: digits of IP address, time_t of creation. -->
+<NID>13</NID>
 
-volume served
-=============
-You specify the volume served by this daemon using <Path>.
+<!--
+ If you run tabled, "vega" is a <Group> tag where looks for chunks.
+ Otherwise, any path in CLD namespace works.
+ -->
+<InfoPath>/chunk-vega/13</InfoPath>
 
-    Your basic setup, an empty directory:
-	<Path>/disk/massive/data</Path>
-
-
-<Path>		Path to volume
-
-
-SSL settings
-============
-You specify server SSL attributes using <SSL>, <PrivateKey>, and <Cert>.
-
-    Your basic setup:
+<!-- SSL works, although very few people/programs use it. Tabled doesn't.
     	<SSL>
 		<PrivateKey>/etc/pki/chunkd.pem</PrivateKey>
 		<Cert>/etc/pkt/cert.pem</Cert>
 	</SSL>
-
-
-<SSL>		Record delimiter
-<PrivateKey>	Pathname of SSL private key PEM file
-<Cert>		Pathname of Certificate public key PEM file
-
-
-miscellaneous settings
-======================
-
-PID file contained the process id of the daemon after forking, normally
-written somewhere in /var/run:
-
-	<PID>/var/run/chunkd.pid</PID>
-
+-->
