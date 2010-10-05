@@ -156,7 +156,7 @@ fi
 
 %files -n chunkd
 %defattr(-,root,root,-)
-%doc doc/api.txt doc/cfgfile.txt doc/chcli.cfg doc/chcli.txt
+%doc doc/api.txt doc/cfgfile.txt doc/chcli.cfg doc/chcli.txt doc/setup.txt
 %doc doc/concept.txt doc/logging.txt
 %{_sbindir}/chunkd
 %{_bindir}/chcli
