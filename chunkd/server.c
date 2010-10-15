@@ -39,7 +39,6 @@
 #include <arpa/inet.h>
 #include <stdbool.h>
 #include <syslog.h>
-#include <poll.h>
 #include <argp.h>
 #include <errno.h>
 #include <time.h>
@@ -251,11 +250,13 @@ static char *get_hostname(void)
 static void term_signal(int signo)
 {
 	server_running = false;
+	event_loopbreak();
 }
 
 static void stats_signal(int signo)
 {
 	dump_stats = true;
+	event_loopbreak();
 }
 
 #define X(stat) \
@@ -270,42 +271,6 @@ static void stats_dump(void)
 }
 
 #undef X
-
-static struct server_poll *srv_poll_lookup(int fd)
-{
-	return g_hash_table_lookup(chunkd_srv.fd_info, GINT_TO_POINTER(fd));
-}
-
-static bool srv_poll_del(int fd)
-{
-	return g_hash_table_remove(chunkd_srv.fd_info, GINT_TO_POINTER(fd));
-}
-
-static bool srv_poll_mask(int fd, short mask_set, short mask_clear)
-{
-	struct server_poll *sp;
-
-	sp = srv_poll_lookup(fd);
-	if (!sp)
-		return false;
-
-	sp->events = (sp->events & ~mask_clear) | mask_set;
-
-	return true;
-}
-
-static bool srv_poll_ready(int fd)
-{
-	struct server_poll *sp;
-
-	sp = srv_poll_lookup(fd);
-	if (!sp)
-		return false;
-
-	sp->busy = false;
-
-	return true;
-}
 
 void resp_init_req(struct chunksrv_resp *resp,
 		   const struct chunksrv_req *req)
@@ -359,12 +324,13 @@ static void cli_free(struct client *cli)
 	cli_out_end(cli);
 	cli_in_end(cli);
 
+	if (cli->ev_mask && (event_del(&cli->ev) < 0))
+		applog(LOG_ERR, "TCP cli poll del failed");
+
 	/* clean up network socket */
 	if (cli->fd >= 0) {
 		if (cli->ssl)
 			SSL_shutdown(cli->ssl);
-		if (!srv_poll_del(cli->fd))
-			applog(LOG_ERR, "TCP cli poll del failed");
 		if (close(cli->fd) < 0)
 			syslogerr("close(2) TCP client socket");
 	}
@@ -422,22 +388,46 @@ static bool cli_evt_recycle(struct client *cli, unsigned int events)
 	return true;
 }
 
-bool cli_rd_set_poll(struct client *cli, bool readable)
+static void cli_ev_update(struct client *cli, short new_mask)
 {
+	if (cli->ev_mask == new_mask)
+		return;
+
+	if (cli->ev_mask)
+		if (event_del(&cli->ev) < 0)
+			applog(LOG_ERR, "unable to unready cli fd");
+	if (new_mask) {
+		event_set(&cli->ev, cli->fd, new_mask | EV_PERSIST,
+			  tcp_cli_event, cli);
+		if (event_add(&cli->ev, NULL) < 0)
+			applog(LOG_ERR, "unable to ready cli fd");
+	}
+
+	cli->ev_mask = new_mask;
+}
+
+void cli_rd_set_poll(struct client *cli, bool readable)
+{
+	short new_ev_mask = cli->ev_mask;
+
 	if (readable)
-		srv_poll_mask(cli->fd, POLLIN, 0);
+		new_ev_mask |= EV_READ;
 	else
-		srv_poll_mask(cli->fd, 0, POLLIN);
+		new_ev_mask &= ~EV_READ;
 	
-	return true;
+	cli_ev_update(cli, new_ev_mask);
 }
 
 void cli_wr_set_poll(struct client *cli, bool writable)
 {
+	short new_ev_mask = cli->ev_mask;
+
 	if (writable)
-		srv_poll_mask(cli->fd, POLLOUT, 0);
+		new_ev_mask |= EV_WRITE;
 	else
-		srv_poll_mask(cli->fd, 0, POLLOUT);
+		new_ev_mask &= ~EV_WRITE;
+	
+	cli_ev_update(cli, new_ev_mask);
 }
 
 static int cli_wr_iov(struct client *cli, struct iovec *iov, int max_iov)
@@ -1347,20 +1337,13 @@ static void tcp_cli_wr_event(int fd, short events, void *userdata)
 		cli_writable(cli);
 }
 
-bool tcp_cli_event(int fd, short events, void *userdata)
+void tcp_cli_event(int fd, short events, void *userdata)
 {
 	struct client *cli = userdata;
 	bool loop = false, disposing = false;
-	bool do_poll = true;
 
-	if (events & POLLHUP) {
-		cli->state = evt_dispose;
-		cli_free(cli);
-		return true;
-	}
-
-	if (events & POLLOUT)
-		tcp_cli_wr_event(fd, events & ~POLLIN, userdata);
+	if (events & EV_WRITE)
+		tcp_cli_wr_event(fd, events & ~EV_READ, userdata);
 
 	if (cli->write_want_read) {
 		cli->write_want_read = false;
@@ -1368,21 +1351,16 @@ bool tcp_cli_event(int fd, short events, void *userdata)
 	} else
 		loop = true;
 
+	if (!(events & EV_READ) && (cli->state != evt_dispose))
+		return;
+
 	while (loop) {
 		disposing = (cli->state == evt_dispose);
 		loop = state_funcs[cli->state](cli, events);
 	}
-
-	if (disposing)
-		do_poll = false;
-
-	if (do_poll && !srv_poll_ready(fd))
-		applog(LOG_ERR, "unable to ready cli fd for polling");
-
-	return true;	/* continue main loop; do NOT terminate server */
 }
 
-static bool tcp_srv_event(int fd, short events, void *userdata)
+static void tcp_srv_event(int fd, short events, void *userdata)
 {
 	struct server_socket *sock = userdata;
 	socklen_t addrlen = sizeof(struct sockaddr_in6);
@@ -1390,12 +1368,13 @@ static bool tcp_srv_event(int fd, short events, void *userdata)
 	char host[64];
 	char port[16];
 	int on = 1;
-	struct server_poll *sp;
 
 	cli = cli_alloc();
 	if (!cli) {
 		applog(LOG_ERR, "out of memory");
-		return false;	/* end main loop; terminate server */
+		server_running = false;
+		event_loopbreak();
+		return;
 	}
 
 	/* receive TCP connection from kernel */
@@ -1416,15 +1395,8 @@ static bool tcp_srv_event(int fd, short events, void *userdata)
 		applog(LOG_WARNING, "TCP_NODELAY failed: %s",
 		       strerror(errno));
 
-	sp = calloc(1, sizeof(*sp));
-	if (!sp)
-		goto err_out_fd;
-
-	sp->events = POLLIN;
-	sp->cb = tcp_cli_event;
-	sp->userdata = cli;
-
-	g_hash_table_insert(chunkd_srv.fd_info, GINT_TO_POINTER(cli->fd), sp);
+	event_set(&cli->ev, cli->fd, EV_READ | EV_PERSIST,
+		  tcp_cli_event, cli);
 
 	/* pretty-print incoming cxn info */
 	getnameinfo((struct sockaddr *) &cli->addr, addrlen,
@@ -1438,15 +1410,17 @@ static bool tcp_srv_event(int fd, short events, void *userdata)
 	strcpy(cli->addr_host, host);
 	strcpy(cli->addr_port, port);
 
-	if (!srv_poll_ready(fd))
+	if (event_add(&cli->ev, NULL) < 0) {
 		applog(LOG_ERR, "unable to ready srv fd for polling");
+		goto err_out_fd;
+	}
+	cli->ev_mask = EV_READ;
 
-	return true;	/* continue main loop; do NOT terminate server */
+	return;
 
 err_out_fd:
 err_out:
 	cli_free(cli);
-	return true;	/* continue main loop; do NOT terminate server */
 }
 
 static int net_write_port(const char *port_file, const char *port_str)
@@ -1466,25 +1440,6 @@ static int net_write_port(const char *port_file, const char *port_str)
 	return 0;
 }
 
-static bool pipe_watch(int pipe_fd_0, 
-		       bool (*cb)(int fd, short events, void *userdata),
-		       void *userdata)
-{
-	struct server_poll *sp;
-
-	sp = calloc(1, sizeof(*sp));
-	if (!sp)
-		return false;
-
-	sp->events = POLLIN;
-	sp->cb = cb;
-	sp->userdata = userdata;
-
-	g_hash_table_insert(chunkd_srv.fd_info, GINT_TO_POINTER(pipe_fd_0), sp);
-
-	return true;
-}
-
 static int net_open_socket(const struct listen_cfg *cfg,
 			   int addr_fam, int sock_type, int sock_prot,
 			   int addr_len, void *addr_ptr)
@@ -1492,7 +1447,6 @@ static int net_open_socket(const struct listen_cfg *cfg,
 	struct server_socket *sock;
 	int fd, on;
 	int rc;
-	struct server_poll *sp;
 
 	fd = socket(addr_fam, sock_type, sock_prot);
 	if (fd < 0) {
@@ -1532,26 +1486,21 @@ static int net_open_socket(const struct listen_cfg *cfg,
 
 	INIT_LIST_HEAD(&sock->sockets_node);
 
-	sp = calloc(1, sizeof(*sp));
-	if (!sp) {
-		free(sock);
-		rc = -ENOMEM;
-		goto err_out_fd;
-	}
-
-	sp->events = POLLIN;
-	sp->cb = tcp_srv_event;
-	sp->userdata = sock;
-
-	g_hash_table_insert(chunkd_srv.fd_info, GINT_TO_POINTER(fd), sp);
+	event_set(&sock->ev, fd, EV_READ | EV_PERSIST,
+		  tcp_srv_event, sock);
 
 	sock->fd = fd;
 	sock->cfg = cfg;
 
 	list_add_tail(&sock->sockets_node, &chunkd_srv.sockets);
 
+	if (event_add(&sock->ev, NULL) < 0)
+		goto err_out_sock;
+
 	return fd;
 
+err_out_sock:
+	free(sock);
 err_out_fd:
 	close(fd);
 	return rc;
@@ -1721,121 +1670,33 @@ bool worker_pipe_signal(struct worker_info *wi)
 	return true;
 }
 
-static bool worker_pipe_evt(int fd, short events, void *userdata)
+static void worker_pipe_evt(int fd, short events, void *userdata)
 {
 	struct worker_info *wi = NULL;
 
 	if (read(fd, &wi, sizeof(wi)) != sizeof(wi)) {
 		applog(LOG_ERR, "worker pipe input failed: %s",
 		       strerror(errno));
-		return false;
+		return;
 	}
 
 	wi->pipe_ev(wi);
-
-	if (!srv_poll_ready(fd))
-		applog(LOG_ERR, "unable to ready worker fd for polling");
-
-	return true;
-}
-
-static void fill_poll_arr(gpointer key, gpointer val, gpointer userdata)
-{
-	int fd = GPOINTER_TO_INT(key);
-	struct server_poll *sp = val;
-	GArray *pollers = userdata;
-	struct pollfd pfd;
-
-	if (sp->busy || !sp->events)
-		return;
-
-	pfd.fd = fd;
-	pfd.events = sp->events;
-	pfd.revents = 0;
-
-	g_array_append_val(pollers, pfd);
 }
 
 static int main_loop(void)
 {
-	GArray *pollers;
-	time_t next_timeout;
-
-	pollers = g_array_sized_new(FALSE, FALSE, sizeof(struct pollfd), 200);
-	if (!pollers)
-		return 1;
-
-	next_timeout = timers_run();
+	int rc = 0;
 
 	while (server_running) {
-		struct pollfd *pfd;
-		int i, fired, rc;
-
-		/* zero, then refill poll array */
-		g_array_set_size(pollers, 0);
-		g_hash_table_foreach(chunkd_srv.fd_info, fill_poll_arr,pollers);
-
-		/* poll for fd activity, or next timer event */
-		rc = poll(&g_array_index(pollers, struct pollfd, 0),
-			  pollers->len,
-			  next_timeout ? (next_timeout * 1000) : -1);
-		if (rc < 0) {
-			syslogerr("poll");
-			if (errno != EINTR)
-				break;
-		}
-
-		gettimeofday(&current_time, NULL);
-
-		/* determine which fd's fired; call their callbacks */
-		fired = 0;
-		for (i = 0; i < pollers->len; i++) {
-			struct server_poll *sp;
-			bool runrunrun;
-
-			/* ref pollfd struct */
-			pfd = &g_array_index(pollers, struct pollfd, i);
-
-			/* if no events fired, move on to next */
-			if (!pfd->revents)
-				continue;
-
-			fired++;
-
-			sp = srv_poll_lookup(pfd->fd);
-			if (G_UNLIKELY(!sp)) {
-				/* BUG! */
-				continue;
-			}
-
-			sp->busy = true;
-
-			/* call callback, shutting down server if requested */
-			runrunrun = sp->cb(pfd->fd, pfd->revents, sp->userdata);
-			if (!runrunrun) {
-				server_running = false;
-				break;
-			}
-
-			/* if we reached poll(2) activity count, it is
-			 * pointless to continue looping
-			 */
-			if (fired == rc)
-				break;
-		}
+		event_dispatch();
 
 		if (dump_stats) {
 			dump_stats = false;
 			stats_dump();
 		}
-
-		next_timeout = timers_run();
 	}
-
-	if (strict_free)
-		g_array_free(pollers, TRUE);
-
-	return 0;
+	
+	return rc;
 }
 
 int main (int argc, char *argv[])
@@ -1877,6 +1738,7 @@ int main (int argc, char *argv[])
 	g_thread_init(NULL);
 	chunkd_srv.bigmutex = g_mutex_new();
 	SSL_library_init();
+	chunkd_srv.evbase_main = event_init();
 
 	/* init SSL */
 	SSL_load_error_strings();
@@ -1927,21 +1789,13 @@ int main (int argc, char *argv[])
 	signal(SIGTERM, term_signal);
 	signal(SIGUSR1, stats_signal);
 
-	chunkd_srv.fd_info = g_hash_table_new_full(g_direct_hash,
-						   g_direct_equal,
-						   NULL, free);
-	if (!chunkd_srv.fd_info) {
-		rc = 1;
-		goto err_out_session;
-	}
-
 	chunkd_srv.max_workers = 10;
 	chunkd_srv.workers = g_thread_pool_new(worker_thread, NULL,
 					       chunkd_srv.max_workers,
 					       FALSE, NULL);
 	if (!chunkd_srv.workers) {
 		rc = 1;
-		goto err_out_fd_info;
+		goto err_out_session;
 	}
 
 	if (objcache_init(&chunkd_srv.actives) != 0) {
@@ -1959,9 +1813,11 @@ int main (int argc, char *argv[])
 		rc = 1;
 		goto err_out_chk_pipe;
 	}
-	if (!pipe_watch(chunkd_srv.worker_pipe[0], worker_pipe_evt, NULL)) {
+	event_set(&chunkd_srv.worker_ev, chunkd_srv.worker_pipe[0],
+		  EV_READ | EV_PERSIST, worker_pipe_evt, NULL);
+	if (event_add(&chunkd_srv.worker_ev, NULL) < 0) {
 		rc = 1;
-		goto err_out_chk_pipe;
+		goto err_out_worker_pipe;
 	}
 
 	if (fs_open()) {
@@ -2006,9 +1862,6 @@ err_out_objcache:
 err_out_workers:
 	if (strict_free)
 		g_thread_pool_free(chunkd_srv.workers, TRUE, FALSE);
-err_out_fd_info:
-	if (strict_free)
-		g_hash_table_destroy(chunkd_srv.fd_info);
 err_out_session:
 	unlink(chunkd_srv.pid_file);
 	close(chunkd_srv.pid_fd);

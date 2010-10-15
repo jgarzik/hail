@@ -28,7 +28,7 @@
 #include <chunk_msg.h>
 #include <hail_log.h>
 #include <tchdb.h>
-#include <cldc.h>	/* for cld_timer */
+#include <event.h>
 #include <objcache.h>
 
 #ifndef ARRAY_SIZE
@@ -77,6 +77,8 @@ struct client {
 	char			addr_host[64];	/* ASCII version of inet addr */
 	char			addr_port[16];	/* ASCII version of port */
 	int			fd;		/* socket */
+	struct event		ev;
+	short			ev_mask;	/* EV_READ and/or EV_WRITE */
 
 	char			user[CHD_USER_SZ + 1];
 
@@ -172,18 +174,10 @@ struct server_stats {
 	unsigned long		opt_write;	/* optimistic writes */
 };
 
-struct server_poll {
-	short			events;		/* POLL* from poll.h */
-	bool			busy;		/* if true, do not poll us */
-
-						/* callback function, data */
-	bool			(*cb)(int fd, short events, void *userdata);
-	void			*userdata;
-};
-
 struct server_socket {
 	int			fd;
 	const struct listen_cfg	*cfg;
+	struct event		ev;
 	struct list_head	sockets_node;
 };
 
@@ -207,14 +201,15 @@ struct server {
 	char			*pid_file;	/* PID file */
 	int			pid_fd;
 
+	struct event_base	*evbase_main;
+
 	struct list_head	listeners;
 	struct list_head	sockets;	/* points into listeners */
-
-	GHashTable		*fd_info;
 
 	GThreadPool		*workers;	/* global thread worker pool */
 	int			max_workers;
 	int			worker_pipe[2];
+	struct event		worker_ev;
 
 	struct list_head	wr_trash;
 	unsigned int		trash_sz;
@@ -311,11 +306,6 @@ extern void syslogerr(const char *prefix);
 extern void strup(char *s);
 extern int write_pid_file(const char *pid_fn);
 extern int fsetflags(const char *prefix, int fd, int or_flags);
-extern void timer_init(struct cld_timer *timer, const char *name,
-		       void (*cb)(struct cld_timer *), void *userdata);
-extern void timer_add(struct cld_timer *timer, time_t expires);
-extern void timer_del(struct cld_timer *timer);
-extern time_t timers_run(void);
 extern char *time2str(char *strbuf, time_t time);
 extern void hexstr(const unsigned char *buf, size_t buf_len, char *outstr);
 
@@ -328,7 +318,7 @@ extern bool cli_err(struct client *cli, enum chunk_errcode code, bool recycle_ok
 extern int cli_writeq(struct client *cli, const void *buf, unsigned int buflen,
 		     cli_write_func cb, void *cb_data);
 extern bool cli_wr_sendfile(struct client *, cli_write_func);
-extern bool cli_rd_set_poll(struct client *cli, bool readable);
+extern void cli_rd_set_poll(struct client *cli, bool readable);
 extern void cli_wr_set_poll(struct client *cli, bool writable);
 extern bool cli_cb_free(struct client *cli, struct client_write *wr,
 			bool done);
@@ -336,7 +326,7 @@ extern bool cli_write_start(struct client *cli);
 extern int cli_req_avail(struct client *cli);
 extern int cli_poll_mod(struct client *cli);
 extern bool worker_pipe_signal(struct worker_info *wi);
-extern bool tcp_cli_event(int fd, short events, void *userdata);
+extern void tcp_cli_event(int fd, short events, void *userdata);
 extern void resp_init_req(struct chunksrv_resp *resp,
 		   const struct chunksrv_req *req);
 

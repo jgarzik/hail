@@ -193,29 +193,6 @@ char *time2str(char *strbuf, time_t src_time)
 	return strbuf;
 }
 
-struct cld_timer_list timer_list;
-
-void timer_init(struct cld_timer *timer, const char *name,
-		void (*cb)(struct cld_timer *), void *userdata)
-{
-	cld_timer_init(timer, name, cb, userdata);
-}
-
-void timer_add(struct cld_timer *timer, time_t expires)
-{
-	cld_timer_add(&timer_list, timer, expires);
-}
-
-void timer_del(struct cld_timer *timer)
-{
-	cld_timer_del(&timer_list, timer);
-}
-
-time_t timers_run(void)
-{
-	return cld_timers_run(&timer_list);
-}
-
 #ifndef HAVE_STRNLEN
 size_t strnlen(const char *s, size_t maxlen)
 {

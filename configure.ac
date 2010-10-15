@@ -84,6 +84,8 @@ AC_CHECK_LIB(db-5.0, db_create, DB4_LIBS=-ldb-5.0,
 	AC_CHECK_LIB(db-4.4, db_create, DB4_LIBS=-ldb-4.4,
 	AC_CHECK_LIB(db-4.3, db_create, DB4_LIBS=-ldb-4.3,
   [AC_MSG_ERROR([Missing required libdb 4.x])]))))))))
+AC_CHECK_LIB(event, event_base_new, EVENT_LIBS=-levent,
+  [AC_MSG_ERROR([Missing required libevent])])
 AC_CHECK_LIB(crypto, MD5_Init, CRYPTO_LIBS=-lcrypto)
 AC_CHECK_LIB(ssl, SSL_new, SSL_LIBS=-lssl)
 AC_SEARCH_LIBS(argp_parse, argp)
@@ -133,6 +135,7 @@ AC_SUBST(DB4_LIBS)
 AC_SUBST(CRYPTO_LIBS)
 AC_SUBST(SSL_LIBS)
 AC_SUBST(HAIL_FUSE_PROGS)
+AC_SUBST(EVENT_LIBS)
 
 AC_CONFIG_FILES([
 	Makefile
