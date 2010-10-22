@@ -131,7 +131,7 @@ static void cust_fin(struct custom_hdr_vec *cv)
 
 /*
  */
-int hreq_hdr_push(struct http_req *req, char *key, char *val)
+int hreq_hdr_push(struct http_req *req, const char *key, const char *val)
 {
 	struct http_hdr *hdr;
 
@@ -142,8 +142,8 @@ int hreq_hdr_push(struct http_req *req, char *key, char *val)
 		val++;
 
 	hdr = &req->hdr[req->n_hdr++];
-	hdr->key = key;
-	hdr->val = val;
+	hdr->key = (char *) key;
+	hdr->val = (char *) val;
 
 	return 0;
 }

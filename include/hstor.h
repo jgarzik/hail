@@ -132,7 +132,7 @@ enum ReqACLC {
 /* hutil.c */
 extern char *hutil_time2str(char *buf, int len, time_t time);
 extern time_t hutil_str2time(const char *timestr);
-extern int hreq_hdr_push(struct http_req *req, char *key, char *val);
+extern int hreq_hdr_push(struct http_req *req, const char *key, const char *val);
 extern char *hreq_hdr(struct http_req *req, const char *key);
 extern void hreq_sign(struct http_req *req, const char *bucket, const char *key,
 	      char *b64hmac_out);
@@ -171,7 +171,7 @@ extern bool hstor_del_bucket(struct hstor_client *hstor, const char *name);
 extern struct hstor_blist *hstor_list_buckets(struct hstor_client *hstor);
 
 extern bool hstor_get(struct hstor_client *hstor, const char *bucket, const char *key,
-	     size_t (*write_cb)(void *, size_t, size_t, void *),
+	     size_t (*write_cb)(const void *, size_t, size_t, void *),
 	     void *user_data, bool want_headers);
 extern void *hstor_get_inline(struct hstor_client *hstor, const char *bucket,
 			    const char *key, bool want_headers, size_t *len);

@@ -86,7 +86,8 @@ err_out:
 	return NULL;
 }
 
-static size_t all_data_cb(void *ptr, size_t size, size_t nmemb, void *user_data)
+static size_t all_data_cb(const void *ptr, size_t size, size_t nmemb,
+			  void *user_data)
 {
 	GByteArray *all_data = user_data;
 	int len = size * nmemb;
@@ -378,7 +379,7 @@ bool hstor_del_bucket(struct hstor_client *hstor, const char *name)
 }
 
 bool hstor_get(struct hstor_client *hstor, const char *bucket, const char *key,
-	     size_t (*write_cb)(void *, size_t, size_t, void *),
+	     size_t (*write_cb)(const void *, size_t, size_t, void *),
 	     void *user_data, bool want_headers)
 {
 	struct http_req req;
