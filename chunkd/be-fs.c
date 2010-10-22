@@ -587,16 +587,37 @@ void fs_obj_free(struct backend_obj *bo)
 	free(obj);
 }
 
-static bool can_csum_blk(struct fs_obj *obj, size_t len)
+static bool can_csum_range(struct fs_obj *obj, size_t len)
 {
+	off_t want_pos, end_pos;
+
+	if (len == 0)
+		return false;
+
+	/* we can csum a region, if the csum starts and ends on
+	 * a block boundary
+	 */
+
+	/* if current position not aligned, fail */
 	if (obj->in_pos & (CHUNK_BLK_SZ - 1))
 		return false;
 
-	if (obj->in_pos == obj->tail_pos && len == obj->tail_len)
-		return true;
-	if (len == CHUNK_BLK_SZ)
+	end_pos = obj->tail_pos + obj->tail_len;
+	want_pos = obj->in_pos + len;
+
+	/* if request extends beyond known csum table, fail */
+	if (want_pos > end_pos)
+		return false;
+
+	/* if ending position is aligned, succeed */
+	if ((want_pos & (CHUNK_BLK_SZ - 1)) == 0)
 		return true;
 
+	/* if ending position is end of file, succeed */
+	if (want_pos == end_pos)
+		return true;
+	
+	/* otherwise, ending position is not aligned, fail */
 	return false;
 }
 
@@ -626,7 +647,11 @@ ssize_t fs_obj_read(struct backend_obj *bo, void *ptr, size_t len)
 {
 	struct fs_obj *obj = bo->private;
 	ssize_t rc;
+	unsigned int cur_blk, blk_idx, blk_cnt, last_blk;
+	void *tmp_p;
+	bool have_tail;
 
+	/* read data from local storage */
 	rc = read(obj->in_fd, ptr, len);
 	if (rc == 0) {
 		applog(LOG_WARNING, "obj read(%s) reached end of file: %s",
@@ -638,30 +663,46 @@ ssize_t fs_obj_read(struct backend_obj *bo, void *ptr, size_t len)
 		return -errno;
 	}
 
-	if (can_csum_blk(obj, rc)) {
-		unsigned char md[CHD_CSUM_SZ];
-		unsigned int blk_pos;
-		int cmprc;
-
-		SHA1(ptr, rc, md);
-
-		blk_pos = (unsigned int) (obj->in_pos >> CHUNK_BLK_ORDER);
-		cmprc = memcmp(md, obj->csum_tbl + (blk_pos * CHD_CSUM_SZ),
-			       CHD_CSUM_SZ);
-
-		if (cmprc) {
-			applog(LOG_WARNING, "obj(%s) csum failed @ 0x%llx",
-			       obj->in_fn,
-			       (unsigned long long) obj->in_pos);
-			return -EIO;
-		}
-	} else {
+	/* verify read alignment */
+	if (!can_csum_range(obj, rc)) {
 		applog(LOG_INFO, "obj(%s) unaligned read, 0x%x @ 0x%llx",
 		       obj->in_fn, len,
 		       (unsigned long long) obj->in_pos);
-		
+		goto out;
 	}
 
+	have_tail = (obj->tail_len > 0);
+	cur_blk = fs_blk_count(obj->in_pos);
+	last_blk = obj->n_blk - 1;
+	blk_cnt = fs_blk_count(rc);
+	tmp_p = ptr;
+
+	/* verify checksum for each block read from local storage */
+	for (blk_idx = cur_blk; blk_idx < (cur_blk + blk_cnt); blk_idx++) {
+		unsigned char md[CHD_CSUM_SZ];
+		unsigned int blk_len;
+		int cmprc;
+
+		if ((blk_idx == last_blk) && have_tail)
+			blk_len = obj->tail_len;
+		else
+			blk_len = CHUNK_BLK_SZ;
+
+		SHA1(tmp_p, blk_len, md);
+
+		cmprc = memcmp(md, obj->csum_tbl + (blk_idx * CHD_CSUM_SZ),
+			       CHD_CSUM_SZ);
+
+		if (cmprc) {
+			applog(LOG_WARNING, "obj(%s) csum failed @ %u blk",
+			       obj->in_fn, blk_idx);
+			return -EIO;
+		}
+
+		tmp_p += blk_len;
+	}
+
+out:
 	obj->in_pos += rc;
 
 	return rc;
