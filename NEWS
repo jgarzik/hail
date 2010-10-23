@@ -1,4 +1,16 @@
 
+Version 0.7.2 - October 22, 2010
+
+- cld: read overrun bug fix
+- chunkd: add checksum table to disk format, one checksum per 64k of obj data
+- chunkd, libhail: add new "GET_PART" operation for partial object retrieval
+- chunkd: bug fixes
+- chunkd: use libevent (again) for main loop polling
+- libhail: add async TCP network writing API, atcp_wr*
+- libhail: bug fixes
+
+This release includes incompatible API and on-disk format changes.
+
 Version 0.7.1 - August 11, 2010
 
 - cldbadm: disable, it does nothing at present
