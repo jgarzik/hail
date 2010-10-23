@@ -1,5 +1,5 @@
 Name:		hail
-Version:	0.7.1
+Version:	0.7.2
 Release:	1%{?dist}
 Summary:	Project Hail core cloud services
 
@@ -9,7 +9,7 @@ URL:		http://hail.wiki.kernel.org/
 
 # pulled from upstream git, commit f9c5b967cb409cb3e38870b21292374ccea3ee6e
 # to recreate tarball, check out commit, then run "make dist"
-Source0:	hail-%{version}git.tar.gz
+Source0:	hail-%{version}.tar.gz
 
 # cld, chunkd init.d and sysconfig data.  copied from pkg/* in upstream git,
 # commit 554f1338e29342ba6dcfa0bce648d304afc2c1e1
@@ -71,7 +71,7 @@ The %{name}-devel package contains libraries and header files for
 developing applications that use %{name}.
 
 %prep
-%setup -q -n hail-0.8git
+%setup -q
 
 %build
 %configure --disable-static
@@ -173,6 +173,9 @@ fi
 %{_includedir}/*
 
 %changelog
+* Sat Oct 23 2010 Jeff Garzik <jgarzik@redhat.com> - 0.7.2-1
+- Update to v0.7.2 release
+
 * Wed Aug 11 2010 Jeff Garzik <jgarzik@redhat.com> - 0.7.1-1
 - Update to v0.7.1 release
 
