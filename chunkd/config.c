@@ -239,11 +239,11 @@ static void cfg_elm_end_cld(struct config_context *cc)
 	 */
 	if (cc->cld_port_file) {
 		int port;
-		if ((port = cld_readport(cc->cld_port_file)) <= 0) {
+		if ((port = hail_readport(cc->cld_port_file)) <= 0) {
 			applog(LOG_INFO, "Waiting for CLD PortFile %s",
 			       cc->cld_port_file);
 			sleep(2);
-			while ((port = cld_readport(cc->cld_port_file)) <= 0)
+			while ((port = hail_readport(cc->cld_port_file)) <= 0)
 				sleep(3);
 			applog(LOG_INFO, "Using CLD port %u", port);
 		}

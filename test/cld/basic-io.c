@@ -118,7 +118,7 @@ int main(int argc, char *argv[])
 	g_thread_init(NULL);
 	ncld_init();
 
-	port = cld_readport(TEST_PORTFILE_CLD);
+	port = hail_readport(TEST_PORTFILE_CLD);
 	if (port < 0)
 		return 1;
 	if (port == 0)

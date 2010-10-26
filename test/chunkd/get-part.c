@@ -26,6 +26,7 @@
 #include <time.h>
 #include <string.h>
 #include <locale.h>
+#include <cld_common.h>
 #include <chunkc.h>
 #include "test.h"
 
@@ -47,7 +48,7 @@ static void test(bool do_encrypt)
 	size_t len = 0;
 	void *mem;
 
-	port = stc_readport(TEST_PORTFILE);
+	port = hail_readport(TEST_PORTFILE);
 	OK(port > 0);
 
 	stc = stc_new(TEST_HOST, port, TEST_USER, TEST_USER_KEY, do_encrypt);

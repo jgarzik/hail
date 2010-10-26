@@ -112,8 +112,6 @@ extern bool stc_check_status(struct st_client *stc,
 
 extern struct st_keylist *stc_keys(struct st_client *stc);
 
-extern int stc_readport(const char *fname);
-
 static inline void *stc_get_inlinez(struct st_client *stc,
 				    const char *key,
 				    size_t *len)

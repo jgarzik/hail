@@ -27,6 +27,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <glib.h>
+#include <cld_common.h>
 #include <chunk-private.h>
 #include <chunkc.h>
 #include "test.h"
@@ -233,7 +234,7 @@ int main(int argc, char *argv[])
 	OK(buf);
 	memset(buf, 0x55, BUFLEN);
 
-	port = stc_readport(TEST_PORTFILE);
+	port = hail_readport(TEST_PORTFILE);
 	OK(port > 0);
 
 	/*

@@ -64,7 +64,8 @@ static inline void cld_timer_init(struct cld_timer *timer, const char *name,
 extern unsigned long long cld_sid2llu(const uint8_t *sid);
 extern void cld_rand64(void *p);
 extern const char *cld_errstr(enum cle_err_codes ecode);
-extern int cld_readport(const char *fname);
+extern int cld_readport(const char *fname);	/* deprecated */
+extern int hail_readport(const char *fname);
 
 /*** Validate the HMAC signature of a byte buffer.
  *

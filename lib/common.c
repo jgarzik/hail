@@ -81,27 +81,33 @@ const char *cld_errstr(enum cle_err_codes ecode)
 /*
  * Read a port number from a port file, return the value or negative error.
  */
-int cld_readport(const char *fname)
+int hail_readport(const char *fname)
 {
+	enum { LEN = 11 };
+	char buf[LEN+1];
 	long port;
-	gchar *buf;
-	GError *err = NULL;
-	gsize len;
+	int fd;
+	int rc;
 
-	if (!g_file_get_contents(fname, &buf, &len, &err)) {
-		int ret = -1000 - err->code;
-		g_error_free(err);
-		return ret;
-	}
-
-	if (len == 0) {
-		g_free(buf);
+	if ((fd = open(fname, O_RDONLY)) == -1)
+		return -errno;
+	rc = read(fd, buf, LEN);
+	close(fd);
+	if (rc < 0)
+		return -errno;
+	if (rc == 0)
 		return -EPIPE;
-	}
+	buf[rc] = 0;
+
 	port = strtol(buf, NULL, 10);
-	g_free(buf);
 	if (port <= 0 || port >= 65636)
 		return -EDOM;
 
 	return (int)port;
 }
+
+int cld_readport(const char *fname)
+{
+	return hail_readport(fname);
+}
+
