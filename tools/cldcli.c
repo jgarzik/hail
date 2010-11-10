@@ -42,6 +42,8 @@ static struct argp_option options[] = {
 	  "Set debug output to LEVEL (0 = off, 2 = max verbose)" },
 	{ "host", 'h', "HOST:PORT", 0,
 	  "Connect to remote CLD at specified HOST:PORT" },
+	{ "interactive", 'i', NULL, 0,
+	  "Force an interactive session" },
 	{ "user", 'u', "USER", 0,
 	  "Set username to USER" },
 	{ "verbose", 'v', NULL, 0,
@@ -75,6 +77,7 @@ struct cldcli_lock_info {
 static GList *host_list;
 static char clicwd[CLD_PATH_MAX + 1] = "/";
 static char our_user[CLD_MAX_USERNAME + 1] = "cli_user";
+static int interactive = -1;
 
 /* globals only for use in thread */
 static struct ncld_sess *nsess;
@@ -646,6 +649,9 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 		if (!push_host(arg))
 			argp_usage(state);
 		break;
+	case 'i':
+		interactive = 1;
+		break;
 	case 'u':
 		if (strlen(arg) >= CLD_MAX_USERNAME) {
 			fprintf(stderr, TAG ": invalid user: '%s'\n", arg);
@@ -667,6 +673,8 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 
 static void prompt(void)
 {
+	if (!interactive)
+		return;
 	printf("[%s %s]$ ", our_user, clicwd);
 	fflush(stdout);
 }
@@ -690,6 +698,9 @@ int main (int argc, char *argv[])
 		fprintf(stderr, TAG ": argp_parse failed: %s\n", strerror(aprc));
 		return 1;
 	}
+
+	if (interactive < 0)
+		interactive = isatty(0);
 
 	if (!host_list) {
 		enum { hostsz = 64 };
@@ -724,7 +735,8 @@ int main (int argc, char *argv[])
 		return 1;
 	}
 
-	printf("Type 'help' at the prompt to list commands.\n");
+	if (interactive)
+		printf("Type 'help' at the prompt to list commands.\n");
 	prompt();
 
 	while (fgets(linebuf, sizeof(linebuf), stdin) != NULL) {
