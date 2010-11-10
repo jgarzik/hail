@@ -27,10 +27,9 @@
 #include <glib.h>
 #include <openssl/sha.h>
 #include <cld_msg_rpc.h>
+#include <hail_log.h>
 
 #define CLD_ALIGN8(n) ((8 - ((n) & 7)) & 7)
-
-struct hail_log;
 
 struct cld_timer {
 	bool			fired;
