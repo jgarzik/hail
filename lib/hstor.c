@@ -86,6 +86,21 @@ err_out:
 	return NULL;
 }
 
+bool hstor_set_format(struct hstor_client *hstor, enum hstor_calling_format f)
+{
+	switch (f) {
+	case HFMT_ORDINARY:
+		hstor->subdomain = false;
+		break;
+	case HFMT_SUBDOMAIN:
+		hstor->subdomain = true;
+		break;
+	default:
+		return false;
+	}
+	return true;
+}
+
 static size_t all_data_cb(const void *ptr, size_t size, size_t nmemb,
 			  void *user_data)
 {
@@ -175,6 +190,51 @@ next_tmp:
 next:
 		node = node->next;
 	}
+}
+
+static bool hstor_resplit(const struct hstor_client *hstor,
+			  const char *bucket, const char *key,
+			  char **url, char **hosthdr, char **path)
+{
+	char *unesc_path;
+	int rc;
+
+	if (hstor->subdomain)
+		rc = asprintf(&unesc_path, "/%s", key);
+	else
+		rc = asprintf(&unesc_path, "/%s/%s", bucket, key);
+	if (rc < 0)
+		goto err_spath;
+	*path = huri_field_escape(unesc_path, PATH_ESCAPE_MASK);
+	if (!*path)
+		goto err_epath;
+
+	if (hstor->subdomain)
+		rc = asprintf(hosthdr, "Host: %s.%s", bucket, hstor->host);
+	else
+		rc = asprintf(hosthdr, "Host: %s", hstor->host);
+	if (rc < 0)
+		goto err_host;
+
+	if (hstor->subdomain)
+		rc = asprintf(url, "http://%s.%s%s", bucket, hstor->acc, *path);
+	else
+		rc = asprintf(url, "http://%s%s", hstor->acc, *path);
+	if (rc < 0)
+		goto err_url;
+
+	free(unesc_path);
+	return true;
+
+	/* free(*url); */
+ err_url:
+	free(*hosthdr);
+ err_host:
+	free(*path);
+ err_epath:
+	free(unesc_path);
+ err_spath:
+	return false;
 }
 
 struct hstor_blist *hstor_list_buckets(struct hstor_client *hstor)
@@ -318,8 +378,8 @@ static bool __hstor_ad_bucket(struct hstor_client *hstor, const char *name,
 	struct curl_slist *headers = NULL;
 	int rc;
 
-	if (asprintf(&orig_path, "/%s/", name) < 0)
-		goto err_spath;
+	if (!hstor_resplit(hstor, name, "", &url, &host, &orig_path))
+		goto err_split;
 
 	memset(&req, 0, sizeof(req));
 	req.method = delete ? "DELETE" : "PUT";
@@ -330,13 +390,9 @@ static bool __hstor_ad_bucket(struct hstor_client *hstor, const char *name,
 
 	hreq_hdr_push(&req, "Date", timestr);
 
-	hreq_sign(&req, NULL, hstor->key, hmac);
+	hreq_sign(&req, hstor->subdomain ? name : NULL, hstor->key, hmac);
 
 	sprintf(auth, "Authorization: AWS %s:%s", hstor->user, hmac);
-	if (asprintf(&host, "Host: %s", hstor->host) < 0)
-		goto err_host;
-	if (asprintf(&url, "http://%s/%s/", hstor->acc, name) < 0)
-		goto err_url;
 
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
@@ -360,11 +416,7 @@ static bool __hstor_ad_bucket(struct hstor_client *hstor, const char *name,
 	free(orig_path);
 	return (rc == 0);
 
-err_url:
-	free(host);
-err_host:
-	free(orig_path);
-err_spath:
+err_split:
 	return false;
 }
 
@@ -384,16 +436,12 @@ bool hstor_get(struct hstor_client *hstor, const char *bucket, const char *key,
 {
 	struct http_req req;
 	char datestr[80], timestr[64], hmac[64], auth[128];
-	char *host, *url, *unesc_path, *orig_path;
+	char *url, *host, *orig_path;
 	struct curl_slist *headers = NULL;
 	int rc;
 
-	if (asprintf(&unesc_path, "/%s/%s", bucket, key) < 0)
-		goto err_spath;
-
-	orig_path = huri_field_escape(unesc_path, PATH_ESCAPE_MASK);
-	if (!orig_path)
-		goto err_epath;
+	if (!hstor_resplit(hstor, bucket, key, &url, &host, &orig_path))
+		goto err_split;
 
 	memset(&req, 0, sizeof(req));
 	req.method = "GET";
@@ -404,13 +452,9 @@ bool hstor_get(struct hstor_client *hstor, const char *bucket, const char *key,
 
 	hreq_hdr_push(&req, "Date", timestr);
 
-	hreq_sign(&req, NULL, hstor->key, hmac);
+	hreq_sign(&req, hstor->subdomain ? bucket : NULL, hstor->key, hmac);
 
 	sprintf(auth, "Authorization: AWS %s:%s", hstor->user, hmac);
-	if (asprintf(&host, "Host: %s", hstor->host) < 0)
-		goto err_host;
-	if (asprintf(&url, "http://%s%s", hstor->acc, orig_path) < 0)
-		goto err_url;
 
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
@@ -434,17 +478,9 @@ bool hstor_get(struct hstor_client *hstor, const char *bucket, const char *key,
 	free(url);
 	free(host);
 	free(orig_path);
-	free(unesc_path);
-
 	return (rc == 0);
 
-err_url:
-	free(host);
-err_host:
-	free(orig_path);
-err_epath:
-	free(unesc_path);
-err_spath:
+err_split:
 	return false;
 }
 
@@ -480,17 +516,13 @@ bool hstor_put(struct hstor_client *hstor, const char *bucket, const char *key,
 {
 	struct http_req req;
 	char datestr[80], timestr[64], hmac[64], auth[128];
-	char *host, *url, *unesc_path, *orig_path;
+	char *host, *url, *orig_path;
 	char *uhdr_buf = NULL;
 	struct curl_slist *headers = NULL;
 	int rc = -1;
 
-	if (asprintf(&unesc_path, "/%s/%s", bucket, key) < 0)
-		goto err_spath;
-
-	orig_path = huri_field_escape(unesc_path, PATH_ESCAPE_MASK);
-	if (!orig_path)
-		goto err_epath;
+	if (!hstor_resplit(hstor, bucket, key, &url, &host, &orig_path))
+		goto err_split;
 
 	memset(&req, 0, sizeof(req));
 	req.method = "PUT";
@@ -546,13 +578,9 @@ bool hstor_put(struct hstor_client *hstor, const char *bucket, const char *key,
 		}
 	}
 
-	hreq_sign(&req, NULL, hstor->key, hmac);
+	hreq_sign(&req, hstor->subdomain ? bucket : NULL, hstor->key, hmac);
 
 	sprintf(auth, "Authorization: AWS %s:%s", hstor->user, hmac);
-	if (asprintf(&host, "Host: %s", hstor->host) < 0)
-		goto err_host;
-	if (asprintf(&url, "http://%s%s", hstor->acc, orig_path) < 0)
-		goto err_url;
 
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
@@ -578,19 +606,15 @@ bool hstor_put(struct hstor_client *hstor, const char *bucket, const char *key,
 	free(url);
 	free(host);
 	free(orig_path);
-	free(unesc_path);
 	free(uhdr_buf);
 	return (rc == 0);
 
-err_url:
-	free(host);
-err_host:
-	free(uhdr_buf);
+	/* free(uhdr_buf); */
 err_ubuf:
+	free(url);
+	free(host);
 	free(orig_path);
-err_epath:
-	free(unesc_path);
-err_spath:
+err_split:
 	return false;
 }
 
@@ -627,16 +651,12 @@ bool hstor_del(struct hstor_client *hstor, const char *bucket, const char *key)
 {
 	struct http_req req;
 	char datestr[80], timestr[64], hmac[64], auth[128];
-	char *host, *url, *unesc_path, *orig_path;
+	char *host, *url, *orig_path;
 	struct curl_slist *headers = NULL;
 	int rc;
 
-	if (asprintf(&unesc_path, "/%s/%s", bucket, key) < 0)
-		goto err_spath;
-
-	orig_path = huri_field_escape(unesc_path, PATH_ESCAPE_MASK);
-	if (!orig_path)
-		goto err_epath;
+	if (!hstor_resplit(hstor, bucket, key, &url, &host, &orig_path))
+		goto err_split;
 
 	memset(&req, 0, sizeof(req));
 	req.method = "DELETE";
@@ -650,10 +670,6 @@ bool hstor_del(struct hstor_client *hstor, const char *bucket, const char *key)
 	hreq_sign(&req, NULL, hstor->key, hmac);
 
 	sprintf(auth, "Authorization: AWS %s:%s", hstor->user, hmac);
-	if (asprintf(&host, "Host: %s", hstor->host) < 0)
-		goto err_host;
-	if (asprintf(&url, "http://%s%s", hstor->acc, orig_path) < 0)
-		goto err_url;
 
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
@@ -674,17 +690,9 @@ bool hstor_del(struct hstor_client *hstor, const char *bucket, const char *key)
 	free(url);
 	free(host);
 	free(orig_path);
-	free(unesc_path);
-
 	return (rc == 0);
 
-err_url:
-	free(host);
-err_host:
-	free(orig_path);
-err_epath:
-	free(unesc_path);
-err_spath:
+err_split:
 	return false;
 }
 
@@ -849,8 +857,13 @@ struct hstor_keylist *hstor_keys(struct hstor_client *hstor, const char *bucket,
 	if (!all_data)
 		goto err_data;
 
-	if (asprintf(&orig_path, "/%s/", bucket) < 0)
-		goto err_spath;
+	if (hstor->subdomain) {
+		if (asprintf(&orig_path, "/") < 0)
+			goto err_spath;
+	} else {
+		if (asprintf(&orig_path, "/%s/", bucket) < 0)
+			goto err_spath;
+	}
 
 	memset(&req, 0, sizeof(req));
 	req.method = "GET";
@@ -861,11 +874,16 @@ struct hstor_keylist *hstor_keys(struct hstor_client *hstor, const char *bucket,
 
 	hreq_hdr_push(&req, "Date", timestr);
 
-	hreq_sign(&req, NULL, hstor->key, hmac);
+	hreq_sign(&req, hstor->subdomain? bucket: NULL, hstor->key, hmac);
 
 	sprintf(auth, "Authorization: AWS %s:%s", hstor->user, hmac);
-	if (asprintf(&host, "Host: %s", hstor->host) < 0)
-		goto err_host;
+	if (hstor->subdomain) {
+		if (asprintf(&host, "Host: %s.%s", bucket, hstor->host) < 0)
+			goto err_host;
+	} else {
+		if (asprintf(&host, "Host: %s", hstor->host) < 0)
+			goto err_host;
+	}
 
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
@@ -878,6 +896,10 @@ struct hstor_keylist *hstor_keys(struct hstor_client *hstor, const char *bucket,
 	}
 
 	url = g_string_append(url, "http://");
+	if (hstor->subdomain) {
+		url = g_string_append(url, bucket);
+		url = g_string_append(url, ".");
+	}
 	url = g_string_append(url, hstor->acc);
 	url = g_string_append(url, orig_path);
 

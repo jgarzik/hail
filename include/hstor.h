@@ -25,6 +25,8 @@
 #include <curl/curl.h>
 #include <glib.h>
 
+enum hstor_calling_format { HFMT_ORDINARY, HFMT_SUBDOMAIN };
+
 struct hstor_client {
 	CURL		*curl;
 	char		*acc;
@@ -32,6 +34,7 @@ struct hstor_client {
 	char		*user;
 	char		*key;
 	bool		verbose;
+	bool		subdomain;
 };
 
 struct hstor_bucket {
@@ -164,6 +167,9 @@ extern void hstor_free_keylist(struct hstor_keylist *keylist);
 
 extern struct hstor_client *hstor_new(const char *service_acc,
 	const char *service_host, const char *user, const char *secret_key);
+
+extern bool hstor_set_format(struct hstor_client *hstor,
+			     enum hstor_calling_format f);
 
 extern bool hstor_add_bucket(struct hstor_client *hstor, const char *name);
 extern bool hstor_del_bucket(struct hstor_client *hstor, const char *name);
