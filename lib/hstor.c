@@ -969,12 +969,12 @@ struct hstor_keylist *hstor_keys(struct hstor_client *hstor, const char *bucket,
 		}
 		else if (!_strcmp(node->name, "Marker")) {
 			xs = xmlNodeListGetString(doc, node->children, 1);
-			keylist->marker = strdup((char *)xs);
+			keylist->marker = strdup(xs ? (char *)xs : "");
 			xmlFree(xs);
 		}
 		else if (!_strcmp(node->name, "Delimiter")) {
 			xs = xmlNodeListGetString(doc, node->children, 1);
-			keylist->delim = strdup((char *)xs);
+			keylist->delim = strdup(xs ? (char *)xs : "");
 			xmlFree(xs);
 		}
 		else if (!_strcmp(node->name, "MaxKeys")) {
