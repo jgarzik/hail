@@ -33,6 +33,7 @@
 #include <netdb.h>
 #include <signal.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <openssl/sha.h>
 #include <openssl/hmac.h>
 #include <cld-private.h>
@@ -46,10 +47,6 @@
 
 const char *argp_program_version = PACKAGE_VERSION;
 
-enum {
-	CLD_RAW_MSG_SZ		= 4096,
-};
-
 static struct argp_option options[] = {
 	{ "data", 'd', "DIRECTORY", 0,
 	  "Store database environment in DIRECTORY.  Default: "
@@ -61,7 +58,7 @@ static struct argp_option options[] = {
 	{ "foreground", 'F', NULL, 0,
 	  "Run in foreground, do not fork" },
 	{ "port", 'p', "PORT", 0,
-	  "Bind to UDP port PORT.  Default: " CLD_DEF_PORT },
+	  "Bind to TCP port PORT.  Default: " CLD_DEF_PORT },
 	{ "pid", 'P', "FILE", 0,
 	  "Write daemon process id to FILE.  Default: " CLD_DEF_PIDFN },
 	{ "strict-free", 1001, NULL, 0,
@@ -93,6 +90,11 @@ struct server cld_srv = {
 };
 
 static void ensure_root(void);
+static bool atcp_read(struct atcp_read_state *rst,
+		      void *buf, unsigned int buf_size,
+		      void (*cb)(void *, bool), void *cb_data);
+static void cli_free(struct client *cli);
+static void cli_rd_ubbp(void *userdata, bool success);
 
 static void applog(int prio, const char *fmt, ...)
 {
@@ -119,12 +121,28 @@ struct hail_log srv_log = {
 	.func = applog,
 };
 
-int udp_tx(int sock_fd, struct sockaddr *addr, socklen_t addr_len,
+int tcp_tx(int sock_fd, struct sockaddr *addr, socklen_t addr_len,
 	   const void *data, size_t data_len)
 {
 	ssize_t src;
+	struct ubbp_header ubbp;
 
-	src = sendto(sock_fd, data, data_len, 0, addr, addr_len);
+	memcpy(ubbp.magic, "CLD1", 4);
+	ubbp.op_size = (data_len << 8) | 2;
+#ifdef WORDS_BIGENDIAN
+	swab32(ubbp.op_size);
+#endif
+
+	src = write(sock_fd, &ubbp, sizeof(ubbp));
+	if (src < 0 && errno != EAGAIN)
+		HAIL_ERR(&srv_log, "%s sendto (fd %d, data_len %u): %s",
+			 __func__, sock_fd, (unsigned int) data_len,
+			 strerror(errno));
+
+	if (src < 0)
+		return -errno;
+	
+	src = write(sock_fd, data, data_len);
 	if (src < 0 && errno != EAGAIN)
 		HAIL_ERR(&srv_log, "%s sendto (fd %d, data_len %u): %s",
 			 __func__, sock_fd, (unsigned int) data_len,
@@ -148,7 +166,7 @@ const char *user_key(const char *user)
 	return user;	/* our secret key */
 }
 
-static int udp_rx_handle(struct session *sess,
+static int tcp_rx_handle(struct session *sess,
 			 void (*msg_handler)(struct session *, const void *),
 			 xdrproc_t xdrproc, void *xdrdata)
 {
@@ -167,9 +185,9 @@ static int udp_rx_handle(struct session *sess,
 	return 0;
 }
 
-/** Recieve a UDP packet
+/** Recieve a TCP packet
  *
- * @param sock_fd	The UDP socket we received the packet on
+ * @param sock_fd	The TCP socket we received the packet on
  * @param cli		Client address data
  * @param info		Packet information
  * @param raw_pkt	The raw packet buffer
@@ -178,7 +196,7 @@ static int udp_rx_handle(struct session *sess,
  * @return		An error code if we should send an error message
  *			response. CLE_OK if we are done.
  */
-static enum cle_err_codes udp_rx(int sock_fd, const struct client *cli,
+static enum cle_err_codes tcp_rx(int sock_fd, const struct client *cli,
 				 struct pkt_info *info, const char *raw_pkt,
 				 size_t raw_len)
 {
@@ -230,39 +248,39 @@ static enum cle_err_codes udp_rx(int sock_fd, const struct client *cli,
 		/* fall through */
 	case CMO_GET_META: {
 		struct cld_msg_get get = {0};
-		return udp_rx_handle(sess, msg_get,
+		return tcp_rx_handle(sess, msg_get,
 				     (xdrproc_t)xdr_cld_msg_get, &get);
 	}
 	case CMO_OPEN: {
 		struct cld_msg_open open_msg = {0};
-		return udp_rx_handle(sess, msg_open,
+		return tcp_rx_handle(sess, msg_open,
 				     (xdrproc_t)xdr_cld_msg_open, &open_msg);
 	}
 	case CMO_PUT: {
 		struct cld_msg_put put = {0};
-		return udp_rx_handle(sess, msg_put,
+		return tcp_rx_handle(sess, msg_put,
 				     (xdrproc_t)xdr_cld_msg_put, &put);
 	}
 	case CMO_CLOSE: {
 		struct cld_msg_close close_msg = {0};
-		return udp_rx_handle(sess, msg_close,
+		return tcp_rx_handle(sess, msg_close,
 				     (xdrproc_t)xdr_cld_msg_close, &close_msg);
 	}
 	case CMO_DEL: {
 		struct cld_msg_del del = {0};
-		return udp_rx_handle(sess, msg_del,
+		return tcp_rx_handle(sess, msg_del,
 				     (xdrproc_t)xdr_cld_msg_del, &del);
 	}
 	case CMO_UNLOCK: {
 		struct cld_msg_unlock unlock = {0};
-		return udp_rx_handle(sess, msg_unlock,
+		return tcp_rx_handle(sess, msg_unlock,
 				     (xdrproc_t)xdr_cld_msg_unlock, &unlock);
 	}
 	case CMO_TRYLOCK:
 		/* fall through */
 	case CMO_LOCK: {
 		struct cld_msg_lock lock = {0};
-		return udp_rx_handle(sess, msg_lock,
+		return tcp_rx_handle(sess, msg_lock,
 				     (xdrproc_t)xdr_cld_msg_lock, &lock);
 	}
 	case CMO_ACK:
@@ -452,31 +470,6 @@ static enum cle_err_codes pkt_chk_sig(const char *raw_pkt, int raw_len,
 	return 0;
 }
 
-/** Check if this packet is a duplicate
- *
- * @param info		Packet info
- *
- * @return		true only if the packet is a duplicate
- */
-static bool packet_is_dupe(const struct pkt_info *info)
-{
-	if (!info->sess)
-		return false;
-	if (info->op == CMO_ACK)
-		return false;
-
-	/* Check sequence IDs to discover if this packet is a dupe */
-	if (info->seqid != info->sess->next_seqid_in) {
-		HAIL_DEBUG(&srv_log, "dropping dup with seqid %llu "
-			   "(expected %llu).",
-			   (unsigned long long) info->seqid,
-			   (unsigned long long) info->sess->next_seqid_in);
-		return true;
-	}
-
-	return false;
-}
-
 void simple_sendmsg(int fd, const struct client *cli,
 		    uint64_t sid, const char *user, uint64_t seqid,
 		    xdrproc_t xdrproc, const void *xdrdata, enum cld_msg_op op)
@@ -541,7 +534,7 @@ void simple_sendmsg(int fd, const struct client *cli,
 		HAIL_ERR(&srv_log, "%s: authsign failed: %d",
 			 __func__, auth_rc);
 
-	udp_tx(fd, (struct sockaddr *) &cli->addr, cli->addr_len,
+	tcp_tx(fd, (struct sockaddr *) &cli->addr, cli->addr_len,
 		buf, buf_len);
 }
 
@@ -559,91 +552,88 @@ static void simple_sendresp(int sock_fd, const struct client *cli,
 		       info->op);
 }
 
-static void udp_srv_event(int fd, short events, void *userdata)
+static void cli_rd_pkt(void *userdata, bool success)
 {
-	struct client cli;
-	char host[64];
+	struct client *cli = userdata;
+	int fd = cli->fd;
 	ssize_t rrc, hdr_len;
-	struct msghdr hdr;
-	struct iovec iov[2];
-	char raw_pkt[CLD_RAW_MSG_SZ], ctl_msg[CLD_RAW_MSG_SZ];
 	struct cld_pkt_hdr pkt;
 	struct pkt_info info;
 	enum cle_err_codes err;
 
-	memset(&cli, 0, sizeof(cli));
+	rrc = cli->raw_size;
 
-	iov[0].iov_base = raw_pkt;
-	iov[0].iov_len = sizeof(raw_pkt);
+	HAIL_DEBUG(&srv_log, "client %s message (%d bytes)",
+		   cli->addr_host, (int) rrc);
 
-	hdr.msg_name = &cli.addr;
-	hdr.msg_namelen = sizeof(cli.addr);
-	hdr.msg_iov = iov;
-	hdr.msg_iovlen = 1;
-	hdr.msg_control = ctl_msg;
-	hdr.msg_controllen = sizeof(ctl_msg);
-
-	rrc = recvmsg(fd, &hdr, 0);
-	if (rrc < 0) {
-		syslogerr("UDP recvmsg");
-		return;
-	}
-	cli.addr_len = hdr.msg_namelen;
-
-	/* pretty-print incoming cxn info */
-	getnameinfo((struct sockaddr *) &cli.addr, cli.addr_len,
-		    host, sizeof(host), NULL, 0, NI_NUMERICHOST);
-	host[sizeof(host) - 1] = 0;
-
-	strcpy(cli.addr_host, host);
-
-	HAIL_DEBUG(&srv_log, "client %s message (%d bytes)", host, (int) rrc);
-
-	if (!parse_pkt_header(raw_pkt, rrc, &pkt, &hdr_len)) {
+	if (!parse_pkt_header(cli->raw_pkt, rrc, &pkt, &hdr_len)) {
 		cld_srv.stats.garbage++;
 		return;
 	}
 
-	if (!get_pkt_info(&pkt, raw_pkt, rrc, hdr_len, &info)) {
+	if (!get_pkt_info(&pkt, cli->raw_pkt, rrc, hdr_len, &info)) {
 		xdr_free((xdrproc_t)xdr_cld_pkt_hdr, (char *)&pkt);
 		cld_srv.stats.garbage++;
 		return;
 	}
 
-	if (packet_is_dupe(&info)) {
-		/* silently drop dupes */
+	err = validate_pkt_session(&info, cli);
+	if (err) {
+		simple_sendresp(fd, cli, &info, err);
 		xdr_free((xdrproc_t)xdr_cld_pkt_hdr, (char *)&pkt);
 		return;
 	}
 
-	err = validate_pkt_session(&info, &cli);
+	err = pkt_chk_sig(cli->raw_pkt, rrc, &pkt);
 	if (err) {
-		simple_sendresp(fd, &cli, &info, err);
-		xdr_free((xdrproc_t)xdr_cld_pkt_hdr, (char *)&pkt);
-		return;
-	}
-
-	err = pkt_chk_sig(raw_pkt, rrc, &pkt);
-	if (err) {
-		simple_sendresp(fd, &cli, &info, err);
+		simple_sendresp(fd, cli, &info, err);
 		xdr_free((xdrproc_t)xdr_cld_pkt_hdr, (char *)&pkt);
 		return;
 	}
 
 	if (!(cld_srv.cldb.is_master && cld_srv.cldb.up)) {
-		simple_sendmsg(fd, &cli, pkt.sid, pkt.user, 0xdeadbeef,
+		simple_sendmsg(fd, cli, pkt.sid, pkt.user, 0xdeadbeef,
 			       (xdrproc_t)xdr_void, NULL, CMO_NOT_MASTER);
 		xdr_free((xdrproc_t)xdr_cld_pkt_hdr, (char *)&pkt);
 		return;
 	}
 
-	err = udp_rx(fd, &cli, &info, raw_pkt, rrc);
+	err = tcp_rx(fd, cli, &info, cli->raw_pkt, rrc);
 	if (err) {
-		simple_sendresp(fd, &cli, &info, err);
+		simple_sendresp(fd, cli, &info, err);
 		xdr_free((xdrproc_t)xdr_cld_pkt_hdr, (char *)&pkt);
 		return;
 	}
 	xdr_free((xdrproc_t)xdr_cld_pkt_hdr, (char *)&pkt);
+
+	atcp_read(&cli->rst, &cli->ubbp, sizeof(cli->ubbp),
+		  cli_rd_ubbp, cli);
+}
+
+static void cli_rd_ubbp(void *userdata, bool success)
+{
+	struct client *cli = userdata;
+	uint32_t sz;
+
+#ifdef WORDS_BIGENDIAN
+	swab32(cli->ubbp.op_size);
+#endif
+	if (memcmp(cli->ubbp.magic, "CLD1", 4))
+		goto err_out;
+	if (UBBP_OP(cli->ubbp.op_size) != 1)
+		goto err_out;
+	sz = UBBP_SIZE(cli->ubbp.op_size);
+	if (sz > CLD_RAW_MSG_SZ)
+		goto err_out;
+
+	cli->raw_size = sz;
+
+	atcp_read(&cli->rst, cli->raw_pkt, sz, cli_rd_pkt, cli);
+
+	return;
+
+err_out:
+	cli_free(cli);
 }
 
 static void add_chkpt_timer(void)
@@ -670,6 +660,170 @@ static void cldb_checkpoint(int fd, short events, void *userdata)
 
 	/* reactivate timer, to call ourselves again */
 	add_chkpt_timer();
+}
+
+static void atcp_read_init(struct atcp_read_state *rst)
+{
+	memset(rst, 0, sizeof(*rst));
+	INIT_LIST_HEAD(&rst->q);
+}
+
+static bool atcp_read(struct atcp_read_state *rst,
+		      void *buf, unsigned int buf_size,
+		      void (*cb)(void *, bool), void *cb_data)
+{
+	struct atcp_read *rd;
+
+	rd = calloc(1, sizeof(*rd));
+	if (!rd)
+		goto err_out;
+
+	rd->buf = buf;
+	rd->buf_size = buf_size;
+	rd->bytes_wanted = buf_size;
+	rd->cb = cb;
+	rd->cb_data = cb_data;
+
+	INIT_LIST_HEAD(&rd->node);
+
+	list_add_tail(&rd->node, &rst->q);
+
+	return true;
+
+err_out:
+	cb(cb_data, false);
+	return false;
+}
+
+static bool atcp_read_event(struct atcp_read_state *rst, int fd)
+{
+	struct atcp_read *tmp, *iter;
+
+	list_for_each_entry_safe(tmp, iter, &rst->q, node) {
+		ssize_t rrc;
+
+		rrc = read(fd, tmp->buf + tmp->bytes_read,
+			   tmp->bytes_wanted);
+		if (rrc < 0) {
+			if (errno == EAGAIN)
+				return true;
+			return false;
+		}
+		if (rrc == 0)
+			break;
+
+		tmp->bytes_read += rrc;
+		tmp->bytes_wanted -= rrc;
+
+		if (tmp->bytes_read == tmp->buf_size) {
+			list_del_init(&tmp->node);
+
+			tmp->cb(tmp->cb_data, true);
+			free(tmp);
+		}
+	}
+
+	return true;
+}
+
+static struct client *cli_alloc(void)
+{
+	struct client *cli;
+
+	cli = calloc(1, sizeof(*cli));
+	if (!cli)
+		return NULL;
+
+	cli->addr_len = sizeof(cli->addr);
+
+	atcp_read_init(&cli->rst);
+	
+	return cli;
+}
+
+static void cli_free(struct client *cli)
+{
+	if (!cli)
+		return;
+
+	if (cli->fd >= 0) {
+		event_del(&cli->ev);
+		close(cli->fd);
+		cli->fd = -1;
+	}
+	
+	free(cli);
+}
+
+static void tcp_cli_event(int fd, short events, void *userdata)
+{
+	struct client *cli = userdata;
+
+	atcp_read_event(&cli->rst, fd);
+}
+
+static void tcp_srv_event(int fd, short events, void *userdata)
+{
+	struct server_socket *sock = userdata;
+	struct client *cli;
+	char host[64];
+	char port[16];
+	int on = 1;
+
+	cli = cli_alloc();
+	if (!cli) {
+		applog(LOG_ERR, "out of memory");
+		server_running = false;
+		event_loopbreak();
+		return;
+	}
+
+	/* receive TCP connection from kernel */
+	cli->fd = accept(sock->fd, (struct sockaddr *) &cli->addr,
+			 &cli->addr_len);
+	if (cli->fd < 0) {
+		syslogerr("tcp accept");
+		goto err_out;
+	}
+
+	/* mark non-blocking, for upcoming poll use */
+	if (fsetflags("tcp client", cli->fd, O_NONBLOCK) < 0)
+		goto err_out_fd;
+
+	/* disable delay of small output packets */
+	if (setsockopt(cli->fd, IPPROTO_TCP, TCP_NODELAY, &on, sizeof(on)) < 0)
+		applog(LOG_WARNING, "TCP_NODELAY failed: %s",
+		       strerror(errno));
+
+	event_set(&cli->ev, cli->fd, EV_READ | EV_PERSIST,
+		  tcp_cli_event, cli);
+
+	/* pretty-print incoming cxn info */
+	getnameinfo((struct sockaddr *) &cli->addr, cli->addr_len,
+		    host, sizeof(host), port, sizeof(port),
+		    NI_NUMERICHOST | NI_NUMERICSERV);
+	host[sizeof(host) - 1] = 0;
+	port[sizeof(port) - 1] = 0;
+	applog(LOG_INFO, "client host %s port %s connected%s", host, port,
+		/* cli->ssl ? " via SSL" : */ "");
+
+	strcpy(cli->addr_host, host);
+	strcpy(cli->addr_port, port);
+
+	if (event_add(&cli->ev, NULL) < 0) {
+		applog(LOG_ERR, "unable to ready srv fd for polling");
+		goto err_out_fd;
+	}
+	cli->ev_mask = EV_READ;
+
+	atcp_read(&cli->rst, &cli->ubbp, sizeof(cli->ubbp),
+		  cli_rd_ubbp, cli);
+
+	return;
+
+err_out_fd:
+err_out:
+	cli_free(cli);
 }
 
 static int net_write_port(const char *port_file, const char *port_str)
@@ -717,17 +871,23 @@ static int net_open_socket(int addr_fam, int sock_type, int sock_prot,
 
 	fd = socket(addr_fam, sock_type, sock_prot);
 	if (fd < 0) {
-		syslogerr("udp socket");
+		syslogerr("tcp socket");
 		return -errno;
 	}
 
 	if (bind(fd, addr_ptr, addr_len) < 0) {
-		syslogerr("udp bind");
+		syslogerr("tcp bind");
 		close(fd);
 		return -errno;
 	}
 
-	rc = fsetflags("udp server", fd, O_NONBLOCK);
+	if (listen(fd, 100) < 0) {
+		syslogerr("tcp listen");
+		close(fd);
+		return -errno;
+	}
+
+	rc = fsetflags("tcp server", fd, O_NONBLOCK);
 	if (rc) {
 		close(fd);
 		return -errno;
@@ -743,7 +903,7 @@ static int net_open_socket(int addr_fam, int sock_type, int sock_prot,
 	INIT_LIST_HEAD(&sock->sockets_node);
 
 	event_set(&sock->ev, fd, EV_READ | EV_PERSIST,
-		  udp_srv_event, sock);
+		  tcp_srv_event, sock);
 
 	if (event_add(&sock->ev, NULL) < 0) {
 		free(sock);
@@ -771,7 +931,7 @@ static int net_open_any(void)
 	memset(&addr6, 0, sizeof(addr6));
 	addr6.sin6_family = AF_INET6;
 	memcpy(&addr6.sin6_addr, &in6addr_any, sizeof(struct in6_addr));
-	fd6 = net_open_socket(AF_INET6, SOCK_DGRAM, 0, sizeof(addr6), &addr6);
+	fd6 = net_open_socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP, sizeof(addr6), &addr6);
 
 	if (fd6 >= 0) {
 		addr_len = sizeof(addr6);
@@ -790,7 +950,7 @@ static int net_open_any(void)
 	/* If IPv6 worked, we must use the same port number for IPv4 */
 	if (port)
 		addr4.sin_port = port;
-	fd4 = net_open_socket(AF_INET, SOCK_DGRAM, 0, sizeof(addr4), &addr4);
+	fd4 = net_open_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP, sizeof(addr4), &addr4);
 
 	if (!port) {
 		if (fd4 < 0)
@@ -824,7 +984,7 @@ static int net_open_known(const char *portstr)
 
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = PF_UNSPEC;
-	hints.ai_socktype = SOCK_DGRAM;
+	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE;
 
 	rc = getaddrinfo(NULL, portstr, &hints, &res0);

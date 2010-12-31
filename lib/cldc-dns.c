@@ -63,7 +63,7 @@ int cldc_saveaddr(struct cldc_host *hp,
 
 	memset(&hints, 0, sizeof(struct addrinfo));
 	hints.ai_family = PF_UNSPEC;
-	hints.ai_socktype = SOCK_DGRAM;
+	hints.ai_socktype = SOCK_STREAM;
 
 	rc = getaddrinfo(hostname, portstr, &hints, &res0);
 	if (rc) {

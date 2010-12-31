@@ -1375,13 +1375,13 @@ static int ncld_gethost(char **hostp, unsigned short *portp,
 	return 0;
 }
 
-static void ncld_udp_timer_event(struct cld_timer *timer)
+static void ncld_tcp_timer_event(struct cld_timer *timer)
 {
 	struct ncld_sess *nsess = timer->userdata;
-	struct cldc_udp *udp = nsess->udp;
+	struct cldc_tcp *tcp = nsess->tcp;
 
-	if (udp->cb)
-		udp->cb(udp->sess, udp->cb_private);
+	if (tcp->cb)
+		tcp->cb(tcp->sess, tcp->cb_private);
 }
 
 enum {
@@ -1447,7 +1447,7 @@ static gpointer ncld_sess_thr(gpointer data)
 		memset(pfd, 0, sizeof(pfd));
 		pfd[0].fd = nsess->to_thread[0];
 		pfd[0].events = POLLIN;
-		pfd[1].fd = nsess->udp->fd;
+		pfd[1].fd = nsess->tcp->fd;
 		pfd[1].events = POLLIN;
 
 		rc = poll(pfd, 2, tmo ? tmo*1000 : -1);
@@ -1464,7 +1464,7 @@ static gpointer ncld_sess_thr(gpointer data)
 					ncld_thread_command(nsess);
 				} else {
 					g_mutex_lock(nsess->mutex);
-					cldc_udp_receive_pkt(nsess->udp);
+					cldc_tcp_receive_pkt_data(nsess->tcp);
 					g_mutex_unlock(nsess->mutex);
 				}
 			}
@@ -1491,14 +1491,14 @@ static bool ncld_p_timer_ctl(void *priv, bool add,
 			     void *cb_priv, time_t secs)
 {
 	struct ncld_sess *nsess = priv;
-	struct cldc_udp *udp = nsess->udp;
+	struct cldc_tcp *tcp = nsess->tcp;
 
 	if (add) {
-		udp->cb = cb;
-		udp->cb_private = cb_priv;
-		cld_timer_add(&nsess->tlist, &nsess->udp_timer, time(NULL) + secs);
+		tcp->cb = cb;
+		tcp->cb_private = cb_priv;
+		cld_timer_add(&nsess->tlist, &nsess->tcp_timer, time(NULL) + secs);
 	} else {
-		cld_timer_del(&nsess->tlist, &nsess->udp_timer);
+		cld_timer_del(&nsess->tlist, &nsess->tcp_timer);
 	}
 	return true;
 }
@@ -1507,7 +1507,7 @@ static int ncld_p_pkt_send(void *priv, const void *addr, size_t addrlen,
 			       const void *buf, size_t buflen)
 {
 	struct ncld_sess *nsess = priv;
-	return cldc_udp_pkt_send(nsess->udp, addr, addrlen, buf, buflen);
+	return cldc_tcp_pkt_send(nsess->tcp, addr, addrlen, buf, buflen);
 }
 
 static void ncld_p_event(void *priv, struct cldc_session *csp,
@@ -1517,7 +1517,7 @@ static void ncld_p_event(void *priv, struct cldc_session *csp,
 	unsigned char cmd;
 
 	if (what == CE_SESS_FAILED) {
-		if (nsess->udp->sess != csp)
+		if (nsess->tcp->sess != csp)
 			abort();
 		if (!nsess->is_up)
 			return;
@@ -1542,7 +1542,7 @@ static void ncld_p_event(void *priv, struct cldc_session *csp,
 		 * Notice that we are already running on the context of the
 		 * thread that will deliver the event, so pipe really is not
 		 * needed: could as well set a flag and test it right after
-		 * the call to cldc_udp_receive_pkt(). But pipe also provides
+		 * the call to cldc_tcp_receive_pkt_data(). But pipe also provides
 		 * a queue of events, just in case. It's not like these events
 		 * are super-performance critical.
 		 */
@@ -1634,8 +1634,8 @@ struct ncld_sess *ncld_sess_open(const char *host, int port, int *error,
 	if (!nsess)
 		goto out_sesalloc;
 	memset(nsess, 0, sizeof(struct ncld_sess));
-	cld_timer_init(&nsess->udp_timer, "nsess-udp-timer",
-		       ncld_udp_timer_event, nsess);
+	cld_timer_init(&nsess->tcp_timer, "nsess-tcp-timer",
+		       ncld_tcp_timer_event, nsess);
 	nsess->mutex = g_mutex_new();
 	if (!nsess->mutex)
 		goto out_mutex;
@@ -1661,9 +1661,9 @@ struct ncld_sess *ncld_sess_open(const char *host, int port, int *error,
 		goto out_pipe_to;
 	}
 
-	if (cldc_udp_new(nsess->host, nsess->port, &nsess->udp)) {
+	if (cldc_tcp_new(nsess->host, nsess->port, &nsess->tcp)) {
 		err = 1023;
-		goto out_udp;
+		goto out_tcp;
 	}
 
 	nsess->thread = g_thread_create(ncld_sess_thr, nsess, TRUE, &gerr);
@@ -1677,9 +1677,9 @@ struct ncld_sess *ncld_sess_open(const char *host, int port, int *error,
 	copts.cb = ncld_new_sess;
 	copts.private = nsess;
 	if (cldc_new_sess_log(&ncld_ops, &copts,
-			      nsess->udp->addr, nsess->udp->addr_len,
+			      nsess->tcp->addr, nsess->tcp->addr_len,
 			      cld_user, cld_key, nsess, log,
-			      &nsess->udp->sess)) {
+			      &nsess->tcp->sess)) {
 		g_mutex_unlock(nsess->mutex);
 		err = 1024;
 		goto out_session;
@@ -1695,12 +1695,12 @@ struct ncld_sess *ncld_sess_open(const char *host, int port, int *error,
 	return nsess;
 
 out_start:
-	cldc_kill_sess(nsess->udp->sess);
+	cldc_kill_sess(nsess->tcp->sess);
 out_session:
 	ncld_thr_end(nsess);
 out_thread:
-	cldc_udp_free(nsess->udp);
-out_udp:
+	cldc_tcp_free(nsess->tcp);
+out_tcp:
 	close(nsess->to_thread[0]);
 	close(nsess->to_thread[1]);
 out_pipe_to:
@@ -1774,7 +1774,7 @@ struct ncld_fh *ncld_open(struct ncld_sess *nsess, const char *fname,
 	memset(&copts, 0, sizeof(copts));
 	copts.cb = ncld_open_cb;
 	copts.private = fh;
-	rc = cldc_open(nsess->udp->sess, &copts, fname, mode, events, &fh->fh);
+	rc = cldc_open(nsess->tcp->sess, &copts, fname, mode, events, &fh->fh);
 	if (rc) {
 		err = -rc;
 		g_mutex_unlock(nsess->mutex);
@@ -1850,7 +1850,7 @@ int ncld_del(struct ncld_sess *nsess, const char *fname)
 	memset(&copts, 0, sizeof(copts));
 	copts.cb = ncld_del_cb;
 	copts.private = &dpb;
-	rc = cldc_del(nsess->udp->sess, &copts, fname);
+	rc = cldc_del(nsess->tcp->sess, &copts, fname);
 	if (rc) {
 		g_mutex_unlock(nsess->mutex);
 		return -rc;
@@ -2266,9 +2266,9 @@ void ncld_sess_close(struct ncld_sess *nsess)
 		ncld_close(p);
 	g_list_free(nsess->handles);
 
-	cldc_kill_sess(nsess->udp->sess);
+	cldc_kill_sess(nsess->tcp->sess);
 	ncld_thr_end(nsess);
-	cldc_udp_free(nsess->udp);
+	cldc_tcp_free(nsess->tcp);
 	close(nsess->to_thread[0]);
 	close(nsess->to_thread[1]);
 	g_cond_free(nsess->cond);

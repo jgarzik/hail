@@ -40,8 +40,8 @@ struct ncld_sess {
 	int			errc;
 	GList			*handles;
 	int			to_thread[2];
-	struct cldc_udp		*udp;
-	struct cld_timer	udp_timer;
+	struct cldc_tcp		*tcp;
+	struct cld_timer	tcp_timer;
 	struct cld_timer_list	tlist;
 	void			(*event)(void *, unsigned int);
 	void			*event_arg;

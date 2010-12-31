@@ -29,10 +29,6 @@
 #include <cld_msg_rpc.h>
 #include "cld.h"
 
-enum {
-	CLD_MAX_UDP_SEG		= 1024,
-};
-
 struct pathname_info {
 	const char	*dir;
 	size_t		dir_len;

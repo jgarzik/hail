@@ -550,7 +550,7 @@ static int sess_retry_output(struct session *sess, time_t *next_retry_out)
 				  			op->pkt_len));
 		}
 
-		rc = udp_tx(sess->sock_fd, (struct sockaddr *) &sess->addr,
+		rc = tcp_tx(sess->sock_fd, (struct sockaddr *) &sess->addr,
 			    sess->addr_len, op->pkt_data, op->pkt_len);
 		if (rc)
 			break;
@@ -715,7 +715,7 @@ bool sess_sendmsg(struct session *sess,
 	     tmp_list = g_list_next(tmp_list)) {
 		struct session_outpkt *op =
 			(struct session_outpkt *) tmp_list->data;
-		udp_tx(sess->sock_fd, (struct sockaddr *) &sess->addr,
+		tcp_tx(sess->sock_fd, (struct sockaddr *) &sess->addr,
 			sess->addr_len, op->pkt_data, op->pkt_len);
 	}
 

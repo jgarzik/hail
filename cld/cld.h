@@ -30,6 +30,7 @@
 #include <cld_common.h>
 #include <hail_log.h>
 #include <hail_private.h>
+#include <ubbp.h>
 
 struct client;
 struct session_outpkt;
@@ -43,10 +44,39 @@ enum {
 	SFL_FOREGROUND		= (1 << 0),	/* run in foreground */
 };
 
+struct atcp_read {
+	void			*buf;
+	unsigned int		buf_size;
+	unsigned int		bytes_wanted;
+	unsigned int		bytes_read;
+
+	void			(*cb)(void *, bool);
+	void			*cb_data;
+
+	struct list_head	node;
+};
+
+struct atcp_read_state {
+	struct list_head	q;
+};
+
 struct client {
+	int			fd;
+
+	struct event		ev;
+	short			ev_mask;	/* EV_READ and/or EV_WRITE */
+
 	struct sockaddr_in6	addr;		/* inet address */
 	socklen_t		addr_len;	/* inet address len */
 	char			addr_host[64];	/* ASCII version of inet addr */
+	char			addr_port[16];	/* ASCII version of inet addr */
+
+	struct atcp_read_state	rst;
+
+	struct ubbp_header	ubbp;
+
+	char			raw_pkt[CLD_RAW_MSG_SZ];
+	unsigned int		raw_size;
 };
 
 struct session {
@@ -124,6 +154,17 @@ struct pkt_info {
 	size_t			hdr_len;
 };
 
+#define ___constant_swab32(x) ((uint32_t)(                       \
+        (((uint32_t)(x) & (uint32_t)0x000000ffUL) << 24) |            \
+        (((uint32_t)(x) & (uint32_t)0x0000ff00UL) <<  8) |            \
+        (((uint32_t)(x) & (uint32_t)0x00ff0000UL) >>  8) |            \
+        (((uint32_t)(x) & (uint32_t)0xff000000UL) >> 24)))
+
+static inline uint32_t swab32(uint32_t v)
+{
+	return ___constant_swab32(v);
+}
+
 /* msg.c */
 extern int inode_lock_rescan(DB_TXN *txn, cldino_t inum);
 extern void msg_get(struct session *sess, const void *v);
@@ -178,7 +219,7 @@ extern int sess_load(GHashTable *ss);
 extern struct server cld_srv;
 extern struct hail_log srv_log;
 extern struct timeval current_time;
-extern int udp_tx(int sock_fd, struct sockaddr *, socklen_t,
+extern int tcp_tx(int sock_fd, struct sockaddr *, socklen_t,
 		  const void *, size_t);
 extern const char *user_key(const char *user);
 

@@ -31,33 +31,33 @@
 #include <netdb.h>
 #include <cldc.h>
 
-void cldc_udp_free(struct cldc_udp *udp)
+void cldc_tcp_free(struct cldc_tcp *tcp)
 {
-	if (!udp)
+	if (!tcp)
 		return;
 
-	if (udp->fd >= 0)
-		close(udp->fd);
+	if (tcp->fd >= 0)
+		close(tcp->fd);
 
-	free(udp);
+	free(tcp);
 }
 
-int cldc_udp_new(const char *hostname, int port,
-		 struct cldc_udp **udp_out)
+int cldc_tcp_new(const char *hostname, int port,
+		 struct cldc_tcp **tcp_out)
 {
-	struct cldc_udp *udp;
+	struct cldc_tcp *tcp;
 	struct addrinfo hints, *res, *rp;
 	char port_s[32];
 	int rc, fd = -1;
 
-	*udp_out = NULL;
+	*tcp_out = NULL;
 
 	sprintf(port_s, "%d", port);
 
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_UNSPEC;
-	hints.ai_socktype = SOCK_DGRAM;
-	hints.ai_protocol = IPPROTO_UDP;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_protocol = IPPROTO_TCP;
 
 	rc = getaddrinfo(hostname, port_s, &hints, &res);
 	if (rc)
@@ -80,61 +80,105 @@ int cldc_udp_new(const char *hostname, int port,
 		return -ENOENT;
 	}
 
-	udp = calloc(1, sizeof(*udp));
-	if (!udp) {
+	tcp = calloc(1, sizeof(*tcp));
+	if (!tcp) {
 		freeaddrinfo(res);
 		close(fd);
 		return -ENOMEM;
 	}
 
-	memcpy(udp->addr, rp->ai_addr, rp->ai_addrlen);
-	udp->addr_len = rp->ai_addrlen;
+	memcpy(tcp->addr, rp->ai_addr, rp->ai_addrlen);
+	tcp->addr_len = rp->ai_addrlen;
 
-	udp->fd = fd;
+	tcp->fd = fd;
 
 	freeaddrinfo(res);
 
-	*udp_out = udp;
+	*tcp_out = tcp;
 
 	return 0;
 }
 
-int cldc_udp_receive_pkt(struct cldc_udp *udp)
+int cldc_tcp_receive_pkt_data(struct cldc_tcp *tcp)
 {
-	char buf[2048];
+	static char buf[CLD_RAW_MSG_SZ];	/* BUG: static buf */
 	ssize_t rc, crc;
+	void *p;
 
-	rc = recv(udp->fd, buf, sizeof(buf), MSG_DONTWAIT);
+	if (tcp->ubbp_read < sizeof(tcp->ubbp)) {
+		p = &tcp->ubbp;
+		p += tcp->ubbp_read;
+		rc = read(tcp->fd, p, sizeof(tcp->ubbp) - tcp->ubbp_read);
+		if (rc < 0) {
+			if (errno != EAGAIN)
+				return -errno;
+			return 0;
+		}
+
+		tcp->ubbp_read += rc;
+		if (tcp->ubbp_read == sizeof(tcp->ubbp)) {
+#ifdef WORDS_BIGENDIAN
+			swab32(ubbp.op_size);
+#endif
+
+			if (memcmp(tcp->ubbp.magic, "CLD1", 4))
+				return -EIO;
+			if (UBBP_OP(tcp->ubbp.op_size) != 2)
+				return -EIO;
+			tcp->raw_read = 0;
+			tcp->raw_size = UBBP_SIZE(tcp->ubbp.op_size);
+			if (tcp->raw_size > CLD_RAW_MSG_SZ)
+				return -EIO;
+		}
+	}
+	if (!tcp->raw_size)
+		return 0;
+
+	p = buf;		/* BUG: uses temp buffer */
+	p += tcp->raw_read;
+	rc = read(tcp->fd, p, tcp->raw_size - tcp->raw_read);
 	if (rc < 0) {
 		if (errno != EAGAIN)
 			return -errno;
+		return 0;
 	}
-	if (rc <= 0)
+
+	tcp->raw_read += rc;
+
+	if (tcp->raw_read < tcp->raw_size)
 		return 0;
 
-	if (!udp->sess)
-		return -ENXIO;
+	tcp->ubbp_read = 0;
 
-	crc = cldc_receive_pkt(udp->sess, udp->addr, udp->addr_len, buf, rc);
+	crc = cldc_receive_pkt(tcp->sess, tcp->addr, tcp->addr_len, buf,
+				tcp->raw_size);
 	if (crc)
 		return crc;
 
 	return 0;
 }
 
-int cldc_udp_pkt_send(void *private,
+int cldc_tcp_pkt_send(void *private,
 			const void *addr, size_t addrlen,
 			const void *buf, size_t buflen)
 {
-	struct cldc_udp *udp = private;
+	struct cldc_tcp *tcp = private;
 	ssize_t rc;
+	struct ubbp_header ubbp;
 
-	/* we are connected, so we ignore addr and addrlen args */
-	rc = send(udp->fd, buf, buflen, MSG_DONTWAIT);
+	memcpy(ubbp.magic, "CLD1", 4);
+	ubbp.op_size = (buflen << 8) | 1;
+#ifdef WORDS_BIGENDIAN
+	swab32(ubbp.op_size);
+#endif
+
+	rc = write(tcp->fd, &ubbp, sizeof(ubbp));
 	if (rc < 0)
 		return -errno;
-	if (rc != buflen)
-		return -EILSEQ;
+
+	rc = write(tcp->fd, buf, buflen);
+	if (rc < 0)
+		return -errno;
 
 	return 0;
 }

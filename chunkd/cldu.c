@@ -165,7 +165,7 @@ static void cldu_sess_event(void *priv, uint32_t what)
 		 */
 		if (cs->nsess) {
 			applog(LOG_ERR, "Session failed, sid " SIDFMT,
-			       SIDARG(cs->nsess->udp->sess->sid));
+			       SIDARG(cs->nsess->tcp->sess->sid));
 		} else {
 			applog(LOG_ERR, "Session open failed");
 		}
@@ -177,7 +177,7 @@ static void cldu_sess_event(void *priv, uint32_t what)
 	} else {
 		if (cs)
 			applog(LOG_INFO, "cldc event 0x%x sid " SIDFMT,
-			       what, SIDARG(cs->nsess->udp->sess->sid));
+			       what, SIDARG(cs->nsess->tcp->sess->sid));
 		else
 			applog(LOG_INFO, "cldc event 0x%x no sid", what);
 	}
@@ -372,7 +372,7 @@ static int cldu_set_cldc(struct cld_session *cs, int newactive)
 	}
 
 	applog(LOG_INFO, "New CLD session created, sid " SIDFMT,
-	       SIDARG(cs->nsess->udp->sess->sid));
+	       SIDARG(cs->nsess->tcp->sess->sid));
 
 	/*
 	 * First, make sure the base directory exists.

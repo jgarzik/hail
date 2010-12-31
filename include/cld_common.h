@@ -31,6 +31,10 @@
 
 #define CLD_ALIGN8(n) ((8 - ((n) & 7)) & 7)
 
+enum {
+	CLD_RAW_MSG_SZ		= 4096,
+};
+
 struct cld_timer {
 	bool			fired;
 	bool			on_list;

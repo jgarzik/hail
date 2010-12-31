@@ -23,7 +23,7 @@ lib_LTLIBRARIES		= libhail.la
 libhail_la_SOURCES	=	\
 	atcp.c			\
 	cldc.c			\
-	cldc-udp.c		\
+	cldc-tcp.c		\
 	cldc-dns.c		\
 	common.c		\
 	libtimer.c		\

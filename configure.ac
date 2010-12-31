@@ -69,6 +69,7 @@ AC_CHECK_HEADERS(sys/sendfile.h sys/filio.h)
 AC_CHECK_HEADER(db.h,[],exit 1)
 
 dnl Checks for typedefs, structures, and compiler characteristics.
+AC_C_BIGENDIAN
 dnl AC_TYPE_SIZE_T
 dnl AC_TYPE_PID_T
 

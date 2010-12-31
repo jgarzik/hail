@@ -25,6 +25,7 @@
 #include <cld_msg_rpc.h>
 #include <cld_common.h>
 #include <hail_log.h>
+#include <ubbp.h>
 
 struct cldc_session;
 
@@ -142,12 +143,19 @@ struct cldc_host {
 	unsigned short	port;
 };
 
-/** A UDP implementation of the CLD client protocol */
-struct cldc_udp {
+/** A TCP implementation of the CLD client protocol */
+struct cldc_tcp {
 	uint8_t		addr[64];		/* server address */
 	size_t		addr_len;
 
 	int		fd;
+
+	struct ubbp_header ubbp;
+	unsigned int	ubbp_read;
+
+	char		raw_pkt[CLD_RAW_MSG_SZ];
+	unsigned int	raw_size;
+	unsigned int	raw_read;
 
 	struct cldc_session *sess;
 
@@ -215,12 +223,12 @@ extern void cldc_copts_get_data(const struct cldc_call_opts *copts,
 extern void cldc_copts_get_metadata(const struct cldc_call_opts *copts,
 				    struct cldc_node_metadata *md);
 
-/* cldc-udp */
-extern void cldc_udp_free(struct cldc_udp *udp);
-extern int cldc_udp_new(const char *hostname, int port,
-		 struct cldc_udp **udp_out);
-extern int cldc_udp_receive_pkt(struct cldc_udp *udp);
-extern int cldc_udp_pkt_send(void *private,
+/* cldc-tcp */
+extern void cldc_tcp_free(struct cldc_tcp *tcp);
+extern int cldc_tcp_new(const char *hostname, int port,
+		 struct cldc_tcp **tcp_out);
+extern int cldc_tcp_receive_pkt_data(struct cldc_tcp *tcp);
+extern int cldc_tcp_pkt_send(void *private,
 			  const void *addr, size_t addrlen,
 			  const void *buf, size_t buflen);
 
