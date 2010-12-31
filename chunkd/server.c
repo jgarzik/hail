@@ -1492,10 +1492,10 @@ static int net_open_socket(const struct listen_cfg *cfg,
 	sock->fd = fd;
 	sock->cfg = cfg;
 
-	list_add_tail(&sock->sockets_node, &chunkd_srv.sockets);
-
 	if (event_add(&sock->ev, NULL) < 0)
 		goto err_out_sock;
+
+	list_add_tail(&sock->sockets_node, &chunkd_srv.sockets);
 
 	return fd;
 
@@ -1638,6 +1638,7 @@ static int net_open_known(const struct listen_cfg *cfg)
 	return 0;
 
 err_out:
+	freeaddrinfo(res0);
 	return rc;
 }
 
