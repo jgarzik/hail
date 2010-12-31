@@ -43,8 +43,8 @@ struct session_outpkt {
 	void			*done_data;
 };
 
-static void session_retry(struct cld_timer *);
-static void session_timeout(struct cld_timer *);
+static void session_retry(int, short, void *);
+static void session_timeout(int, short, void *);
 static int sess_load_db(GHashTable *ss, DB_TXN *txn);
 static void op_unref(struct session_outpkt *op);
 
@@ -87,8 +87,8 @@ static struct session *session_new(void)
 
 	cld_rand64(&sess->next_seqid_out);
 
-	cld_timer_init(&sess->timer, "session-timeout", session_timeout, sess);
-	cld_timer_init(&sess->retry_timer, "session-retry", session_retry, sess);
+	evtimer_set(&sess->timer, session_timeout, sess);
+	evtimer_set(&sess->retry_timer, session_retry, sess);
 
 	return sess;
 }
@@ -103,8 +103,10 @@ static void session_free(struct session *sess, bool hash_remove)
 	if (hash_remove)
 		g_hash_table_remove(cld_srv.sessions, sess->sid);
 
-	cld_timer_del(&cld_srv.timers, &sess->timer);
-	cld_timer_del(&cld_srv.timers, &sess->retry_timer);
+	if (evtimer_del(&sess->timer) < 0)
+		HAIL_ERR(&srv_log, "sess timer del failed");
+	if (evtimer_del(&sess->retry_timer) < 0)
+		HAIL_ERR(&srv_log, "sess retry timer del failed");
 
 	tmp = sess->out_q;
 	while (tmp) {
@@ -376,9 +378,9 @@ static void session_ping_done(struct session_outpkt *outpkt)
 	outpkt->sess->ping_open = false;
 }
 
-static void session_timeout(struct cld_timer *timer)
+static void session_timeout(int fd, short events, void *userdata)
 {
-	struct session *sess = timer->userdata;
+	struct session *sess = userdata;
 	uint64_t sess_expire;
 	int rc;
 	DB_ENV *dbenv = cld_srv.cldb.env;
@@ -387,6 +389,8 @@ static void session_timeout(struct cld_timer *timer)
 
 	sess_expire = sess->last_contact + CLD_SESS_TIMEOUT;
 	if (!sess->dead && (sess_expire > now)) {
+		struct timeval tv;
+
 		if (!sess->ping_open &&
 		    (sess_expire > (sess->last_contact + (CLD_SESS_TIMEOUT / 2) &&
 		    (sess->sock_fd > 0)))) {
@@ -396,9 +400,12 @@ static void session_timeout(struct cld_timer *timer)
 				     session_ping_done, NULL);
 		}
 
-		cld_timer_add(&cld_srv.timers, &sess->timer,
-			      now + ((sess_expire - now) / 2) + 1);
-		return;	/* timer added; do not time out session */
+		tv.tv_sec = ((sess_expire - now) / 2) + 1;
+		tv.tv_usec = 0;
+		if (evtimer_add(&sess->timer, &tv) < 0)
+			HAIL_ERR(&srv_log, "timer add failed, sid " SIDFMT,
+				 SIDARG(sess->sid));
+		return;		/* timer added; do not time out session */
 	}
 
 	HAIL_INFO(&srv_log, "session %s, addr %s sid " SIDFMT,
@@ -554,25 +561,33 @@ static int sess_retry_output(struct session *sess, time_t *next_retry_out)
 	return rc;
 }
 
-static void session_retry(struct cld_timer *timer)
+static void session_retry(int fd, short events, void *userdata)
 {
-	struct session *sess = timer->userdata;
+	struct session *sess = userdata;
 	time_t next_retry;
+	time_t now = time(NULL);
+	struct timeval tv;
 
 	if (!sess->out_q)
 		return;
 
 	sess_retry_output(sess, &next_retry);
 
-	cld_timer_add(&cld_srv.timers, &sess->retry_timer, next_retry);
+	tv.tv_sec = next_retry - now;
+	tv.tv_usec = 0;
+
+	if (evtimer_add(&sess->retry_timer, &tv) < 0)
+		HAIL_ERR(&srv_log, "retry timer re-add failed");
 }
 
 static void session_outq(struct session *sess, GList *new_pkts)
 {
 	/* if out_q empty, start retry timer */
-	if (!sess->out_q)
-		cld_timer_add(&cld_srv.timers, &sess->retry_timer,
-			      time(NULL) + CLD_RETRY_START);
+	if (!sess->out_q) {
+		struct timeval tv = { .tv_sec = CLD_RETRY_START };
+		if (evtimer_add(&sess->retry_timer, &tv) < 0)
+			HAIL_ERR(&srv_log, "retry timer start failed");
+	}
 
 	sess->out_q = g_list_concat(sess->out_q, new_pkts);
 }
@@ -766,7 +781,8 @@ void msg_ack(struct session *sess, uint64_t seqid)
 	}
 
 	if (!sess->out_q)
-		cld_timer_del(&cld_srv.timers, &sess->retry_timer);
+		if (evtimer_del(&sess->retry_timer) < 0)
+			HAIL_ERR(&srv_log, "sess retry timer del 2 failed");
 }
 
 void msg_new_sess(int sock_fd, const struct client *cli,
@@ -780,6 +796,7 @@ void msg_new_sess(int sock_fd, const struct client *cli,
 	int rc;
 	enum cle_err_codes resp_rc = CLE_OK;
 	struct cld_msg_generic_resp resp;
+	struct timeval tv;
 
 	sess = session_new();
 	if (!sess) {
@@ -832,8 +849,10 @@ void msg_new_sess(int sock_fd, const struct client *cli,
 	g_hash_table_insert(cld_srv.sessions, sess->sid, sess);
 
 	/* begin session timer */
-	cld_timer_add(&cld_srv.timers, &sess->timer,
-		      time(NULL) + (CLD_SESS_TIMEOUT / 2));
+	tv.tv_sec = CLD_SESS_TIMEOUT / 2;
+	tv.tv_usec = 0;
+	if (evtimer_add(&sess->timer, &tv) < 0)
+		HAIL_ERR(&srv_log, "sess timer start failed");
 
 	/* send new-sess reply */
 	resp.code = CLE_OK;
@@ -933,6 +952,8 @@ static int sess_load_db(GHashTable *ss, DB_TXN *txn)
 	val.flags = DB_DBT_USERMEM;
 
 	while (1) {
+		struct timeval tv;
+
 		rc = cur->get(cur, &key, &val, DB_NEXT);
 		if (rc == DB_NOTFOUND)
 			break;
@@ -960,8 +981,12 @@ static int sess_load_db(GHashTable *ss, DB_TXN *txn)
 		g_hash_table_insert(ss, sess->sid, sess);
 
 		/* begin session timer */
-		cld_timer_add(&cld_srv.timers, &sess->timer,
-			      time(NULL) + (CLD_SESS_TIMEOUT / 2));
+		tv.tv_sec = CLD_SESS_TIMEOUT / 2;
+		tv.tv_usec = 0;
+		if (evtimer_add(&sess->timer, &tv) < 0) {
+			HAIL_ERR(&srv_log, "sess timer loop start failed");
+			break;
+		}
 	}
 
 	cur->close(cur);

@@ -559,7 +559,7 @@ static void simple_sendresp(int sock_fd, const struct client *cli,
 		       info->op);
 }
 
-static bool udp_srv_event(int fd, short events, void *userdata)
+static void udp_srv_event(int fd, short events, void *userdata)
 {
 	struct client cli;
 	char host[64];
@@ -586,7 +586,7 @@ static bool udp_srv_event(int fd, short events, void *userdata)
 	rrc = recvmsg(fd, &hdr, 0);
 	if (rrc < 0) {
 		syslogerr("UDP recvmsg");
-		return true; /* continue main loop; do NOT terminate server */
+		return;
 	}
 	cli.addr_len = hdr.msg_namelen;
 
@@ -601,59 +601,60 @@ static bool udp_srv_event(int fd, short events, void *userdata)
 
 	if (!parse_pkt_header(raw_pkt, rrc, &pkt, &hdr_len)) {
 		cld_srv.stats.garbage++;
-		return true;
+		return;
 	}
 
 	if (!get_pkt_info(&pkt, raw_pkt, rrc, hdr_len, &info)) {
 		xdr_free((xdrproc_t)xdr_cld_pkt_hdr, (char *)&pkt);
 		cld_srv.stats.garbage++;
-		return true;
+		return;
 	}
 
 	if (packet_is_dupe(&info)) {
 		/* silently drop dupes */
 		xdr_free((xdrproc_t)xdr_cld_pkt_hdr, (char *)&pkt);
-		return true;
+		return;
 	}
 
 	err = validate_pkt_session(&info, &cli);
 	if (err) {
 		simple_sendresp(fd, &cli, &info, err);
 		xdr_free((xdrproc_t)xdr_cld_pkt_hdr, (char *)&pkt);
-		return true;
+		return;
 	}
 
 	err = pkt_chk_sig(raw_pkt, rrc, &pkt);
 	if (err) {
 		simple_sendresp(fd, &cli, &info, err);
 		xdr_free((xdrproc_t)xdr_cld_pkt_hdr, (char *)&pkt);
-		return true;
+		return;
 	}
 
 	if (!(cld_srv.cldb.is_master && cld_srv.cldb.up)) {
 		simple_sendmsg(fd, &cli, pkt.sid, pkt.user, 0xdeadbeef,
 			       (xdrproc_t)xdr_void, NULL, CMO_NOT_MASTER);
 		xdr_free((xdrproc_t)xdr_cld_pkt_hdr, (char *)&pkt);
-		return true;
+		return;
 	}
 
 	err = udp_rx(fd, &cli, &info, raw_pkt, rrc);
 	if (err) {
 		simple_sendresp(fd, &cli, &info, err);
 		xdr_free((xdrproc_t)xdr_cld_pkt_hdr, (char *)&pkt);
-		return true;
+		return;
 	}
 	xdr_free((xdrproc_t)xdr_cld_pkt_hdr, (char *)&pkt);
-	return true;
 }
 
 static void add_chkpt_timer(void)
 {
-	cld_timer_add(&cld_srv.timers, &cld_srv.chkpt_timer,
-		      time(NULL) + CLD_CHKPT_SEC);
+	struct timeval tv = { .tv_sec = CLD_CHKPT_SEC };
+
+	if (evtimer_add(&cld_srv.chkpt_timer, &tv) < 0)
+		HAIL_WARN(&srv_log, "chkpt timer add failed");
 }
 
-static void cldb_checkpoint(struct cld_timer *timer)
+static void cldb_checkpoint(int fd, short events, void *userdata)
 {
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	int rc;
@@ -690,28 +691,28 @@ static int net_write_port(const char *port_file, const char *port_str)
 
 static void net_close(void)
 {
-	struct pollfd *pfd;
-	int i;
+	struct server_socket *tmp, *iter;
 
-	if (!cld_srv.polls)
-		return;
-
-	for (i = 0; i < cld_srv.polls->len; i++) {
-		pfd = &g_array_index(cld_srv.polls, struct pollfd, i);
-		if (pfd->fd >= 0) {
-			if (close(pfd->fd) < 0)
-				HAIL_WARN(&srv_log, "%s(%d): %s",
-					  __func__, pfd->fd, strerror(errno));
-			pfd->fd = -1;
+	list_for_each_entry_safe(tmp, iter, &cld_srv.sockets, sockets_node) {
+		if (tmp->fd >= 0) {
+			if (event_del(&tmp->ev) < 0)
+				HAIL_WARN(&srv_log, "Event delete(%d) failed",
+					  tmp->fd);
+			if (close(tmp->fd) < 0)
+				HAIL_WARN(&srv_log, "Close(%d) failed: %s",
+					  tmp->fd, strerror(errno));
+			tmp->fd = -1;
 		}
+
+		list_del(&tmp->sockets_node);
+		free(tmp);
 	}
 }
 
 static int net_open_socket(int addr_fam, int sock_type, int sock_prot,
 			   int addr_len, void *addr_ptr)
 {
-	struct server_poll sp;
-	struct pollfd pfd;
+	struct server_socket *sock;
 	int fd, rc;
 
 	fd = socket(addr_fam, sock_type, sock_prot);
@@ -732,15 +733,25 @@ static int net_open_socket(int addr_fam, int sock_type, int sock_prot,
 		return -errno;
 	}
 
-	sp.fd = fd;
-	sp.cb = udp_srv_event;
-	sp.userdata = NULL;
-	g_array_append_val(cld_srv.poll_data, sp);
+	sock = calloc(1, sizeof(*sock));
+	if (!sock) {
+		close(fd);
+		return -ENOMEM;
+	}
 
-	pfd.fd = fd;
-	pfd.events = POLLIN;
-	pfd.revents = 0;
-	g_array_append_val(cld_srv.polls, pfd);
+	sock->fd = fd;
+	INIT_LIST_HEAD(&sock->sockets_node);
+
+	event_set(&sock->ev, fd, EV_READ | EV_PERSIST,
+		  udp_srv_event, sock);
+
+	if (event_add(&sock->ev, NULL) < 0) {
+		free(sock);
+		close(fd);
+		return -EIO;
+	}
+
+	list_add_tail(&sock->sockets_node, &cld_srv.sockets);
 
 	return fd;
 }
@@ -891,11 +902,13 @@ static void segv_signal(int signo)
 static void term_signal(int signo)
 {
 	server_running = false;
+	event_loopbreak();
 }
 
 static void stats_signal(int signo)
 {
 	dump_stats = true;
+	event_loopbreak();
 }
 
 #define X(stat) \
@@ -975,73 +988,16 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 
 static int main_loop(void)
 {
-	time_t next_timeout;
-
-	next_timeout = cld_timers_run(&cld_srv.timers);
-
 	while (server_running) {
-		struct pollfd *pfd;
-		int i, fired, rc;
-
 		cld_srv.stats.poll++;
-
-		/* poll for fd activity, or next timer event */
-		rc = poll(&g_array_index(cld_srv.polls, struct pollfd, 0),
-			  cld_srv.polls->len,
-			  next_timeout ? (next_timeout * 1000) : -1);
-		if (rc < 0) {
-			syslogerr("poll");
-			if (errno != EINTR)
-				break;
-		}
+		event_dispatch();
 
 		gettimeofday(&current_time, NULL);
-
-		/* determine which fd's fired; call their callbacks */
-		fired = 0;
-		for (i = 0; i < cld_srv.polls->len; i++) {
-			struct server_poll *sp;
-			bool runrunrun;
-			short revents;
-
-			/* ref pollfd struct */
-			pfd = &g_array_index(cld_srv.polls, struct pollfd, i);
-
-			/* if no events fired, move on to next */
-			if (!pfd->revents)
-				continue;
-
-			fired++;
-
-			revents = pfd->revents;
-			pfd->revents = 0;
-
-			/* ref 1:1 matching server_poll struct */
-			sp = &g_array_index(cld_srv.poll_data,
-					    struct server_poll, i);
-
-			cld_srv.stats.event++;
-
-			/* call callback, shutting down server if requested */
-			runrunrun = sp->cb(sp->fd, revents, sp->userdata);
-			if (!runrunrun) {
-				server_running = false;
-				break;
-			}
-
-			/* if we reached poll(2) activity count, it is
-			 * pointless to continue looping
-			 */
-			if (fired == rc)
-				break;
-		}
 
 		if (dump_stats) {
 			dump_stats = false;
 			stats_dump();
 		}
-
-		next_timeout = cld_timers_run(&cld_srv.timers);
 	}
 
 	return 0;
@@ -1051,6 +1007,8 @@ int main (int argc, char *argv[])
 {
 	error_t aprc;
 	int rc = 1;
+
+	INIT_LIST_HEAD(&cld_srv.sockets);
 
 	/* isspace() and strcasecmp() consistency requires this */
 	setlocale(LC_ALL, "C");
@@ -1074,6 +1032,8 @@ int main (int argc, char *argv[])
 
 	if (use_syslog)
 		openlog(PROGRAM_NAME, LOG_PID, LOG_LOCAL3);
+
+	cld_srv.evbase_main = event_init();
 
 	if (!(cld_srv.flags & SFL_FOREGROUND) && (daemon(1, !use_syslog) < 0)) {
 		syslogerr("daemon");
@@ -1103,17 +1063,13 @@ int main (int argc, char *argv[])
 
 	ensure_root();
 
-	cld_timer_init(&cld_srv.chkpt_timer, "db4-checkpoint",
-		       cldb_checkpoint, NULL);
+	evtimer_set(&cld_srv.chkpt_timer, cldb_checkpoint, NULL);
 	add_chkpt_timer();
 
 	rc = 1;
 
 	cld_srv.sessions = g_hash_table_new(sess_hash, sess_equal);
-	cld_srv.poll_data = g_array_sized_new(FALSE, FALSE,
-					   sizeof(struct server_poll), 4);
-	cld_srv.polls = g_array_sized_new(FALSE,FALSE,sizeof(struct pollfd), 4);
-	if (!cld_srv.sessions || !cld_srv.poll_data || !cld_srv.polls)
+	if (!cld_srv.sessions)
 		goto err_out_pid;
 
 	if (sess_load(cld_srv.sessions) != 0)
@@ -1137,7 +1093,8 @@ int main (int argc, char *argv[])
 	HAIL_INFO(&srv_log, "shutting down");
 
 	if (strict_free)
-		cld_timer_del(&cld_srv.timers, &cld_srv.chkpt_timer);
+		if (evtimer_del(&cld_srv.chkpt_timer) < 0)
+			HAIL_WARN(&srv_log, "chkpt timer del failed");
 
 	if (cld_srv.cldb.up)
 		cldb_down(&cld_srv.cldb);
@@ -1149,8 +1106,6 @@ err_out_pid:
 err_out:
 	if (strict_free) {
 		net_close();
-		g_array_free(cld_srv.polls, TRUE);
-		g_array_free(cld_srv.poll_data, TRUE);
 		sessions_free();
 		g_hash_table_unref(cld_srv.sessions);
 	}

@@ -22,8 +22,9 @@
 
 #include <netinet/in.h>
 #include <sys/time.h>
-#include <poll.h>
+#include <event.h>
 #include <glib.h>
+#include <elist.h>
 #include "cldb.h"
 #include <cld_msg_rpc.h>
 #include <cld_common.h>
@@ -59,13 +60,13 @@ struct session {
 
 	uint64_t		last_contact;
 	uint64_t		next_fh;
-	struct cld_timer	timer;
+	struct event		timer;
 
 	uint64_t		next_seqid_in;
 	uint64_t		next_seqid_out;
 
 	GList			*out_q;		/* outgoing pkts (to client) */
-	struct cld_timer	retry_timer;
+	struct event		retry_timer;
 
 	char			user[CLD_MAX_USERNAME];
 
@@ -85,10 +86,10 @@ struct server_stats {
 	unsigned long		garbage;	/* num. garbage pkts dropped */
 };
 
-struct server_poll {
+struct server_socket {
 	int			fd;
-	bool			(*cb)(int fd, short events, void *userdata);
-	void			*userdata;
+	struct event		ev;
+	struct list_head	sockets_node;
 };
 
 struct server {
@@ -103,14 +104,13 @@ struct server {
 
 	struct cldb		cldb;		/* database info */
 
-	GArray			*polls;
-	GArray			*poll_data;
+	struct event_base	*evbase_main;
+
+	struct list_head	sockets;
 
 	GHashTable		*sessions;
 
-	struct cld_timer_list	timers;
-
-	struct cld_timer	chkpt_timer;	/* db4 checkpoint timer */
+	struct event		chkpt_timer;	/* db4 checkpoint timer */
 
 	struct server_stats	stats;		/* global statistics */
 };
