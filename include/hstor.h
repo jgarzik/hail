@@ -24,6 +24,7 @@
 #include <stdint.h>
 #include <curl/curl.h>
 #include <glib.h>
+#include <htab.h>
 
 enum hstor_calling_format { HFMT_ORDINARY, HFMT_SUBDOMAIN };
 
@@ -139,7 +140,7 @@ extern int hreq_hdr_push(struct http_req *req, const char *key, const char *val)
 extern char *hreq_hdr(struct http_req *req, const char *key);
 extern void hreq_sign(struct http_req *req, const char *bucket, const char *key,
 	      char *b64hmac_out);
-extern GHashTable *hreq_query(struct http_req *req);
+extern struct htab *hreq_query(struct http_req *req);
 extern int hreq_is_query(struct http_req *req);
 extern void hreq_free(struct http_req *req);
 extern int hreq_acl_canned(struct http_req *req);

@@ -30,6 +30,7 @@
 #include <cld_common.h>
 #include <hail_log.h>
 #include <hail_private.h>
+#include <htab.h>
 
 struct client;
 struct session_outpkt;
@@ -108,7 +109,7 @@ struct server {
 
 	struct list_head	sockets;
 
-	GHashTable		*sessions;
+	struct htab		*sessions;
 
 	struct event		chkpt_timer;	/* db4 checkpoint timer */
 
@@ -137,8 +138,8 @@ extern void msg_ack(struct session *sess, uint64_t seqid);
 
 /* session.c */
 extern uint64_t next_seqid_le(uint64_t *seq);
-extern guint sess_hash(gconstpointer v);
-extern gboolean sess_equal(gconstpointer _a, gconstpointer _b);
+extern unsigned long sess_hash(const void *v);
+extern int sess_equal(const void *_a, const void *_b);
 extern void msg_new_sess(int sock_fd, const struct client *cli,
 			const struct pkt_info *info);
 extern void msg_end_sess(struct session *sess, uint64_t xid);
@@ -172,7 +173,7 @@ extern void sess_sendresp_generic(struct session *sess,
 extern int session_dispose(DB_TXN *txn, struct session *sess);
 extern int session_remove_locks(DB_TXN *txn, uint8_t *sid, uint64_t fh,
 				cldino_t inum, bool *waiter);
-extern int sess_load(GHashTable *ss);
+extern int sess_load(struct htab *ss);
 
 /* server.c */
 extern struct server cld_srv;

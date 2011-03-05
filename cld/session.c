@@ -45,7 +45,7 @@ struct session_outpkt {
 
 static void session_retry(int, short, void *);
 static void session_timeout(int, short, void *);
-static int sess_load_db(GHashTable *ss, DB_TXN *txn);
+static int sess_load_db(struct htab *ss, DB_TXN *txn);
 static void op_unref(struct session_outpkt *op);
 
 uint64_t next_seqid_le(uint64_t *seq)
@@ -59,20 +59,20 @@ uint64_t next_seqid_le(uint64_t *seq)
 	return rc;
 }
 
-guint sess_hash(gconstpointer v)
+unsigned long sess_hash(const void *v)
 {
 	const struct session *sess = v;
 	const uint64_t *tmp = (const uint64_t *) sess->sid;
 
-	return (guint) *tmp;
+	return *tmp;
 }
 
-gboolean sess_equal(gconstpointer _a, gconstpointer _b)
+int sess_equal(const void *_a, const void *_b)
 {
 	const struct session *a = _a;
 	const struct session *b = _b;
 
-	return (memcmp(a->sid, b->sid, CLD_SID_SZ) == 0);
+	return memcmp(a->sid, b->sid, CLD_SID_SZ);
 }
 
 static struct session *session_new(void)
@@ -101,7 +101,7 @@ static void session_free(struct session *sess, bool hash_remove)
 		return;
 
 	if (hash_remove)
-		g_hash_table_remove(cld_srv.sessions, sess->sid);
+		htab_del(cld_srv.sessions, sess->sid);
 
 	if (evtimer_del(&sess->timer) < 0)
 		HAIL_ERR(&srv_log, "sess timer del failed");
@@ -124,14 +124,14 @@ static void session_free(struct session *sess, bool hash_remove)
 	free(sess);
 }
 
-static void session_free_iter(gpointer key, gpointer val, gpointer dummy)
+static void session_free_iter(void *key, void *val, void *dummy)
 {
 	session_free(val, false);
 }
 
 void sessions_free(void)
 {
-	g_hash_table_foreach(cld_srv.sessions, session_free_iter, NULL);
+	htab_foreach(cld_srv.sessions, session_free_iter, NULL);
 }
 
 static void session_trash(struct session *sess)
@@ -238,16 +238,19 @@ static int session_remove(DB_TXN *txn, struct session *sess)
 	struct raw_handle h;
 	int rc, i;
 	DBT pkey, pval;
-	GArray *locks, *waiters;
+	cldino_t *locks, *waiters;
+	int n_locks = 0, locks_alloc = 128;
+	int n_waiters = 0, waiters_alloc = 64;
 	int gflags;
 
 	memcpy(hkey.sid, sess->sid, sizeof(sess->sid));
 	hkey.fh = 0;
 
-	locks = g_array_sized_new(FALSE, TRUE, sizeof(cldino_t), 128);
+	locks = calloc(locks_alloc, sizeof(cldino_t));
 	if (!locks)
 		return -ENOMEM;
-	waiters = g_array_sized_new(FALSE, TRUE, sizeof(cldino_t), 64);
+
+	waiters = calloc(waiters_alloc, sizeof(cldino_t));
 	if (!waiters) {
 		rc = -ENOMEM;
 		goto err_out;
@@ -290,7 +293,20 @@ static int session_remove(DB_TXN *txn, struct session *sess)
 			cldino_t inum;
 
 			inum = cldino_from_le(h.inum);
-			g_array_append_val(locks, inum);
+
+			locks[n_locks++] = inum;
+			if (n_locks == locks_alloc) {
+				void *mem;
+				int new_alloc = locks_alloc * 2;
+
+				mem = realloc(locks,
+					new_alloc * sizeof(cldino_t));
+				if (!mem)
+					goto err_out;
+
+				locks = mem;
+				locks_alloc = new_alloc;
+			}
 		}
 
 		rc = cur->del(cur, 0);
@@ -318,23 +334,35 @@ static int session_remove(DB_TXN *txn, struct session *sess)
 	/*
 	 * scan locks for waiters; delete our locks
 	 */
-	for (i = 0; i < locks->len; i++) {
+	for (i = 0; i < n_locks; i++) {
 		cldino_t inum;
 		bool waiter;
 
-		inum = g_array_index(locks, cldino_t, i);
+		inum = locks[i];
 		rc = session_remove_locks(txn, sess->sid, 0, inum, &waiter);
 		if (rc)
 			goto err_out;
 
-		if (waiter)
-			g_array_append_val(waiters, inum);
+		if (waiter) {
+			waiters[n_waiters++] = inum;
+			if (n_waiters == waiters_alloc) {
+				void *mem;
+				int new_alloc = waiters_alloc * 2;
+
+				mem = realloc(waiters,
+					new_alloc * sizeof(cldino_t));
+				if (!mem)
+					goto err_out;
+
+				waiters = mem;
+				waiters_alloc = new_alloc;
+			}
+		}
 	}
 
 	/* rescan each inode in 'waiters', possibly acquiring locks */
-	for (i = 0; i < waiters->len; i++) {
-		rc = inode_lock_rescan(txn,
-				       g_array_index(waiters, cldino_t, i));
+	for (i = 0; i < n_waiters; i++) {
+		rc = inode_lock_rescan(txn, waiters[i]);
 		if (rc)
 			goto err_out;
 	}
@@ -346,13 +374,13 @@ static int session_remove(DB_TXN *txn, struct session *sess)
 	if (rc)
 		goto err_out;
 
-	g_array_free(locks, TRUE);
-	g_array_free(waiters, TRUE);
+	free(locks);
+	free(waiters);
 	return 0;
 
 err_out:
-	g_array_free(locks, TRUE);
-	g_array_free(waiters, TRUE);
+	free(locks);
+	free(waiters);
 	return rc;
 }
 
@@ -846,7 +874,7 @@ void msg_new_sess(int sock_fd, const struct client *cli,
 		   __func__, SIDARG(sess->sid),
 		   (unsigned long long) sess->next_seqid_in);
 
-	g_hash_table_insert(cld_srv.sessions, sess->sid, sess);
+	htab_put(cld_srv.sessions, sess->sid, sess);
 
 	/* begin session timer */
 	tv.tv_sec = CLD_SESS_TIMEOUT / 2;
@@ -901,7 +929,7 @@ void msg_end_sess(struct session *sess, uint64_t xid)
  * Fill ss with contents of the database.
  * Returns -1 on error because it prints the diagnostic to the log.
  */
-int sess_load(GHashTable *ss)
+int sess_load(struct htab *ss)
 {
 	DB_ENV *dbenv = cld_srv.cldb.env;
 	DB_TXN *txn;
@@ -929,7 +957,7 @@ int sess_load(GHashTable *ss)
 	return 0;
 }
 
-static int sess_load_db(GHashTable *ss, DB_TXN *txn)
+static int sess_load_db(struct htab *ss, DB_TXN *txn)
 {
 	DB *db = cld_srv.cldb.sessions;
 	DBC *cur;
@@ -978,7 +1006,7 @@ static int sess_load_db(GHashTable *ss, DB_TXN *txn)
 			   (unsigned long long) le64_to_cpu(sess->next_seqid_out),
 			   (unsigned long long) le64_to_cpu(sess->next_seqid_in));
 
-		g_hash_table_insert(ss, sess->sid, sess);
+		htab_put(ss, sess->sid, sess);
 
 		/* begin session timer */
 		tv.tv_sec = CLD_SESS_TIMEOUT / 2;

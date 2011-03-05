@@ -22,6 +22,7 @@ lib_LTLIBRARIES		= libhail.la
 
 libhail_la_SOURCES	=	\
 	atcp.c			\
+	htab.c			\
 	cldc.c			\
 	cldc-udp.c		\
 	cldc-dns.c		\

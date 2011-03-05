@@ -345,7 +345,7 @@ static bool get_pkt_info(struct cld_pkt_hdr *pkt,
 
 	memset(info, 0, sizeof(*info));
 	info->pkt = pkt;
-	info->sess = s = g_hash_table_lookup(cld_srv.sessions, &pkt->sid);
+	info->sess = s = htab_get(cld_srv.sessions, &pkt->sid);
 	foot = (struct cld_pkt_ftr *)
 			(raw_pkt + (raw_len - CLD_PKT_FTR_LEN));
 	info->seqid = le64_to_cpu(foot->seqid);
@@ -1068,7 +1068,7 @@ int main (int argc, char *argv[])
 
 	rc = 1;
 
-	cld_srv.sessions = g_hash_table_new(sess_hash, sess_equal);
+	cld_srv.sessions = htab_new(sess_hash, sess_equal, NULL, NULL);
 	if (!cld_srv.sessions)
 		goto err_out_pid;
 
@@ -1107,7 +1107,7 @@ err_out:
 	if (strict_free) {
 		net_close();
 		sessions_free();
-		g_hash_table_unref(cld_srv.sessions);
+		htab_free(cld_srv.sessions);
 	}
 
 	closelog();

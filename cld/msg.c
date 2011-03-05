@@ -235,7 +235,7 @@ static int inode_notify(DB_TXN *txn, cldino_t inum, bool deleted)
 		if (!deleted && !(le32_to_cpu(h.events) & CE_UPDATED))
 			continue;
 
-		sess = g_hash_table_lookup(cld_srv.sessions, h.sid);
+		sess = htab_get(cld_srv.sessions, h.sid);
 		if (!sess) {
 			HAIL_WARN(&srv_log, "%s BUG", __func__);
 			continue;
@@ -358,7 +358,7 @@ int inode_lock_rescan(DB_TXN *txn, cldino_t inum)
 
 		acq++;
 
-		sess = g_hash_table_lookup(cld_srv.sessions, lock.sid);
+		sess = htab_get(cld_srv.sessions, lock.sid);
 		if (!sess) {
 			HAIL_WARN(&srv_log, "%s BUG", __func__);
 			break;
