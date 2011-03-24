@@ -269,13 +269,13 @@ void hreq_free(struct http_req *req)
 	req->orig_path = NULL;
 }
 
-GHashTable *hreq_query(struct http_req *req)
+struct htab *hreq_query(struct http_req *req)
 {
 	char *qtmp, *q, *tmp, *end;
 	int qlen, qtmplen;
-	GHashTable *ht;
+	struct htab *ht;
 
-	ht = g_hash_table_new_full(g_str_hash, g_str_equal, free, free);
+	ht = htab_str_new(true, true);
 	if (!ht)
 		return NULL;
 
@@ -322,7 +322,7 @@ GHashTable *hreq_query(struct http_req *req)
 		qlen -= valskip;
 		q += valskip;
 
-		g_hash_table_insert(ht, key, val);
+		htab_put(ht, key, val);
 	}
 
 	return ht;
