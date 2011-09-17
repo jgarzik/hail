@@ -1340,7 +1340,7 @@ static void tcp_cli_wr_event(int fd, short events, void *userdata)
 void tcp_cli_event(int fd, short events, void *userdata)
 {
 	struct client *cli = userdata;
-	bool loop = false, disposing = false;
+	bool loop = false;
 
 	if (events & EV_WRITE)
 		tcp_cli_wr_event(fd, events & ~EV_READ, userdata);
@@ -1355,7 +1355,7 @@ void tcp_cli_event(int fd, short events, void *userdata)
 		return;
 
 	while (loop) {
-		disposing = (cli->state == evt_dispose);
+		/* disposing = (cli->state == evt_dispose); */
 		loop = state_funcs[cli->state](cli, events);
 	}
 }
