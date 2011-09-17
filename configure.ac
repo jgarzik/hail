@@ -76,15 +76,16 @@ dnl AC_TYPE_PID_T
 dnl -----------------------------
 dnl Checks for required libraries
 dnl -----------------------------
-AC_CHECK_LIB(db-5.0, db_create, DB4_LIBS=-ldb-5.0,
-	AC_CHECK_LIB(db-4.9, db_create, DB4_LIBS=-ldb-4.9,
-	AC_CHECK_LIB(db-4.8, db_create, DB4_LIBS=-ldb-4.8,
-	AC_CHECK_LIB(db-4.7, db_create, DB4_LIBS=-ldb-4.7,
-	AC_CHECK_LIB(db-4.6, db_create, DB4_LIBS=-ldb-4.6,
-	AC_CHECK_LIB(db-4.5, db_create, DB4_LIBS=-ldb-4.5,
-	AC_CHECK_LIB(db-4.4, db_create, DB4_LIBS=-ldb-4.4,
-	AC_CHECK_LIB(db-4.3, db_create, DB4_LIBS=-ldb-4.3,
-  [AC_MSG_ERROR([Missing required libdb 4.x])]))))))))
+AC_CHECK_LIB(db-5.1, db_create, BDB_LIBS=-ldb-5.1,
+	AC_CHECK_LIB(db-5.0, db_create, BDB_LIBS=-ldb-5.0,
+	AC_CHECK_LIB(db-4.9, db_create, BDB_LIBS=-ldb-4.9,
+	AC_CHECK_LIB(db-4.8, db_create, BDB_LIBS=-ldb-4.8,
+	AC_CHECK_LIB(db-4.7, db_create, BDB_LIBS=-ldb-4.7,
+	AC_CHECK_LIB(db-4.6, db_create, BDB_LIBS=-ldb-4.6,
+	AC_CHECK_LIB(db-4.5, db_create, BDB_LIBS=-ldb-4.5,
+	AC_CHECK_LIB(db-4.4, db_create, BDB_LIBS=-ldb-4.4,
+	AC_CHECK_LIB(db-4.3, db_create, BDB_LIBS=-ldb-4.3,
+  [AC_MSG_ERROR([Missing required libdb 4.x/5.x])])))))))))
 AC_CHECK_LIB(event, event_base_new, EVENT_LIBS=-levent,
   [AC_MSG_ERROR([Missing required libevent])])
 AC_CHECK_LIB(crypto, MD5_Init, CRYPTO_LIBS=-lcrypto)
@@ -132,7 +133,7 @@ AM_PATH_XML2(2.6.0, , exit 1)
 LIBCURL_CHECK_CONFIG(, 7.10.1, ,
   [AC_MSG_ERROR([Missing required libcurl >= 7.10.1])])
 
-AC_SUBST(DB4_LIBS)
+AC_SUBST(BDB_LIBS)
 AC_SUBST(CRYPTO_LIBS)
 AC_SUBST(SSL_LIBS)
 AC_SUBST(HAIL_FUSE_PROGS)
