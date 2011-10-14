@@ -761,7 +761,7 @@ void hstor_free_keylist(struct hstor_keylist *keylist)
 static void hstor_parse_key(xmlDocPtr doc, xmlNode *node,
 			  struct hstor_keylist *keylist)
 {
-	struct hstor_object *obj = calloc(1, sizeof(*obj));
+	struct hstor_object *obj;
 	xmlChar *xs;
 
 	obj = calloc(1, sizeof(*obj));
