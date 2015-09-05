@@ -4,7 +4,7 @@ BUILT_SOURCES		= cld_msg_rpc.h
 EXTRA_DIST = \
 	libhail.pc.in libhail-uninstalled.pc.in cld_msg_rpc.x
 
-INCLUDES		= -I$(top_srcdir)/include	\
+AM_CPPFLAGS		= -I$(top_srcdir)/include	\
 			  @GLIB_CFLAGS@ @XML_CPPFLAGS@
 
 mostlyclean-local:

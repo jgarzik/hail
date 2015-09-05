@@ -14,3 +14,6 @@ libtest.a
 
 start-daemon.real
 
+*.trs
+*.log
+

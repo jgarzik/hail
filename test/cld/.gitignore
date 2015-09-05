@@ -5,3 +5,6 @@ lock-file
 
 .libs
 
+*.trs
+*.log
+

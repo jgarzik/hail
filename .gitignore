@@ -22,6 +22,7 @@ push
 stamp-h1
 libtool
 ltmain.sh
+test-driver
 
 # app-specific
 hail*.tar.gz
