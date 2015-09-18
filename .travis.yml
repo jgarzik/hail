@@ -1,0 +1,47 @@
+
+language: c
+
+compiler:
+  - clang
+  - gcc
+
+os:
+  - linux
+
+sudo: required
+
+env:
+  global:
+    - MAKEJOBS=-j3
+    - RUN_TESTS=true
+    - BASE_OUTDIR=$TRAVIS_BUILD_DIR/out
+
+cache:
+  apt: true
+
+addons:
+  apt:
+    packages:
+      - libbz2-dev
+      - libdb-dev
+      - libssl-dev
+      - libjansson-dev
+      - libevent-dev
+      - libfuse-dev
+      - pkg-config
+
+before_script:
+  - wget http://fallabs.com/tokyocabinet/tokyocabinet-1.4.48.tar.gz
+  - tar -xzvf tokyocabinet-1.4.48.tar.gz
+  - cd tokyocabinet-1.4.48 && ./configure --prefix=/usr && make -s && sudo make install && cd ..
+  - if [ -n "$USE_SHELL" ]; then export CONFIG_SHELL="$USE_SHELL"; fi
+  - test -n "$USE_SHELL" && eval '"$USE_SHELL" -c "./autogen.sh"' || ./autogen.sh
+
+script:
+  - OUTDIR=$BASE_OUTDIR/$TRAVIS_PULL_REQUEST/$TRAVIS_JOB_NUMBER-$HOST
+  - HAIL_CONFIG_ALL="--prefix=$TRAVIS_BUILD_DIR/depends/$HOST --bindir=$OUTDIR/bin --libdir=$OUTDIR/lib"
+  - ./configure --cache-file=config.cache $HAIL_CONFIG_ALL $HAIL_CONFIG || ( cat config.log && false)
+  - make -s $MAKEJOBS $GOAL || ( echo "Build failure. Verbose build follows." && make $GOAL ; false )
+  - export LD_LIBRARY_PATH=$TRAVIS_BUILD_DIR/depends/$HOST/lib
+  - if [ "$RUN_TESTS" = "true" ]; then make check; fi
+
